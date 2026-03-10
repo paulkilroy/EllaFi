@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pio run:*)",
+      "Bash(~/.platformio/penv/bin/platformio run:*)",
+      "Bash(openssl s_client:*)",
+      "Bash(openssl x509:*)",
+      "Bash(~/.platformio/penv/bin/pio run:*)",
+      "Bash(export:*)",
+      "WebFetch(domain:www.tp-link.com)",
+      "WebFetch(domain:support.omadanetworks.com)",
+      "WebFetch(domain:use1-omada-northbound.tplinkcloud.com)",
+      "WebFetch(domain:pastebin.com)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{url_effective}\" \"https://use1-omada-northbound.tplinkcloud.com/v2/api-docs\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{url_effective}\" \"https://use1-omada-northbound.tplinkcloud.com/v3/api-docs\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{url_effective}\" \"https://use1-omada-northbound.tplinkcloud.com/swagger-resources\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code} %{url_effective}\" \"https://use1-omada-northbound.tplinkcloud.com/doc.html\")",
+      "Bash(curl -s \"https://use1-omada-northbound.tplinkcloud.com/v3/api-docs\")",
+      "Bash(curl -s \"https://use1-omada-northbound.tplinkcloud.com/doc.html\")",
+      "Bash(python3 -c \":*)",
+      "WebFetch(domain:github.com)",
+      "Bash(curl -s \"https://raw.githubusercontent.com/zachcheatham/ha-omada/dev/custom_components/omada/api/clients.py\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/zachcheatham/ha-omada/dev/custom_components/omada/api/controller.py\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/zachcheatham/ha-omada/dev/custom_components/omada/api/api.py\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/zachcheatham/ha-omada/dev/custom_components/omada/api/errors.py\")",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:gist.github.com)",
+      "WebFetch(domain:community.tp-link.com)",
+      "Bash(python3 -c \"import datetime; print\\(datetime.datetime.utcfromtimestamp\\(1772337826726/1000\\).strftime\\(''%Y-%m-%d %H:%M:%S UTC''\\)\\)\")",
+      "Read(//Users/paulkilroy/.platformio/**)",
+      "Bash(ls -lt /Users/paulkilroy/.claude/projects/-Users-paulkilroy-dev-EllaFi/*.jsonl)",
+      "Bash(grep -l \"UDP\\\\|master.*slave\\\\|coin.*acceptor\\\\|multi.*device\" /Users/paulkilroy/.claude/projects/-Users-paulkilroy-dev-EllaFi/fddb75a9-c18e-47d4-922f-a4a98db82467/subagents/*.jsonl)"
+    ]
+  }
+}

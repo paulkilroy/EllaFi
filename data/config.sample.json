@@ -1,0 +1,20 @@
+{
+  "wifi_ssid": "your-wifi-network-name",
+  "wifi_password": "your-wifi-password",
+
+  "master_mac": "AA:BB:CC:DD:EE:FF",
+  "network_key": a number between 1 and 9007199254740991,
+
+  "omada_url": "copy from one of the reference URLs below",
+  "omada_controller_id": "copy from one of the reference controller IDs below",
+  "omada_username": "your-omada-admin-username",
+  "omada_password": "your-omada-admin-password",
+
+  "omada_operator_username": "your-omada-operator-username",
+  "omada_operator_password": "your-omada-operator-password",
+  "omada_site_id": "from Omada web UI URL or users/current API response (privilege.sites[].key)",
+
+  "openapi_client_id": "from GlobalView -> OpenAPI -> Client Management -> Create Client",
+  "openapi_client_secret": "from GlobalView -> OpenAPI -> Client Management -> Create Client",
+  "openapi_url": "https://use1-omada-northbound.tplinkcloud.com",
+}
