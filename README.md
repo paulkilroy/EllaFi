@@ -45,16 +45,16 @@ Copy `data/config.sample.json` to `data/config.json` and fill in:
 
 ```json
 {
-  "wifi_ssid": "YourWiFiNetwork",
-  "wifi_password": "...",
-  "omada_url": "https://...",
-  "omada_controller_id": "...",
-  "omada_operator_username": "...",
-  "omada_operator_password": "...",
-  "omada_username": "...",
-  "omada_password": "...",
-  "master_mac": "AA:BB:CC:DD:EE:FF",
-  "network_key": 12345678
+  "wifi_ssid": "YourWiFiNetwork",          // SSID of the WiFi network the ESP32 joins
+  "wifi_password": "...",                  // WiFi password
+  "omada_url": "https://...",              // Omada controller URL (Settings → Controller → URL)
+  "omada_controller_id": "...",            // Omada controller ID (visible in the controller URL path)
+  "omada_operator_username": "...",        // Hotspot operator account (Hotspot → Operator Accounts)
+  "omada_operator_password": "...",        //   ↑ same account
+  "omada_username": "...",                 // Omada admin account (Settings → Administrators)
+  "omada_password": "...",                 //   ↑ same account
+  "master_mac": "AA:BB:CC:DD:EE:FF",      // WiFi MAC of the master ESP32 node (printed on boot)
+  "network_key": 12345678                  // Shared secret for UDP broadcast between nodes (any number)
 }
 ```
 
