@@ -169,7 +169,7 @@
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="container" id="mainContainer">
     <div class="logo-container">
       <img src="EllaFi.png" alt="EllaFi Logo">
     </div>
@@ -282,8 +282,6 @@
     }
 
     function showRefundable(data) {
-      stopCoinInsert();
-      stopProcessing();
       document.getElementById('statusText').className = 'blinking-red';
       document.getElementById('statusText').textContent = 'Payment error';
       document.getElementById('expirationBar').style.display = 'none';
@@ -309,8 +307,6 @@
     }
 
     function showNoSession(detail) {
-      stopCoinInsert();
-      stopProcessing();
       document.getElementById('statusText').className = 'blinking-red';
       document.getElementById('statusText').textContent = 'No session';
       document.getElementById('expirationBar').style.display = 'none';
@@ -389,14 +385,17 @@
         window.location.reload();
       } else if (data.type === 'status') {
         updateUI(data);
+      } else if (data.type === 'paused' || data.type === 'resumed') {
+        stopProcessing();
+        updateUI(data);
       } else if (data.type === 'error') {
+        stopCoinInsert();
+        stopProcessing();
         if (data.subtype === 'no_session') {
           showNoSession(data.message);
         } else if (data.subtype === 'refundable') {
           showRefundable(data);
         } else {
-          stopCoinInsert();
-          stopProcessing();
           showErrorPopup(data.message || 'Server error', data.detail);
         }
       } else {
@@ -506,8 +505,8 @@
         showProcessing();
         return;
       }
-      // The next update from the server tells us processing is done
-      if (processingMode) stopProcessing();
+      // While processing auth, ignore all status updates — only authenticated/error/paused exit this state
+      if (processingMode) return;
 
       if (data.pausedRemainingMillis > 0) {
         showPaused(data);
@@ -541,10 +540,10 @@
     function resumeSession() {
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         pendingAction = { action: 'resume' };
-
         connectWebSocket();
         return;
       }
+      showProcessing();
       ws.send(JSON.stringify({ action: 'resume' }));
     }
 

@@ -43,6 +43,16 @@ BLUE   = "\033[94m"
 RED    = "\033[91m"
 RESET  = "\033[0m"
 
+# Simulated response delays (seconds) — based on observed real Omada cloud latency.
+# Set to 0 to disable for fast unit tests.
+DELAYS = {
+    "login":      1.5,   # operator + admin login
+    "auth":       2.5,   # extPortal/auth (fresh auth or re-auth)
+    "extend":     2.0,   # extend session
+    "disconnect": 1.8,   # disconnect (pause)
+    "query":      0.4,   # GET hotspot/all clients, GET sites
+}
+
 OPERATOR_CSRF_TOKEN = "mock-operator-csrf-abc123"
 ADMIN_CSRF_TOKEN    = "mock-admin-csrf-def456"
 MOCK_SITE_ID        = "mock-site-id-001"
@@ -162,6 +172,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
     # -------------------------------------------------------------------------
 
     def handle_operator_login(self, ts, data):
+        time.sleep(DELAYS["login"])
         print(f"  {ts}  {GREEN}{BOLD}OPERATOR LOGIN{RESET}  user={data.get('name', '?')}")
         self.send_json(200, {
             "errorCode": 0,
@@ -170,6 +181,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
         }, cookies={"TPOMADA_SESSIONID": "mock-operator-session"})
 
     def handle_admin_login(self, ts, data):
+        time.sleep(DELAYS["login"])
         print(f"  {ts}  {GREEN}{BOLD}ADMIN LOGIN{RESET}  user={data.get('username', '?')}")
         self.send_json(200, {
             "errorCode": 0,
@@ -182,6 +194,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
     # -------------------------------------------------------------------------
 
     def handle_auth(self, ts, data):
+        time.sleep(DELAYS["auth"])
         mac       = data.get("clientMac", "")
         site      = data.get("site", "?")
         duration  = int(data.get("time", 0))
@@ -230,6 +243,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"errorCode": 0, "msg": "Auth success."})
 
     def handle_extend(self, ts, client_id, data):
+        time.sleep(DELAYS["extend"])
         period = int(data.get("period", 0))
         session = next((s for s in hotspot_sessions.values() if s["id"] == client_id), None)
         if session is None:
@@ -244,6 +258,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"errorCode": 0, "msg": "Extend success."})
 
     def handle_disconnect(self, ts, client_id):
+        time.sleep(DELAYS["disconnect"])
         session = next((s for s in hotspot_sessions.values() if s["id"] == client_id), None)
         if session is None:
             print(f"  {ts}  {RED}DISCONNECT FAILED{RESET}  clientId={client_id} — not found")
@@ -262,6 +277,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
     # -------------------------------------------------------------------------
 
     def handle_sites(self, ts):
+        time.sleep(DELAYS["query"])
         print(f"  {ts}  {BLUE}GET sites{RESET}  → id={MOCK_SITE_ID} name={MOCK_SITE_NAME}")
         self.send_json(200, {
             "errorCode": 0,
@@ -272,6 +288,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
         })
 
     def handle_hotspot_clients(self, ts):
+        time.sleep(DELAYS["query"])
         active = [s for s in hotspot_sessions.values() if s["end"] > now_ms()]
         summary = "  ".join(
             f"mac={s['mac']} remaining={(s['end'] - now_ms()) // 1000}s" for s in active
@@ -286,6 +303,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
         })
 
     def handle_all_clients(self, ts):
+        time.sleep(DELAYS["query"])
         connected = [
             {"mac": mac, "ip": info["ip"], "apMac": info["apMac"],
              "ssid": info["ssid"], "radioId": info["radioId"]}

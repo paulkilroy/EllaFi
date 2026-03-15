@@ -16,9 +16,9 @@ uint64_t NET_PSK = 0;
 static WiFiUDP udp;
 
 // Defined in main.cpp
-extern void remoteCoinPulse();
-extern void slaveCoinInsertStart();
-extern void slaveCoinInsertEnd();
+extern void masterRecvCoinInserted();
+extern void slaveRecvCoinInsertStart();
+extern void slaveRecvCoinInsertEnd();
 
 bool isMaster() {
   String own = WiFi.macAddress();
@@ -51,15 +51,15 @@ void networkLoop() {
   if (isMaster()) {
     if (type == NET_MSG_COIN_INSERTED) {
       ESP_LOGI(TAG, "UDP coin_inserted from %s", udp.remoteIP().toString().c_str());
-      remoteCoinPulse();
+      masterRecvCoinInserted();
     }
   } else {
     if (type == NET_MSG_SESSION_START) {
       ESP_LOGI(TAG, "UDP session_start");
-      slaveCoinInsertStart();
+      slaveRecvCoinInsertStart();
     } else if (type == NET_MSG_SESSION_END) {
       ESP_LOGI(TAG, "UDP session_end");
-      slaveCoinInsertEnd();
+      slaveRecvCoinInsertEnd();
     }
   }
 }
@@ -72,17 +72,18 @@ static void netSend(NetMsgType type) {
   udp.endPacket();
 }
 
-void netBroadcastSessionStart() {
+void masterBroadcastCoinInserted() {
   netSend(NET_MSG_SESSION_START);
   ESP_LOGI(TAG, "UDP broadcast session_start");
 }
 
-void netBroadcastSessionEnd() {
-  netSend(NET_MSG_SESSION_END);
-  ESP_LOGI(TAG, "UDP broadcast session_end");
+void masterBroadcastSessionEnd() {
+  // Send 3 times — UDP is fire-and-forget, session_end must not be silently dropped
+  for (int i = 0; i < 3; i++) netSend(NET_MSG_SESSION_END);
+  ESP_LOGI(TAG, "UDP broadcast session_end (x3)");
 }
 
-void netSendCoinInserted() {
+void slaveSendCoinInserted() {
   netSend(NET_MSG_COIN_INSERTED);
   ESP_LOGI(TAG, "UDP coin_inserted sent");
 }

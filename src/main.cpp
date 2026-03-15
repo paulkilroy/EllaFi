@@ -8,16 +8,78 @@
  *
  * WS Protocol:
  *   Client: {"action":"getStatus"}, {"action":"startCoinInsert"}, {"action":"pause"}, {"action":"resume"}, {"action":"testInsertCoin"} (TEST_MODE only)
- *   Server: {"type":"status", ...}, {"type":"authenticated"}, {"type":"error", ...}
+ *   Server: {"type":"status", ...}, {"type":"paused", ...}, {"type":"resumed", ...}, {"type":"authenticated"}, {"type":"error", ...}
  *
  * Flow: Omada redirects client -> handleRoot stores session -> WS pushes status ->
- *       coins trigger ISR -> 10s timeout -> finalizeCoinInsert authenticates with Omada
+ *       coins trigger ISR -> 10s timeout -> CoinTask authenticates with Omada
  *
+ * ── Threading model ───────────────────────────────────────────────────────────
+ *
+ *  ESP32 has 2 cores (Xtensa LX6 dual-core):
+ *
+ *  Core 0 — Radio & System
+ *  Espressif reserves Core 0 for WiFi/BT stack. Tasks here must not starve the radio.
+ *    WiFi/lwIP stack          [Espressif system, always here]
+ *    PsychicHTTP task(s)      [one per connection, handles HTTP + WS frames]
+ *    FreeRTOS Timer Task      [runs FreeRTOS timer callbacks — coinTimerCallback]
+ *    OmadaTask                [PAUSE / RESUME queue — HTTPS ~3-4s per job]
+ *
+ *  Core 1 — Application
+ *  Arduino loop() runs here by default.
+ *    loop()                   [lean — networkLoop() + daily reboot check only]
+ *    CoinTask                 [FINALIZE_COINS — HTTPS, one job ever active]
+ *                               - woken by COIN_FINALIZE_SEM when timer fires
+ *                               - runs finalizeCoinInsert() under OMADA_API_MUTEX
+ *                               - higher priority than OmadaTask
+ *    CoinPulseTask            [drains COIN_PULSE_SEM counting semaphore]
+ *                               - given by coinPulse() ISR or remoteCoinPulse()
+ *                               - increments COIN_COUNT, resets timer, notifies peers
+ *                               - highest priority (6) among app tasks
+ *    updateClientTask         [pushes WS status on coin or every 500ms]
+ *                               - woken by CoinPulseTask via task notification
+ *                               - also wakes on 500ms timeout during active session
+ *    LedTask                  [blinks LED during coin insert window]
+ *                               - started by xTaskNotify from startCoinInsert / slaveCoinInsertStart
+ *                               - stopped by xTaskNotify from finalizeCoinInsert / slaveCoinInsertEnd
+ *
+ *  ISR (no core, interrupt level)
+ *    coinPulse()              [GPIO ISR — gives COIN_PULSE_SEM counting semaphore]
+ *
+ *  OMADA_API_MUTEX serializes all Omada HTTPS calls across CoinTask and OmadaTask,
+ *  protecting the shared operator cookie jar (CONTROLLER_COOKIEJAR).
+ *
+ * Coin Flow:
+ * Customer initiates coin insert - clicks "Insert Coin" on captive portal
+ *  1. Client sends WS {"action":"startCoinInsert"} to the server and shows coin insert screen
+ *  2. Server receives startCoinInsert and
+ *      set COIN_COUNT = 0, COIN_INSERT_ACTIVE=true
+ *      remembers the Socket and IP of the client
+ *      starts COIN_INSERT_TIMER (10s) via restartCoinInsertTimer
+ *      signals LedTask to begin blinking via task notification
+ *
+ *  Customer inserts coin
+ *  1. coinPulse() ISR -> increments COIN_PULSE_SEM
+ *      or remoteCoinPulse() -> increments COIN_PULSE_SEM from UDP
+ *  2. coinPulseTask drains COIN_PULSE_SEM -> increments COIN_COUNT,
+ *      resets COIN_INSERT_TIMER back to 10s
+ *      notifies updateClientTask for immediate WS push
+ *      Gated by SHOULD_ACCEPT_COINS???
+ *  3.  updateClientTask pushes coin count + timing to client immediately (and every 500ms)
+ *
+ * Customer finishes inserting coins after 10s of inactivity (no coins inserted)
+ *  1. UI transitions to "pending" screen while waiting for server confirmation
+ *  2. coinTimerCallback fires when COIN_INSERT_TIMER expires -> gives COIN_FINALIZE_SEM
+ *  3. finalizeCoinTask wakes on COIN_FINALIZE_SEM -> calls finalizeCoinInsert()
+ *      sets COIN_INSERT_ACTIVE=false
+ *      notifies LedTask to stop
+ *      authenticates with Omada, and extends or starts a new session for the customer
+ *      pushes "authenticated" result via WS
  */
 #define LOG_LOCAL_LEVEL ESP_LOG_INFO
 
 #include "omada.h"
 #include "network.h"
+#include "led.h"
 #include <WiFi.h>
 #include <PsychicHttp.h>
 #include <PsychicWebSocket.h>
@@ -26,13 +88,8 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
-#include <Ticker.h>
 #include <ESPmDNS.h>
-#ifdef HAS_RGB_LED
-#include <Adafruit_NeoPixel.h>
-#endif
 #include <map>
-#include <queue>
 #include <time.h>
 
 #include <esp_log.h>
@@ -46,32 +103,41 @@ static const char* ERR_SUBTYPE_REFUNDABLE  = "refundable";
 String AP_SSID;
 String AP_PASSWORD;
 
-
-// Omada Controller globals are declared in omada.h and defined in omada.cpp.
-// Populated by loadConfig() below.
-
 const int COIN_PIN = 0;  // GPIO0 - BOOT button for testing
-
-#ifdef HAS_RGB_LED
-#define LED_PIN   48  // Built-in WS2812 on ESP32-S3 DevKitC-1
-#define LED_COUNT  1
-Adafruit_NeoPixel LED_STRIP(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
-#endif
 
 PsychicHttpServer server;
 PsychicWebSocketHandler wsHandler;
 
-// SessionParams and SessionCache are defined in omada.h.
-
-void restartCoinInsertTimer();
+// ISR + timer
 void IRAM_ATTR coinPulse();
+void coinTimerCallback(TimerHandle_t xTimer);
+void restartCoinInsertTimer();
+
+// Config + network events
+bool loadConfig();
+void masterRecvCoinInserted();
+void slaveRecvCoinInsertStart();
+void slaveRecvCoinInsertEnd();
+
+// FreeRTOS tasks
+void coinPulseTask(void*);
+void updateClientTask(void*);
+void finalizeCoinTask(void*);
+void omadaTask(void*);
+
+// Web / WS handlers
 esp_err_t handleRoot(PsychicRequest *request, PsychicResponse *response);
 esp_err_t handleNotFound(PsychicRequest *request, PsychicResponse *response);
-void finalizeCoinInsert();
 void handleWsOpen(PsychicWebSocketClient* client);
 esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* frame);
 void handleWsClose(PsychicWebSocketClient* client);
+String buildStatusJson(const SessionParams& session, const char* type = "status");
 void pushCoinUpdateToClient();
+void finalizeCoinInsert();
+void processPause(const String& mac);
+void processResume(const String& mac);
+
+// Paused session file helpers
 String macToFilename(const String& mac);
 bool savePausedSessionFile(const String& mac, unsigned long remainingMillis);
 unsigned long loadPausedSessionFile(const String& mac);
@@ -81,104 +147,67 @@ void deletePausedSessionFile(const String& mac);
 // Single source of truth for client sessions, keyed by IP (secondary index by MAC)
 SessionCache HOTSPOT_SESSION_CACHE;
 
-typedef void (*ActionHandlerFn)(const String&);
-
-void processPause(const String&);
-void processResume(const String&);
-
-struct ActionRequest {
-  ActionHandlerFn handler;
-  String mac;
+// OmadaTask job types
+enum OmadaJobType { JOB_PAUSE, JOB_RESUME };
+struct OmadaJob {
+  OmadaJobType type;
+  char mac[18];  // fixed-size to avoid heap alloc in queue item
+  OmadaJob() = default;
+  OmadaJob(OmadaJobType t, const String& m) : type(t) {
+    strncpy(mac, m.c_str(), sizeof(mac) - 1);
+    mac[sizeof(mac) - 1] = '\0';
+  }
 };
 
-SemaphoreHandle_t ACTION_QUEUE_MUTEX = NULL;
-std::queue<ActionRequest> ACTION_QUEUE;
+QueueHandle_t     OMADA_JOB_QUEUE   = NULL;  // OmadaTask input: PAUSE / RESUME jobs
+SemaphoreHandle_t COIN_FINALIZE_SEM = NULL;  // CoinTask doorbell: given by coinTimerCallback
+SemaphoreHandle_t OMADA_API_MUTEX   = NULL;  // serializes all Omada HTTPS across both tasks
+SemaphoreHandle_t COIN_PULSE_SEM    = NULL;  // counting semaphore — given by ISR/remoteCoinPulse, drained by coinPulseTask
+TaskHandle_t      UPDATE_CLIENT_TASK = NULL;  // notified on each coin; also wakes every 500ms
 
 // Cached role — set in setup() after networkSetup(); safe to read from ISR
 bool IS_MASTER = false;
 
 // Coin session state
-volatile int COIN_COUNT = 0;
-volatile unsigned long COIN_INSERT_START_TIME = 0;
-volatile bool COIN_INSERT_ACTIVE = false;
-volatile bool COIN_INSERT_NEEDS_FINALIZATION = false;
-volatile bool COIN_COUNT_CHANGED = false;
-volatile bool COIN_PULSE_PENDING = false;  // set by ISR, drained in loop()
 const unsigned long COIN_INSERT_TIMEOUT = 10000;
-const int MINUTES_PER_COIN = 5;
-Ticker COIN_INSERT_TIMER;
-SemaphoreHandle_t COIN_STATE_MUTEX = NULL;
+const int           MINUTES_PER_COIN    = 5;
+TimerHandle_t       COIN_INSERT_TIMER = NULL;
+SemaphoreHandle_t   COIN_STATE_MUTEX    = NULL;
 
-volatile unsigned long LAST_COIN_PULSE_TIME = 0;
-const unsigned long COIN_DEBOUNCE_MILLIS = 300;
+// ISR-only — written by coinPulse(); no mutex needed
+volatile unsigned long LAST_COIN_PULSE_TIME = 0; // just used for debouncing
+const unsigned long COIN_DEBOUNCE_MILLIS  = 300;
 
-// Which client is currently inserting coins
-int COIN_SOCKET_FD = -1;
-String COIN_CLIENT_IP = "";
+// Gated by COIN_INSERT_ACTIVE — valid only while a session is active or processing
+volatile bool COIN_INSERT_ACTIVE = false;  // true from startCoinInsert until finalizeCoinInsert completes
+int           COIN_SOCKET_FD     = -1;     // WS socket for the inserting client
+String        COIN_CLIENT_IP     = "";     // IP of the inserting client
 
-void coinTimerCallback() {
-  COIN_INSERT_TIMER.detach();
-  COIN_INSERT_NEEDS_FINALIZATION = true;
-}
+// Gated by COIN_INSERT_TIMER (master) or COIN_INSERT_ACTIVE (slave) — valid while the insertion window is open
+volatile int           COIN_COUNT             = 0;
+#define SHOULD_ACCEPT_COINS (IS_MASTER ? (xTimerIsTimerActive(COIN_INSERT_TIMER) == pdTRUE) : COIN_INSERT_ACTIVE)
 
-void restartCoinInsertTimer() {
-  COIN_INSERT_TIMER.once(COIN_INSERT_TIMEOUT / 1000.0, coinTimerCallback);
-  COIN_INSERT_START_TIME = millis();
-}
+// ── ISR + timer ───────────────────────────────────────────────────────────────
 
+// callback from interrupt on PIN - cant do complex work -- debounce and give COIN_PULSE_SEM
 void IRAM_ATTR coinPulse() {
   unsigned long now = millis();
   if (now - LAST_COIN_PULSE_TIME < COIN_DEBOUNCE_MILLIS) return;
   LAST_COIN_PULSE_TIME = now;
-  COIN_PULSE_PENDING = true;
+  BaseType_t woken = pdFALSE;
+  xSemaphoreGiveFromISR(COIN_PULSE_SEM, &woken);
+  portYIELD_FROM_ISR(woken);
 }
 
-// Called on master when a slave reports a coin via UDP.
-void remoteCoinPulse() {
-  COIN_PULSE_PENDING = true;
+void coinTimerCallback(TimerHandle_t xTimer) {
+  xSemaphoreGive(COIN_FINALIZE_SEM);
 }
 
-String macToFilename(const String& mac) {
-  String safe = mac;
-  safe.replace(":", "");
-  return "/pause_" + safe + ".dat";
+void restartCoinInsertTimer() {
+  xTimerReset(COIN_INSERT_TIMER, 0);  // starts if inactive, restarts if active
 }
 
-bool savePausedSessionFile(const String& mac, unsigned long remainingMillis) {
-  String path = macToFilename(mac);
-  File f = LittleFS.open(path, FILE_WRITE);
-  if (!f) {
-    ESP_LOGE(TAG, "Failed to save paused session to %s", path.c_str());
-    return false;
-  }
-  f.write((uint8_t*)&remainingMillis, sizeof(remainingMillis));
-  f.close();
-  ESP_LOGI(TAG, "Saved paused session for %s: %lu ms", mac.c_str(), remainingMillis);
-  return true;
-}
-
-unsigned long loadPausedSessionFile(const String& mac) {
-  String path = macToFilename(mac);
-  File f = LittleFS.open(path, FILE_READ);
-  if (!f) return 0;
-  unsigned long remainingMillis = 0;
-  f.read((uint8_t*)&remainingMillis, sizeof(remainingMillis));
-  f.close();
-  ESP_LOGI(TAG, "Loaded paused session for %s: %lu ms", mac.c_str(), remainingMillis);
-  return remainingMillis;
-}
-
-bool hasPausedSessionFile(const String& mac) {
-  return LittleFS.exists(macToFilename(mac));
-}
-
-void deletePausedSessionFile(const String& mac) {
-  String path = macToFilename(mac);
-  if (LittleFS.exists(path)) {
-    LittleFS.remove(path);
-    ESP_LOGI(TAG, "Deleted paused session file: %s", path.c_str());
-  }
-}
+// ── Config + network events ───────────────────────────────────────────────────
 
 bool loadConfig() {
   File f = LittleFS.open("/config.json", "r");
@@ -216,19 +245,85 @@ bool loadConfig() {
   return true;
 }
 
-// ── Network event handlers ────────────────────────────────────────────────────
+// Called on master when a slave reports a coin via UDP.
+void masterRecvCoinInserted() {
+  xSemaphoreGive(COIN_PULSE_SEM);
+}
 
-void slaveCoinInsertStart() {
+void slaveRecvCoinInsertStart() {
   COIN_INSERT_ACTIVE = true;
+  xTaskNotify(LED_TASK, LED_NOTIFY_START, eSetValueWithOverwrite);
   ESP_LOGI(TAG, "Session started — accepting coins");
 }
 
-void slaveCoinInsertEnd() {
+void slaveRecvCoinInsertEnd() {
   COIN_INSERT_ACTIVE = false;
+  xTaskNotify(LED_TASK, LED_NOTIFY_STOP, eSetValueWithOverwrite);
   ESP_LOGI(TAG, "Session ended — coin acceptance disabled");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ── FreeRTOS tasks ────────────────────────────────────────────────────────────
+
+// Drains coin pulses from the ISR (via COIN_PULSE_SEM counting semaphore).
+// Gated by SHOULD_ACCEPT_COINS — pulses that arrive outside the insertion window
+// (e.g. after the timer has expired but before finalizeCoinInsert clears things) are discarded.
+// Master: increments COIN_COUNT, resets the insertion timer, and broadcasts to slaves.
+// Slave:  resets its own insertion timer and forwards the pulse to the master via UDP.
+// Master: also notifies CLIENT_UPDATE_TASK for an immediate WS push (slaves have no web server).
+void coinPulseTask(void*) {
+  for (;;) {
+    xSemaphoreTake(COIN_PULSE_SEM, portMAX_DELAY);
+    // Interrupts are always sent to COIN_PULSE_SEM - this is the only gate
+    if (!SHOULD_ACCEPT_COINS) continue;
+    if (IS_MASTER) {
+      COIN_COUNT++;
+      xTimerReset(COIN_INSERT_TIMER, 0);
+      xTaskNotify(UPDATE_CLIENT_TASK, 1, eSetBits);
+    } else {
+      slaveSendCoinInserted();
+    }
+  }
+}
+
+// Pushes WS status updates to the inserting client.
+// Woken immediately by coinPulseTask on each coin (for instant coin count feedback),
+// or fires on the 500ms timeout to keep the countdown timer in the UI updated.
+// No-op when no session is active.
+void updateClientTask(void*) {
+  for (;;) {
+    xTaskNotifyWait(0, ULONG_MAX, NULL, pdMS_TO_TICKS(500));
+    if (COIN_INSERT_ACTIVE) pushCoinUpdateToClient();
+  }
+}
+
+// FinalizeCoinTask: sleeps until coinTimerCallback() signals COIN_FINALIZE_SEM, then
+// runs finalizeCoinInsert() under OMADA_API_MUTEX so it never races OmadaTask.
+// Pinned to Core 1 alongside loop() — never touches the radio stack on Core 0.
+void finalizeCoinTask(void*) {
+  for (;;) {
+    xSemaphoreTake(COIN_FINALIZE_SEM, portMAX_DELAY);
+    xSemaphoreTake(OMADA_API_MUTEX, portMAX_DELAY);
+    finalizeCoinInsert();
+    xSemaphoreGive(OMADA_API_MUTEX);
+  }
+}
+
+// OmadaTask: drains PAUSE/RESUME jobs posted by WS handlers. Each job takes
+// OMADA_API_MUTEX before HTTPS so it never races CoinTask.
+// Pinned to Core 0 — runs alongside PsychicHTTP tasks that enqueue the jobs.
+void omadaTask(void*) {
+  OmadaJob job;
+  for (;;) {
+    if (xQueueReceive(OMADA_JOB_QUEUE, &job, portMAX_DELAY) == pdTRUE) {
+      xSemaphoreTake(OMADA_API_MUTEX, portMAX_DELAY);
+      if (job.type == JOB_PAUSE)  processPause(String(job.mac));
+      if (job.type == JOB_RESUME) processResume(String(job.mac));
+      xSemaphoreGive(OMADA_API_MUTEX);
+    }
+  }
+}
+
+// ── Arduino entry points ──────────────────────────────────────────────────────
 
 void setup() {
   delay(1000);
@@ -248,18 +343,15 @@ void setup() {
     halt();
   }
 
-#ifdef HAS_RGB_LED
-  LED_STRIP.begin();
-  LED_STRIP.setBrightness(80);
-  LED_STRIP.clear();
-  LED_STRIP.show();
-#endif
-
   pinMode(COIN_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(COIN_PIN), coinPulse, FALLING);
 
   WiFi.mode(WIFI_STA);
   WiFi.begin(AP_SSID.c_str(), AP_PASSWORD.c_str());
+
+  IS_MASTER = isMaster();
+  ESP_LOGI(TAG, "Role: %s (MAC: %s)", IS_MASTER ? "MASTER" : "SLAVE", WiFi.macAddress().c_str());
+  ledSetup();
 
   ESP_LOGI(TAG, "Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -278,8 +370,6 @@ void setup() {
   ESP_LOGI(TAG, "IP Address: %s", WiFi.localIP().toString().c_str());
 
   networkSetup();
-  IS_MASTER = isMaster();
-  ESP_LOGI(TAG, "Role: %s (MAC: %s)", IS_MASTER ? "MASTER" : "SLAVE", WiFi.macAddress().c_str());
 
   // Sync wall clock via NTP (required for comparing against Omada epoch timestamps)
   configTime(0, 0, "pool.ntp.org");
@@ -295,82 +385,64 @@ void setup() {
     }
   }
 
-  omadaSetup();
+  if (IS_MASTER) {
+    omadaSetup();
 
-  if (MDNS.begin("ellafi")) {
-    ESP_LOGI(TAG, "mDNS started: ellafi.local");
-  } else {
-    ESP_LOGW(TAG, "mDNS failed to start");
+    if (MDNS.begin("ellafi")) {
+      ESP_LOGI(TAG, "mDNS started: ellafi.local");
+    } else {
+      ESP_LOGW(TAG, "mDNS failed to start");
+    }
+
+    server.config.stack_size = 16384; // Larger stack for SSL calls in WS handlers
+
+    server.on("/", HTTP_GET, handleRoot);
+
+    wsHandler.onOpen(handleWsOpen);
+    wsHandler.onFrame(handleWsRequest);
+    wsHandler.onClose(handleWsClose);
+    server.on("/ws", &wsHandler);
+
+    server.on("/config.json", HTTP_GET, [](PsychicRequest* request, PsychicResponse* response) {
+      return response->send(403, "text/plain", "Forbidden");
+    });
+    server.serveStatic("/", LittleFS, "/", "max-age=86400");
+    server.onNotFound(handleNotFound); // Must be set AFTER serveStatic
+
+    server.begin();
+    ESP_LOGI(TAG, "Server started");
   }
 
-  server.config.stack_size = 16384; // Larger stack for SSL calls in WS handlers
+  COIN_STATE_MUTEX  = xSemaphoreCreateMutex();
+  OMADA_API_MUTEX   = xSemaphoreCreateMutex();
+  COIN_FINALIZE_SEM = xSemaphoreCreateBinary();
+  if (IS_MASTER) {
+    COIN_INSERT_TIMER = xTimerCreate("CoinTimer", pdMS_TO_TICKS(COIN_INSERT_TIMEOUT), pdFALSE, NULL, coinTimerCallback);
+  }
+  OMADA_JOB_QUEUE   = xQueueCreate(8, sizeof(OmadaJob));
+  COIN_PULSE_SEM = xSemaphoreCreateCounting(100, 0);
 
-  server.on("/", HTTP_GET, handleRoot);
-
-  wsHandler.onOpen(handleWsOpen);
-  wsHandler.onFrame(handleWsRequest);
-  wsHandler.onClose(handleWsClose);
-  server.on("/ws", &wsHandler);
-
-  server.on("/config.json", HTTP_GET, [](PsychicRequest* request, PsychicResponse* response) {
-    return response->send(403, "text/plain", "Forbidden");
-  });
-  server.serveStatic("/", LittleFS, "/", "max-age=86400");
-  server.onNotFound(handleNotFound); // Must be set AFTER serveStatic
-
-  server.begin();
-  ESP_LOGI(TAG, "Server started");
-
-  COIN_STATE_MUTEX = xSemaphoreCreateMutex();
-  ACTION_QUEUE_MUTEX = xSemaphoreCreateMutex();
-
-  if (COIN_STATE_MUTEX == NULL || ACTION_QUEUE_MUTEX == NULL) {
+  if (COIN_STATE_MUTEX == NULL || OMADA_API_MUTEX == NULL ||
+      COIN_FINALIZE_SEM == NULL ||
+      COIN_PULSE_SEM == NULL ||
+      OMADA_JOB_QUEUE == NULL ||
+      (IS_MASTER && COIN_INSERT_TIMER == NULL)) {
     ESP_LOGE(TAG, "Failed to create synchronization primitives");
   }
 
+  xTaskCreatePinnedToCore(coinPulseTask, "CoinPulseTask", 4096, NULL, 6, NULL,    1);
+  xTaskCreatePinnedToCore(ledTask,       "LedTask",       2048, NULL, 2, &LED_TASK, 1);
+  if (IS_MASTER) {
+    xTaskCreatePinnedToCore(finalizeCoinTask, "FinalizeCoinTask", 8192, NULL, 5, NULL,               1);
+    xTaskCreatePinnedToCore(omadaTask,        "OmadaTask",        8192, NULL, 4, NULL,               0);
+    xTaskCreatePinnedToCore(updateClientTask, "UpdateClientTask", 4096, NULL, 3, &UPDATE_CLIENT_TASK, 1);
+  }
+
+  ledReady();
 }
 
 void loop() {
-  if (COIN_INSERT_NEEDS_FINALIZATION) {
-    COIN_INSERT_NEEDS_FINALIZATION = false;
-    finalizeCoinInsert();
-  }
-
-  // Push on coin count change or every 500ms during active session
-  static unsigned long lastCoinPush = 0;
-  if (COIN_COUNT_CHANGED || (COIN_INSERT_ACTIVE && millis() - lastCoinPush > 500)) {
-    COIN_COUNT_CHANGED = false;
-    lastCoinPush = millis();
-    pushCoinUpdateToClient();
-  }
-
-#ifdef HAS_RGB_LED
-  // Cycle LED R→G→B while coin slot is active, clear when session ends
-  static unsigned long lastLedUpdate = 0;
-  uint32_t ledColor = LED_STRIP.getPixelColor(0);
-  if (COIN_INSERT_ACTIVE && millis() - lastLedUpdate > 200) {
-    lastLedUpdate = millis();
-    LED_STRIP.setPixelColor(0, (ledColor >> 8) ? (ledColor >> 8) : 0xFF0000);
-    LED_STRIP.show();
-  } else if (!COIN_INSERT_ACTIVE && ledColor) {
-    LED_STRIP.clear();
-    LED_STRIP.show();
-  }
-#endif
-
-  // Drain queued actions (pause/resume) from WS handler threads — before omadaLoop() so a
-  // background cache refresh (3-4s of HTTPS) doesn't delay user-initiated actions
-  xSemaphoreTake(ACTION_QUEUE_MUTEX, portMAX_DELAY);
-  while (!ACTION_QUEUE.empty()) {
-    ActionRequest req = std::move(ACTION_QUEUE.front());
-    ACTION_QUEUE.pop();
-    xSemaphoreGive(ACTION_QUEUE_MUTEX);
-    req.handler(req.mac);
-    xSemaphoreTake(ACTION_QUEUE_MUTEX, portMAX_DELAY);
-  }
-  xSemaphoreGive(ACTION_QUEUE_MUTEX);
-
-  omadaLoop();
+  // omadaLoop(); // disabled — cache refreshed explicitly after each auth/extend/pause/resume
 
   // Scheduled daily reboot at 3:00 AM UTC — simplest way to keep memory and cache clean
   static unsigned long lastRebootCheck = 0;
@@ -385,20 +457,9 @@ void loop() {
   }
 
   networkLoop();
-
-  // Drain coin pulse: master counts locally, slave forwards to master via UDP
-  if (COIN_PULSE_PENDING) {
-    COIN_PULSE_PENDING = false;
-    if (IS_MASTER && COIN_INSERT_ACTIVE) {
-      COIN_COUNT++;
-      COIN_COUNT_CHANGED = true;
-      restartCoinInsertTimer();
-      ESP_LOGI(TAG, "Coin registered (total: %d)", COIN_COUNT);
-    } else if (!IS_MASTER) {
-      netSendCoinInserted();
-    }
-  }
 }
+
+// ── Web / WS handlers ─────────────────────────────────────────────────────────
 
 // Serve captive portal page. Omada redirects here with query params:
 // ?clientMac=...&apMac=...&ssidName=...&radioId=...&site=...&redirectUrl=...
@@ -443,6 +504,17 @@ esp_err_t handleRoot(PsychicRequest *request, PsychicResponse *response) {
   return fileResponse.send();
 }
 
+esp_err_t handleNotFound(PsychicRequest *request, PsychicResponse *response) {
+  ESP_LOGI(TAG, "404 Not Found: %s", request->path().c_str());
+
+  String message = "<!DOCTYPE html><html><head><title>404 Not Found</title></head><body>";
+  message += "<h1>404 - Not Found</h1>";
+  message += "<p>The requested resource was not found on this server.</p>";
+  message += "<p>Path: " + request->path() + "</p>";
+  message += "</body></html>";
+
+  return response->send(404, "text/html", message.c_str());
+}
 
 void handleWsOpen(PsychicWebSocketClient* client) {
   int socketFd = client->socket();
@@ -462,43 +534,6 @@ void handleWsOpen(PsychicWebSocketClient* client) {
     ESP_LOGI(TAG, "Updating COIN_SOCKET_FD from %d to %d (client reconnected)", COIN_SOCKET_FD, socketFd);
     COIN_SOCKET_FD = socketFd;
   }
-}
-
-void handleWsClose(PsychicWebSocketClient* client) {
-  ESP_LOGI(TAG, "WS client disconnected: socket #%d", client->socket());
-}
-
-String buildStatusJson(const SessionParams& session) {
-  bool myCoinInsertActive = COIN_INSERT_ACTIVE && session.clientIp == COIN_CLIENT_IP;
-  int coinInsertTimeLeft = 0;
-  if (myCoinInsertActive) {
-    unsigned long elapsed = millis() - COIN_INSERT_START_TIME;
-    if (elapsed < COIN_INSERT_TIMEOUT) coinInsertTimeLeft = (COIN_INSERT_TIMEOUT - elapsed) / 1000;
-  }
-
-  String json = "{";
-  json += "\"type\":\"status\",";
-  json += "\"coinCount\":" + String(myCoinInsertActive ? COIN_COUNT : 0) + ",";
-  json += "\"coinInsertTimeLeft\":" + String(coinInsertTimeLeft) + ",";
-  json += "\"sessionStartMillis\":" + String((unsigned long long)session.sessionStartMillis) + ",";
-  json += "\"sessionEndMillis\":" + String((unsigned long long)session.sessionEndMillis) + ",";
-  json += "\"pausedRemainingMillis\":" + String(session.pausedRemainingMillis) + ",";
-  json += "\"clientMac\":\"" + session.clientMac + "\",";
-  json += "\"clientIp\":\"" + session.clientIp + "\",";
-  json += "\"minutesPerCoin\":" + String(MINUTES_PER_COIN);
-  json += "}";
-
-  return json;
-}
-
-void pushCoinUpdateToClient() {
-  if (COIN_SOCKET_FD < 0 || COIN_CLIENT_IP.length() == 0) return;
-
-  SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(COIN_CLIENT_IP);
-  if (!session) return;
-
-  PsychicWebSocketClient* ws = wsHandler.getClient(COIN_SOCKET_FD);
-  if (ws != nullptr) ws->sendMessage(buildStatusJson(*session).c_str());
 }
 
 esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* frame) {
@@ -550,27 +585,26 @@ esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* fram
       COIN_CLIENT_IP = clientIp;
       COIN_COUNT = 0;
       restartCoinInsertTimer();
+      xTaskNotify(LED_TASK, LED_NOTIFY_START, eSetValueWithOverwrite);
       coinInsertStarted = true;
     }
     xSemaphoreGive(COIN_STATE_MUTEX);
 
     if (coinInsertStarted) {
       ESP_LOGI(TAG, "Coin insertion started for MAC: %s via WS", session->clientMac.c_str());
-      netBroadcastSessionStart();
+      masterBroadcastCoinInserted();
       request->client()->sendMessage(buildStatusJson(*session).c_str());
     } else {
       request->reply("{\"type\":\"error\",\"message\":\"Another user already inserting coins\"}");
     }
 
   } else if (action == "pause") {
-    xSemaphoreTake(ACTION_QUEUE_MUTEX, portMAX_DELAY);
-    ACTION_QUEUE.push({processPause, session->clientMac});
-    xSemaphoreGive(ACTION_QUEUE_MUTEX);
+    OmadaJob job(JOB_PAUSE, session->clientMac);
+    xQueueSend(OMADA_JOB_QUEUE, &job, 0);
 
   } else if (action == "resume") {
-    xSemaphoreTake(ACTION_QUEUE_MUTEX, portMAX_DELAY);
-    ACTION_QUEUE.push({processResume, session->clientMac});
-    xSemaphoreGive(ACTION_QUEUE_MUTEX);
+    OmadaJob job(JOB_RESUME, session->clientMac);
+    xQueueSend(OMADA_JOB_QUEUE, &job, 0);
 
 #ifdef TEST_MODE
   } else if (action == "testInsertCoin") {
@@ -585,73 +619,58 @@ esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* fram
   return ESP_OK;
 }
 
-void processPause(const String& mac) {
-  SessionParams* params = HOTSPOT_SESSION_CACHE.findByMac(mac);
-  if (!params) { ESP_LOGW(TAG, "processPause: no session for MAC=%s", mac.c_str()); return; }
-
-  PsychicWebSocketClient* ws = wsHandler.getClient(params->socketFd);  // may be null if WS disconnected
-  uint64_t nowMillis = nowEpochMillis();
-
-  if (params->sessionEndMillis == 0 || params->clientId.isEmpty()) {
-    if (ws) ws->sendMessage("{\"type\":\"error\",\"subtype\":\"no_session\",\"message\":\"No active session to pause\"}");
-    return;
-  }
-  if (params->sessionEndMillis <= nowMillis) {
-    if (ws) ws->sendMessage("{\"type\":\"error\",\"message\":\"No time remaining\"}");
-    return;
-  }
-
-  unsigned long remaining = (unsigned long)(params->sessionEndMillis - nowMillis);
-  ESP_LOGI(TAG, "Pausing client %s with %lu ms remaining", params->clientMac.c_str(), remaining);
-
-  if (!savePausedSessionFile(params->clientMac, remaining)) {
-    if (ws) ws->sendMessage("{\"type\":\"error\",\"message\":\"Pause failed\",\"detail\":\"Could not save to filesystem\"}");
-    return;
-  }
-
-  String errorDetail;
-  if (disconnectOmadaClient(*params, errorDetail)) {
-    params->pausedRemainingMillis = remaining;
-    if (ws) ws->sendMessage(buildStatusJson(*params).c_str());
-  } else {
-    deletePausedSessionFile(params->clientMac);
-    if (ws) ws->sendMessage(("{\"type\":\"error\",\"message\":\"Pause failed\",\"detail\":\"" + errorDetail + "\"}").c_str());
-  }
+void handleWsClose(PsychicWebSocketClient* client) {
+  ESP_LOGI(TAG, "WS client disconnected: socket #%d", client->socket());
 }
 
-void processResume(const String& mac) {
-  SessionParams* params = HOTSPOT_SESSION_CACHE.findByMac(mac);
-  if (!params) { ESP_LOGW(TAG, "processResume: no session for MAC=%s", mac.c_str()); return; }
-
-  PsychicWebSocketClient* ws = wsHandler.getClient(params->socketFd);  // may be null if WS disconnected
-  unsigned long pausedRemainingMillis = params->pausedRemainingMillis;
-
-  if (pausedRemainingMillis == 0) {
-    if (ws) ws->sendMessage("{\"type\":\"error\",\"message\":\"No paused session to resume\"}");
-    return;
+String buildStatusJson(const SessionParams& session, const char* type) {
+  bool myCoinInsertActive = COIN_INSERT_ACTIVE && session.clientIp == COIN_CLIENT_IP;
+  int coinInsertTimeLeft = 0;
+  if (myCoinInsertActive) {
+    TickType_t expiry = xTimerGetExpiryTime(COIN_INSERT_TIMER);
+    TickType_t now = xTaskGetTickCount();
+    if (expiry > now) coinInsertTimeLeft = ((expiry - now) * portTICK_PERIOD_MS) / 1000;
   }
 
-  ESP_LOGI(TAG, "Resuming client %s for %d minutes (%lu millis saved)",
-           params->clientMac.c_str(), (int)(pausedRemainingMillis / 60000), pausedRemainingMillis);
+  String json = "{";
+  json += "\"type\":\"" + String(type) + "\",";
+  json += "\"coinCount\":" + String(myCoinInsertActive ? COIN_COUNT : 0) + ",";
+  json += "\"coinInsertTimeLeft\":" + String(coinInsertTimeLeft) + ",";
+  json += "\"sessionStartMillis\":" + String((unsigned long long)session.sessionStartMillis) + ",";
+  json += "\"sessionEndMillis\":" + String((unsigned long long)session.sessionEndMillis) + ",";
+  json += "\"pausedRemainingMillis\":" + String(session.pausedRemainingMillis) + ",";
+  json += "\"clientMac\":\"" + session.clientMac + "\",";
+  json += "\"clientIp\":\"" + session.clientIp + "\",";
+  json += "\"minutesPerCoin\":" + String(MINUTES_PER_COIN);
+  json += "}";
 
-  String errorDetail;
-  if (authenticateOmadaClient(*params, (unsigned long long)pausedRemainingMillis, errorDetail)) {
-    params->pausedRemainingMillis = 0;
-    deletePausedSessionFile(params->clientMac);
-    refreshHotspotSessionCache();  // get updated clientId from Omada
-    if (ws) ws->sendMessage(buildStatusJson(*params).c_str());
-  } else {
-    if (ws) ws->sendMessage(("{\"type\":\"error\",\"message\":\"Resume failed\",\"detail\":\"" + errorDetail + "\"}").c_str());
-  }
+  return json;
+}
+
+void pushCoinUpdateToClient() {
+  if (COIN_SOCKET_FD < 0 || COIN_CLIENT_IP.length() == 0) return;
+
+  SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(COIN_CLIENT_IP);
+  if (!session) return;
+
+  PsychicWebSocketClient* ws = wsHandler.getClient(COIN_SOCKET_FD);
+  if (ws != nullptr) ws->sendMessage(buildStatusJson(*session).c_str());
 }
 
 // Called 10s after last coin insertion. Authenticates with Omada and pushes result via WS.
 void finalizeCoinInsert() {
   ESP_LOGI(TAG, "======finalizeCoinInsert called");
 
-  // Snapshot volatile coin state before ISR can change it
+  // Close the insertion window. COIN_INSERT_ACTIVE stays true so no new session can start
+  // and COIN_SOCKET_FD/COIN_CLIENT_IP remain valid for WS reconnect tracking during HTTPS.
+  xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
   int coinCount = COIN_COUNT;
-  int savedSocketFd = COIN_SOCKET_FD;
+  COIN_COUNT = 0;
+  xTimerStop(COIN_INSERT_TIMER, 0);
+  xTaskNotify(LED_TASK, LED_NOTIFY_STOP, eSetValueWithOverwrite);
+  xSemaphoreGive(COIN_STATE_MUTEX);
+  masterBroadcastSessionEnd();  // tell slaves to stop accepting coins immediately
+
   String errorMsg;
   String errorDetail;
   String errorSubtype;
@@ -699,16 +718,7 @@ void finalizeCoinInsert() {
     errorSubtype = ERR_SUBTYPE_NO_SESSION;
   }
 
-  PsychicWebSocketClient* ws = (savedSocketFd >= 0) ? wsHandler.getClient(savedSocketFd) : nullptr;
-
-  xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
-  COIN_INSERT_ACTIVE = false;
-  COIN_COUNT = 0;
-  COIN_INSERT_START_TIME = 0;
-  COIN_SOCKET_FD = -1;
-  COIN_CLIENT_IP = "";
-  xSemaphoreGive(COIN_STATE_MUTEX);
-  netBroadcastSessionEnd();
+  PsychicWebSocketClient* ws = (COIN_SOCKET_FD >= 0) ? wsHandler.getClient(COIN_SOCKET_FD) : nullptr;
 
   if (ws) {
     if (success) {
@@ -722,19 +732,116 @@ void finalizeCoinInsert() {
       ws->sendMessage(errJson.c_str());
     }
   } else {
-    ESP_LOGW(TAG, "Auth result not delivered: WS socket #%d already disconnected", savedSocketFd);
+    ESP_LOGW(TAG, "Auth result not delivered — client already disconnected");
+  }
+
+  xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
+  COIN_INSERT_ACTIVE = false;
+  COIN_SOCKET_FD = -1;
+  COIN_CLIENT_IP = "";
+  xSemaphoreGive(COIN_STATE_MUTEX);
+}
+
+void processPause(const String& mac) {
+  SessionParams* params = HOTSPOT_SESSION_CACHE.findByMac(mac);
+  if (!params) { ESP_LOGW(TAG, "processPause: no session for MAC=%s", mac.c_str()); return; }
+
+  PsychicWebSocketClient* ws = wsHandler.getClient(params->socketFd);  // may be null if WS disconnected
+  uint64_t nowMillis = nowEpochMillis();
+
+  if (params->sessionEndMillis == 0 || params->clientId.isEmpty()) {
+    if (ws) ws->sendMessage("{\"type\":\"error\",\"subtype\":\"no_session\",\"message\":\"No active session to pause\"}");
+    return;
+  }
+  if (params->sessionEndMillis <= nowMillis) {
+    if (ws) ws->sendMessage("{\"type\":\"error\",\"message\":\"No time remaining\"}");
+    return;
+  }
+
+  unsigned long remaining = (unsigned long)(params->sessionEndMillis - nowMillis);
+  ESP_LOGI(TAG, "Pausing client %s with %lu ms remaining", params->clientMac.c_str(), remaining);
+
+  if (!savePausedSessionFile(params->clientMac, remaining)) {
+    if (ws) ws->sendMessage("{\"type\":\"error\",\"message\":\"Pause failed\",\"detail\":\"Could not save to filesystem\"}");
+    return;
+  }
+
+  String errorDetail;
+  if (disconnectOmadaClient(*params, errorDetail)) {
+    params->pausedRemainingMillis = remaining;
+    if (ws) ws->sendMessage(buildStatusJson(*params, "paused").c_str());
+  } else {
+    deletePausedSessionFile(params->clientMac);
+    if (ws) ws->sendMessage(("{\"type\":\"error\",\"message\":\"Pause failed\",\"detail\":\"" + errorDetail + "\"}").c_str());
   }
 }
 
-esp_err_t handleNotFound(PsychicRequest *request, PsychicResponse *response) {
-  ESP_LOGI(TAG, "404 Not Found: %s", request->path().c_str());
+void processResume(const String& mac) {
+  SessionParams* params = HOTSPOT_SESSION_CACHE.findByMac(mac);
+  if (!params) { ESP_LOGW(TAG, "processResume: no session for MAC=%s", mac.c_str()); return; }
 
-  String message = "<!DOCTYPE html><html><head><title>404 Not Found</title></head><body>";
-  message += "<h1>404 - Not Found</h1>";
-  message += "<p>The requested resource was not found on this server.</p>";
-  message += "<p>Path: " + request->path() + "</p>";
-  message += "</body></html>";
+  PsychicWebSocketClient* ws = wsHandler.getClient(params->socketFd);  // may be null if WS disconnected
+  unsigned long pausedRemainingMillis = params->pausedRemainingMillis;
 
-  return response->send(404, "text/html", message.c_str());
+  if (pausedRemainingMillis == 0) {
+    if (ws) ws->sendMessage("{\"type\":\"error\",\"message\":\"No paused session to resume\"}");
+    return;
+  }
+
+  ESP_LOGI(TAG, "Resuming client %s for %d minutes (%lu millis saved)",
+           params->clientMac.c_str(), (int)(pausedRemainingMillis / 60000), pausedRemainingMillis);
+
+  String errorDetail;
+  if (authenticateOmadaClient(*params, (unsigned long long)pausedRemainingMillis, errorDetail)) {
+    params->pausedRemainingMillis = 0;
+    deletePausedSessionFile(params->clientMac);
+    refreshHotspotSessionCache();  // get updated clientId from Omada
+    if (ws) ws->sendMessage(buildStatusJson(*params, "resumed").c_str());
+  } else {
+    if (ws) ws->sendMessage(("{\"type\":\"error\",\"message\":\"Resume failed\",\"detail\":\"" + errorDetail + "\"}").c_str());
+  }
 }
 
+// ── Paused session file helpers ───────────────────────────────────────────────
+
+String macToFilename(const String& mac) {
+  String safe = mac;
+  safe.replace(":", "");
+  return "/pause_" + safe + ".dat";
+}
+
+bool savePausedSessionFile(const String& mac, unsigned long remainingMillis) {
+  String path = macToFilename(mac);
+  File f = LittleFS.open(path, FILE_WRITE);
+  if (!f) {
+    ESP_LOGE(TAG, "Failed to save paused session to %s", path.c_str());
+    return false;
+  }
+  f.write((uint8_t*)&remainingMillis, sizeof(remainingMillis));
+  f.close();
+  ESP_LOGI(TAG, "Saved paused session for %s: %lu ms", mac.c_str(), remainingMillis);
+  return true;
+}
+
+unsigned long loadPausedSessionFile(const String& mac) {
+  String path = macToFilename(mac);
+  File f = LittleFS.open(path, FILE_READ);
+  if (!f) return 0;
+  unsigned long remainingMillis = 0;
+  f.read((uint8_t*)&remainingMillis, sizeof(remainingMillis));
+  f.close();
+  ESP_LOGI(TAG, "Loaded paused session for %s: %lu ms", mac.c_str(), remainingMillis);
+  return remainingMillis;
+}
+
+bool hasPausedSessionFile(const String& mac) {
+  return LittleFS.exists(macToFilename(mac));
+}
+
+void deletePausedSessionFile(const String& mac) {
+  String path = macToFilename(mac);
+  if (LittleFS.exists(path)) {
+    LittleFS.remove(path);
+    ESP_LOGI(TAG, "Deleted paused session file: %s", path.c_str());
+  }
+}
