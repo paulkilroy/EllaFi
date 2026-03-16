@@ -2,7 +2,7 @@
 
 #include <esp_log.h>
 
-static const char* TAG = "led";
+//static const char* TAG = "led";
 
 extern bool IS_MASTER;
 
