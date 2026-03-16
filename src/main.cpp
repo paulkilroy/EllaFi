@@ -75,7 +75,6 @@
  *      authenticates with Omada, and extends or starts a new session for the customer
  *      pushes "authenticated" result via WS
  */
-#define LOG_LOCAL_LEVEL ESP_LOG_INFO
 
 #include "omada.h"
 #include "network.h"
@@ -148,7 +147,7 @@ void deletePausedSessionFile(const String& mac);
 SessionCache HOTSPOT_SESSION_CACHE;
 
 // OmadaTask job types
-enum OmadaJobType { JOB_PAUSE, JOB_RESUME };
+enum OmadaJobType { JOB_PAUSE, JOB_RESUME, JOB_REFRESH_CACHE };
 struct OmadaJob {
   OmadaJobType type;
   char mac[18];  // fixed-size to avoid heap alloc in queue item
@@ -274,9 +273,11 @@ void coinPulseTask(void*) {
   for (;;) {
     xSemaphoreTake(COIN_PULSE_SEM, portMAX_DELAY);
     // Interrupts are always sent to COIN_PULSE_SEM - this is the only gate
+    ESP_LOGI(TAG, "coin pulse — %s", IS_MASTER ? "master" : "slave");
     if (!SHOULD_ACCEPT_COINS) continue;
     if (IS_MASTER) {
       COIN_COUNT++;
+      ESP_LOGI(TAG, "Coin pulse accepted — count: %d", COIN_COUNT);
       xTimerReset(COIN_INSERT_TIMER, 0);
       xTaskNotify(UPDATE_CLIENT_TASK, 1, eSetBits);
     } else {
@@ -316,8 +317,9 @@ void omadaTask(void*) {
   for (;;) {
     if (xQueueReceive(OMADA_JOB_QUEUE, &job, portMAX_DELAY) == pdTRUE) {
       xSemaphoreTake(OMADA_API_MUTEX, portMAX_DELAY);
-      if (job.type == JOB_PAUSE)  processPause(String(job.mac));
-      if (job.type == JOB_RESUME) processResume(String(job.mac));
+      if (job.type == JOB_PAUSE)         processPause(String(job.mac));
+      if (job.type == JOB_RESUME)        processResume(String(job.mac));
+      if (job.type == JOB_REFRESH_CACHE) refreshHotspotSessionCache();
       xSemaphoreGive(OMADA_API_MUTEX);
     }
   }
@@ -328,9 +330,6 @@ void omadaTask(void*) {
 void setup() {
   delay(1000);
   Serial.begin(115200);
-  esp_log_level_set("*", ESP_LOG_ERROR);
-  esp_log_level_set("EllaFi", ESP_LOG_INFO);
-
   delay(2000);
 
   if (!LittleFS.begin(true)) {
@@ -352,6 +351,7 @@ void setup() {
   IS_MASTER = isMaster();
   ESP_LOGI(TAG, "Role: %s (MAC: %s)", IS_MASTER ? "MASTER" : "SLAVE", WiFi.macAddress().c_str());
   ledSetup();
+  xTaskCreatePinnedToCore(ledTask, "LedTask", 2048, NULL, 2, &LED_TASK, 1);
 
   ESP_LOGI(TAG, "Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -430,8 +430,7 @@ void setup() {
     ESP_LOGE(TAG, "Failed to create synchronization primitives");
   }
 
-  xTaskCreatePinnedToCore(coinPulseTask, "CoinPulseTask", 4096, NULL, 6, NULL,    1);
-  xTaskCreatePinnedToCore(ledTask,       "LedTask",       2048, NULL, 2, &LED_TASK, 1);
+  xTaskCreatePinnedToCore(coinPulseTask, "CoinPulseTask", 4096, NULL, 6, NULL, 1);
   if (IS_MASTER) {
     xTaskCreatePinnedToCore(finalizeCoinTask, "FinalizeCoinTask", 8192, NULL, 5, NULL,               1);
     xTaskCreatePinnedToCore(omadaTask,        "OmadaTask",        8192, NULL, 4, NULL,               0);
@@ -501,7 +500,9 @@ esp_err_t handleRoot(PsychicRequest *request, PsychicResponse *response) {
   response->addHeader("Connection", "close");
 
   PsychicFileResponse fileResponse(response, LittleFS, "/index.html");
-  return fileResponse.send();
+  esp_err_t err = fileResponse.send();
+  ESP_LOGI(TAG, "handleRoot: file send done (%s)", err == ESP_OK ? "ok" : "err");
+  return err;
 }
 
 esp_err_t handleNotFound(PsychicRequest *request, PsychicResponse *response) {
@@ -710,7 +711,6 @@ void finalizeCoinInsert() {
       }
     }
 
-    if (success) refreshHotspotSessionCache();  // sync accurate sessionEndMillis + clientId
   } else if (coinCount == 0) {
     errorMsg = "No coins inserted";
   } else {
@@ -723,6 +723,7 @@ void finalizeCoinInsert() {
   if (ws) {
     if (success) {
       ws->sendMessage("{\"type\":\"authenticated\"}");
+      { OmadaJob j(JOB_REFRESH_CACHE, ""); xQueueSend(OMADA_JOB_QUEUE, &j, 0); }  // background: sync sessionEndMillis + clientId
     } else {
       String errJson = "{\"type\":\"error\"";
       if (errorSubtype.length() > 0) errJson += ",\"subtype\":\"" + errorSubtype + "\"";

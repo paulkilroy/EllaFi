@@ -78,9 +78,8 @@ void masterBroadcastCoinInserted() {
 }
 
 void masterBroadcastSessionEnd() {
-  // Send 3 times — UDP is fire-and-forget, session_end must not be silently dropped
-  for (int i = 0; i < 3; i++) netSend(NET_MSG_SESSION_END);
-  ESP_LOGI(TAG, "UDP broadcast session_end (x3)");
+  netSend(NET_MSG_SESSION_END);
+  ESP_LOGI(TAG, "UDP broadcast session_end");
 }
 
 void slaveSendCoinInserted() {

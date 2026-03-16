@@ -171,7 +171,7 @@
 <body>
   <div class="container" id="mainContainer">
     <div class="logo-container">
-      <img src="EllaFi.png" alt="EllaFi Logo">
+      <img src="EllaFi.webp" alt="EllaFi Logo">
     </div>
     <div class="status-box status-loading" id="statusBox">
       Status: <span id="statusText" class="blinking-red">Disconnected</span>
@@ -336,9 +336,11 @@
       }
 
       const host = window.location.host;
+      console.log('[EllaFi] WS connecting', performance.now().toFixed(0) + 'ms');
       ws = new WebSocket('ws://' + host + '/ws');
 
       ws.onopen = function() {
+        console.log('[EllaFi] WS open', performance.now().toFixed(0) + 'ms');
         if (pendingAction) {
           ws.send(JSON.stringify(pendingAction));
           pendingAction = null;
@@ -359,6 +361,7 @@
       };
 
       ws.onclose = function(event) {
+        console.log('[EllaFi] WS close', event.code, performance.now().toFixed(0) + 'ms');
         ws = null;
         if (!document.getElementById('statusBox').classList.contains('status-loading')) {
           const st = document.getElementById('statusText');
@@ -551,6 +554,7 @@
       document.getElementById('openBrowserBtn').style.display = 'block';
     }
 
+    console.log('[EllaFi] page JS ready', performance.now().toFixed(0) + 'ms');
     connectWebSocket();
   </script>
 </body>

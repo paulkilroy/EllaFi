@@ -3,8 +3,9 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
-#define LED_NOTIFY_START 1
-#define LED_NOTIFY_STOP  2
+#define LED_NOTIFY_READY 0  // end startup blink → solid idle
+#define LED_NOTIFY_START 1  // begin coin-insert blink
+#define LED_NOTIFY_STOP  2  // end coin-insert blink → solid idle
 
 extern TaskHandle_t LED_TASK;  // notify with LED_NOTIFY_START to begin blinking, LED_NOTIFY_STOP to end
 
