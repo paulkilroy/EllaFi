@@ -19,9 +19,3 @@ Current values are estimates. Collect real timing data from serial logs on devic
 - Run a full coin auth, extend, pause, and resume session against the real cloud controller
 - Update `DELAYS` in `test/mock_omada.py` with measured p50/p90 values per call type
 
-## LED: blink at startup, solid when ready
-Replace dim-init-color → bright-idle-color with:
-- `ledSetup()`: start blinking red ↔ idle color (slow, ~500ms) to indicate booting
-- `ledReady()`: stop blinking, go solid idle color
-Needs a `LED_NOTIFY_INIT` value on ledTask (or reuse ledTask with a new startup-blink mode)
-so the blink happens on the task without blocking setup().

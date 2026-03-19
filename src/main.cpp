@@ -500,9 +500,7 @@ esp_err_t handleRoot(PsychicRequest *request, PsychicResponse *response) {
   response->addHeader("Connection", "close");
 
   PsychicFileResponse fileResponse(response, LittleFS, "/index.html");
-  esp_err_t err = fileResponse.send();
-  ESP_LOGI(TAG, "handleRoot: file send done (%s)", err == ESP_OK ? "ok" : "err");
-  return err;
+  return fileResponse.send();
 }
 
 esp_err_t handleNotFound(PsychicRequest *request, PsychicResponse *response) {
