@@ -4,8 +4,13 @@
 // → Right arrow: next step
 // ← Left arrow:  previous step
 
-if (ws) { ws.onclose = null; ws.close(); ws = null; }
+connectWebSocket = () => {};
 scheduleReconnect = () => {};
+if (ws) {
+  ws.onopen = null; ws.onclose = null; ws.onerror = null; ws.onmessage = null;
+  if (ws.readyState !== WebSocket.CONNECTING) ws.close();
+  ws = null;
+}
 document.getElementById('statusBox').classList.remove('status-loading');
 
 const mac = 'AA:BB:CC:DD:EE:FF';

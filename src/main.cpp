@@ -175,7 +175,13 @@ SemaphoreHandle_t   COIN_STATE_MUTEX    = NULL;
 
 // ISR-only — written by coinPulse(); no mutex needed
 volatile unsigned long LAST_COIN_PULSE_TIME = 0; // just used for debouncing
-const unsigned long COIN_DEBOUNCE_MILLIS  = 300;
+const unsigned long COIN_DEBOUNCE_MILLIS         = 300;
+const unsigned long MILLIS_PER_MINUTE            = 60000UL;
+const unsigned long WIFI_RETRY_DELAY_MILLIS      = 5000;
+const unsigned long UPDATE_CLIENT_INTERVAL_MILLIS = 500;
+const time_t        NTP_EPOCH_MIN                = 1000000000L;  // Sep 9 2001 — any valid synced clock exceeds this
+const int           NTP_SYNC_RETRIES             = 20;
+const int           COIN_PULSE_SEM_MAX           = 100;
 
 // Gated by COIN_INSERT_ACTIVE — valid only while a session is active or processing
 volatile bool COIN_INSERT_ACTIVE = false;  // true from startCoinInsert until finalizeCoinInsert completes
@@ -292,7 +298,7 @@ void coinPulseTask(void*) {
 // No-op when no session is active.
 void updateClientTask(void*) {
   for (;;) {
-    xTaskNotifyWait(0, ULONG_MAX, NULL, pdMS_TO_TICKS(500));
+    xTaskNotifyWait(0, ULONG_MAX, NULL, pdMS_TO_TICKS(UPDATE_CLIENT_INTERVAL_MILLIS));
     if (COIN_INSERT_ACTIVE) pushCoinUpdateToClient();
   }
 }
@@ -357,10 +363,10 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED) {
     if(WiFi.status() == WL_NO_SSID_AVAIL) {
       ESP_LOGE(TAG, "WiFi network not found: %s", AP_SSID.c_str());
-      delay(5000);
+      delay(WIFI_RETRY_DELAY_MILLIS);
     } else if(WiFi.status() == WL_CONNECT_FAILED) {
       ESP_LOGE(TAG, "WiFi connection failed with provided credentials");
-      delay(5000);
+      delay(WIFI_RETRY_DELAY_MILLIS);
     } else {
       delay(500);
       ESP_LOGI(TAG, ".");
@@ -377,8 +383,8 @@ void setup() {
   {
     time_t now = 0;
     int retries = 0;
-    while (now < 1000000000L && retries++ < 20) { delay(500); time(&now); }
-    if (now < 1000000000L) {
+    while (now < NTP_EPOCH_MIN && retries++ < NTP_SYNC_RETRIES) { delay(500); time(&now); }
+    if (now < NTP_EPOCH_MIN) {
       ESP_LOGW(TAG, "NTP sync timed out — epoch timestamps may be incorrect");
     } else {
       ESP_LOGI(TAG, "NTP sync OK: epoch=%lld", (long long)now);
@@ -420,7 +426,7 @@ void setup() {
     COIN_INSERT_TIMER = xTimerCreate("CoinTimer", pdMS_TO_TICKS(COIN_INSERT_TIMEOUT), pdFALSE, NULL, coinTimerCallback);
   }
   OMADA_JOB_QUEUE   = xQueueCreate(8, sizeof(OmadaJob));
-  COIN_PULSE_SEM = xSemaphoreCreateCounting(100, 0);
+  COIN_PULSE_SEM = xSemaphoreCreateCounting(COIN_PULSE_SEM_MAX, 0);
 
   if (COIN_STATE_MUTEX == NULL || OMADA_API_MUTEX == NULL ||
       COIN_FINALIZE_SEM == NULL ||
@@ -445,7 +451,7 @@ void loop() {
 
   // Scheduled daily reboot at 3:00 AM UTC — simplest way to keep memory and cache clean
   static unsigned long lastRebootCheck = 0;
-  if (millis() - lastRebootCheck > 60000) {
+  if (millis() - lastRebootCheck > MILLIS_PER_MINUTE) {
     lastRebootCheck = millis();
     time_t now = time(NULL);
     struct tm* t = gmtime(&now);
@@ -678,7 +684,7 @@ void finalizeCoinInsert() {
   SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(COIN_CLIENT_IP);
 
   if (coinCount > 0 && session) {
-    unsigned long long additionalMillis = coinCount * MINUTES_PER_COIN * 60000ULL;
+    unsigned long long additionalMillis = coinCount * MINUTES_PER_COIN * MILLIS_PER_MINUTE;
     uint64_t nowMillis = nowEpochMillis();
 
     if (session->sessionEndMillis > nowMillis && !session->clientId.isEmpty()) {
@@ -686,7 +692,7 @@ void finalizeCoinInsert() {
       ESP_LOGI(TAG, "Extending %s: +%d min (%d remaining)",
                session->clientMac.c_str(),
                coinCount * MINUTES_PER_COIN,
-               (int)((session->sessionEndMillis - nowMillis) / 60000));
+               (int)((session->sessionEndMillis - nowMillis) / MILLIS_PER_MINUTE));
 
       if (extendOmadaClient(*session, additionalMillis, errorDetail)) {
         success = true;
@@ -788,7 +794,7 @@ void processResume(const String& mac) {
   }
 
   ESP_LOGI(TAG, "Resuming client %s for %d minutes (%lu millis saved)",
-           params->clientMac.c_str(), (int)(pausedRemainingMillis / 60000), pausedRemainingMillis);
+           params->clientMac.c_str(), (int)(pausedRemainingMillis / MILLIS_PER_MINUTE), pausedRemainingMillis);
 
   String errorDetail;
   if (authenticateOmadaClient(*params, (unsigned long long)pausedRemainingMillis, errorDetail)) {
