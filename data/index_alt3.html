@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="http://ellafi.local">
+  <title>Coin WiFi</title>
+  <style>
+    :root {
+      --blue-bg-top: #0066cc;
+      --blue-bg-bot: #004499;
+      --gold: #ffd700;
+      --orange: #ff6b00;
+      --yellow-btn: #f39c12;
+      --green-btn: #27ae60;
+      --green-dark: #1e8449;
+      --white: #ffffff;
+      --card-bg: #ffffff;
+      --red: #e74c3c;
+      --text-dark: #1a1a1a;
+      --text-sub: #555;
+      --radius: 14px;
+      --radius-sm: 8px;
+      --radius-pill: 30px;
+    }
+
+    body {
+      font-family: 'Arial Black', Impact, Arial, sans-serif;
+      margin: 0;
+      padding: 10px;
+      background: linear-gradient(160deg, var(--blue-bg-top) 0%, var(--blue-bg-bot) 100%);
+      min-height: 100vh;
+    }
+
+    .container {
+      background-color: var(--card-bg);
+      padding: 0;
+      max-width: 500px;
+      margin: 20px auto;
+      border-radius: var(--radius);
+      border-top: 4px solid var(--gold);
+      color: var(--text-dark);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.35);
+      overflow: hidden;
+    }
+
+    .card-body {
+      padding: 20px 20px 0;
+    }
+
+    /* Logo */
+    .logo-container {
+      text-align: center;
+      margin-bottom: 16px;
+    }
+    .logo-container img {
+      max-width: 160px;
+      height: auto;
+      border-radius: var(--radius-sm);
+    }
+
+    /* Status box */
+    .status-box {
+      color: var(--text-dark);
+      border: none;
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      margin: 12px 0;
+      font-weight: 900;
+      text-align: center;
+      font-size: 17px;
+      background-color: #f0f4f8;
+    }
+
+    .status-loading {
+      filter: blur(4px);
+      opacity: 0.3;
+      transition: filter 0.25s ease, opacity 0.25s ease;
+    }
+
+    .blinking-red { animation: blinkRed 1.2s infinite; }
+    @keyframes blinkRed {
+      0%, 49% { color: var(--red); }
+      60%, 99% { color: transparent; }
+    }
+    .blinking-yellow { animation: blinkYellow 1.2s infinite; }
+    @keyframes blinkYellow {
+      0%, 49% { color: var(--yellow-btn); }
+      60%, 99% { color: transparent; }
+    }
+    .blinking-green { animation: blinkGreen 1.2s infinite; }
+    @keyframes blinkGreen {
+      0%, 49% { color: var(--green-btn); }
+      60%, 99% { color: transparent; }
+    }
+    .blinking-blue { animation: blinkBlue 1.2s infinite; }
+    @keyframes blinkBlue {
+      0%, 49% { color: var(--blue-bg-top); }
+      60%, 99% { color: transparent; }
+    }
+
+    /* Status badge: bright colored rounded rectangle */
+    .status-badge {
+      display: inline-block;
+      padding: 3px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      vertical-align: middle;
+    }
+    .status-badge.connected {
+      background: var(--green-btn);
+      color: var(--white);
+    }
+    .status-badge.disconnected {
+      background: var(--red);
+      color: var(--white);
+    }
+
+    /* Expiration / Pause holder */
+    .status-holder {
+      padding: 12px 16px;
+      margin: 10px 0;
+      border-radius: var(--radius-sm);
+      background-color: #f8faff;
+      border: 2px solid #d0dff5;
+    }
+
+    .info-title {
+      padding: 10px 14px;
+      margin-bottom: 10px;
+      color: var(--text-dark);
+      border: 2px solid #d0dff5;
+      border-radius: var(--radius-sm);
+      font-weight: 900;
+      font-size: 15px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      background: #f4f8ff;
+    }
+
+    /* Very large time display */
+    .info-title span#expirationTime,
+    .info-title span#pausedTime {
+      display: block;
+      font-size: 36px;
+      font-weight: 900;
+      color: var(--blue-bg-top);
+      margin-top: 6px;
+      letter-spacing: -0.01em;
+    }
+
+    #expiryBar {
+      position: absolute;
+      top: 0; left: 0;
+      height: 100%;
+      width: 0%;
+      background: rgba(39, 174, 96, 0.10);
+    }
+
+    #pausedBar {
+      position: absolute;
+      top: 0; left: 0;
+      height: 100%;
+      width: 100%;
+      background: rgba(243, 156, 18, 0.10);
+    }
+
+    .info-value {
+      font-size: 22px;
+      font-weight: 900;
+      margin-top: 5px;
+      text-align: center;
+    }
+
+    /* Buttons */
+    .btn {
+      width: 100%;
+      padding: 16px;
+      margin: 8px 0;
+      border: none;
+      border-radius: var(--radius-pill);
+      font-size: 17px;
+      font-weight: 900;
+      cursor: pointer;
+      letter-spacing: 0.03em;
+      font-family: 'Arial Black', Impact, Arial, sans-serif;
+      transition: filter 0.15s ease, transform 0.1s ease;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.25);
+    }
+    .btn:active { transform: scale(0.97); filter: brightness(0.9); }
+
+    .btn-success { background-color: var(--orange); color: var(--white); }
+    .btn-success:hover { filter: brightness(1.08); }
+    .btn-warning { background-color: var(--yellow-btn); color: var(--white); }
+    .btn-warning:hover { filter: brightness(1.08); }
+    .btn-danger { background-color: var(--red); color: var(--white); }
+    .btn-danger:hover { filter: brightness(1.08); }
+    .btn-primary { background-color: var(--green-btn); color: var(--white); }
+    .btn-primary:hover { filter: brightness(1.08); }
+
+    /* Bottom info strip */
+    .info-strip {
+      background: var(--blue-bg-bot);
+      color: var(--white);
+      padding: 10px 16px;
+      margin-top: 16px;
+      text-align: center;
+      font-size: 11px;
+      font-family: Arial, sans-serif;
+      font-weight: 400;
+    }
+    .info-strip .info-ip, .info-strip .info-mac {
+      display: inline-block;
+      margin: 2px 8px;
+    }
+
+    /* Hidden info div — JS targets clientIp / clientMac spans inside */
+    .info { display: none; }
+
+    /* Open browser btn — place above strip */
+    #openBrowserBtn {
+      display: block;
+      padding: 0 0 8px;
+    }
+
+    .btn-strip-area {
+      padding: 0 20px;
+    }
+
+    /* Modals */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background-color: rgba(0, 30, 80, 0.88);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal-overlay.show { display: flex; }
+
+    /* Coin modal: blue background, giant peso, yellow coin count */
+    #coinModal .modal-content {
+      background: linear-gradient(160deg, var(--blue-bg-top) 0%, var(--blue-bg-bot) 100%);
+      border: 3px solid var(--gold);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      max-width: 500px;
+      width: 90%;
+      color: var(--white);
+      box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+    }
+
+    #coinModal .status-box {
+      background: rgba(255,255,255,0.12);
+      color: var(--white);
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+    }
+
+    .peso-giant {
+      font-size: 72px;
+      font-weight: 900;
+      color: var(--white);
+      text-align: center;
+      line-height: 1;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+
+    .coin-display {
+      font-size: 42px;
+      font-weight: 900;
+      text-align: center;
+      color: var(--gold);
+      margin: 0 0 8px;
+      text-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+
+    .requesting-time {
+      font-size: 22px;
+      font-weight: 900;
+      color: var(--white);
+      margin: 8px 0 16px;
+      text-align: center;
+      letter-spacing: 0.05em;
+    }
+
+    /* Processing modal: blue with white spinner + PLEASE WAIT */
+    #processingModal .modal-content {
+      background: linear-gradient(160deg, var(--blue-bg-top) 0%, var(--blue-bg-bot) 100%);
+      border: 3px solid var(--white);
+      border-radius: var(--radius);
+      padding: 32px 24px;
+      max-width: 320px;
+      width: 90%;
+      color: var(--white);
+      text-align: center;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+    }
+
+    #processingModal .status-box {
+      display: none; /* replaced by spinner below */
+    }
+
+    .spinner-white {
+      width: 56px; height: 56px;
+      border: 5px solid rgba(255,255,255,0.25);
+      border-top-color: var(--white);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .please-wait-text {
+      font-size: 20px;
+      font-weight: 900;
+      color: var(--white);
+      letter-spacing: 0.12em;
+      margin-bottom: 8px;
+    }
+
+    /* Progress bar */
+    .progress {
+      height: 32px;
+      background-color: rgba(255,255,255,0.2);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      margin: 15px 0;
+      position: relative;
+    }
+
+    #coinModal .progress {
+      background-color: rgba(255,255,255,0.15);
+    }
+
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--gold) 0%, var(--orange) 100%);
+      transition: width 1s linear;
+      float: right;
+      border-radius: var(--radius-sm);
+    }
+
+    .progress-bar.knight-rider {
+      float: none;
+      position: absolute;
+      width: 55%;
+      transition: none;
+      background: var(--white);
+      border-radius: var(--radius-sm);
+      box-shadow: 0 0 12px rgba(255,255,255,0.6);
+      animation: knightRider 1.6s ease-in-out infinite alternate;
+    }
+    @keyframes knightRider {
+      from { left: -55%; }
+      to   { left: 100%; }
+    }
+
+    .progress-text {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900;
+      color: var(--white);
+      font-size: 13px;
+      font-family: Arial, sans-serif;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+      z-index: 1;
+    }
+
+    /* Error popup */
+    .error-popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: var(--red);
+      color: white;
+      padding: 20px 30px;
+      border-radius: var(--radius);
+      box-shadow: 0 8px 30px rgba(231,76,60,0.5);
+      font-weight: 900;
+      font-size: 16px;
+      text-align: center;
+      z-index: 2000;
+      display: none;
+      width: 80%;
+      animation: fadeIn 0.3s ease-in;
+      font-family: Arial, sans-serif;
+    }
+    .error-popup.show { display: block; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translate(-50%, -60%); }
+      to   { opacity: 1; transform: translate(-50%, -50%); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="mainContainer">
+    <div class="card-body">
+      <div class="logo-container">
+        <img src="EllaFi.webp" alt="EllaFi Logo">
+      </div>
+
+      <div class="status-box status-loading" id="statusBox">
+        Status: <span id="statusText" class="blinking-red">Disconnected</span>
+      </div>
+
+      <div id="expirationBar" class="status-holder" style="display: none;">
+        <div class="info-title">
+          <div id="expiryBar"></div>
+          Expires:<br>
+          <span id="expirationTime"></span>
+        </div>
+      </div>
+
+      <div id="pauseBar" class="status-holder" style="display: none;">
+        <div class="info-title">
+          <div id="pausedBar"></div>
+          Remaining:<br>
+          <span id="pausedTime"></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-strip-area">
+      <button class="btn btn-warning" id="pauseBtn" style="display: none;" onclick="pauseSession()">PAUSE</button>
+      <button class="btn btn-primary" id="resumeBtn" style="display: none;" onclick="resumeSession()">RESUME</button>
+      <button class="btn btn-success" id="insertBtn" style="display: block;" onclick="insertCoins()">INSERT COINS</button>
+
+      <!-- openBrowserBtn inside strip area so it inherits padding -->
+      <a id="openBrowserBtn" href="http://ellaFi.local" style="display:none; text-decoration:none;">
+        <button class="btn btn-primary" style="margin-bottom: 12px;">Open EllaFi.local</button>
+      </a>
+    </div>
+
+    <!-- Hidden spans that JS writes to — displayed in the blue info strip below -->
+    <div class="info" aria-hidden="true">
+      <div class="info-ip"><span id="clientIp">Loading...</span></div>
+      <div class="info-mac"><span id="clientMac">Loading...</span></div>
+    </div>
+
+    <!-- Blue bottom strip shows IP / MAC -->
+    <div class="info-strip">
+      <div class="info-ip">
+        <svg width="14" height="14" viewBox="1 1 13 15" style="vertical-align: middle;" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 3C5.79086 3 4 4.79086 4 7C4 9.5 8 14 8 14C8 14 10 11.5 10.5 9.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M9.2 4.5C9.8 3.9 10 3.5 10 3.2C10.2 3.1 9.5 3 8 3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <text x="8" y="10" font-family="Arial" font-size="8" font-weight="bold" fill="currentColor" text-anchor="middle">IP</text>
+        </svg>
+        IP: <span id="clientIpDisplay">Loading...</span>
+      </div>
+      <div class="info-mac">
+        <svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align: middle;" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3" y="4" width="18" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M9 16 L12 19 L15 16" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="8" y1="19" x2="16" y2="19" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M7 10 L10 13 L17 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        MAC: <span id="clientMacDisplay">Loading...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Coin modal: blue bg, giant peso, yellow coin amount -->
+  <div class="modal-overlay" id="coinModal">
+    <div class="modal-content">
+      <div class="modal-body" style="padding: 0;">
+        <div class="status-box">Status: <span class="blinking-yellow">Insert Coins</span></div>
+        <div class="peso-giant">&#x20B1;</div>
+        <div class="coin-display"><span id="modalCoins">0</span></div>
+        <div class="requesting-time"><span id="requestingMinutes">0</span></div>
+        <div class="progress">
+          <div class="progress-bar" id="progressBar" style="width: 100%;"></div>
+          <div class="progress-text" id="progressText">10 seconds remaining</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Processing modal: blue with white spinner and PLEASE WAIT -->
+  <div class="modal-overlay" id="processingModal">
+    <div class="modal-content">
+      <div class="modal-body" style="padding: 0;">
+        <!-- status-box kept hidden for JS compatibility -->
+        <div class="status-box">Status: <span class="blinking-blue">Processing</span></div>
+        <div class="spinner-white"></div>
+        <div class="please-wait-text" id="processingText">PLEASE WAIT</div>
+        <div class="progress" style="margin-top: 16px;">
+          <div class="progress-bar knight-rider" id="processingBar"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="error-popup" id="errorPopup"></div>
+
+  <script>
+    let ws = null;
+    let pendingAction = null;
+    let expiryTimer = null;
+    let coinInsertMode = false;
+    let processingMode = false;
+
+    function formatMinutesToHM(totalMinutes) {
+      const hours = Math.floor(totalMinutes / 60);
+      const mins = totalMinutes % 60;
+      return (hours < 10 ? '0' : '') + hours + ' H : ' + (mins < 10 ? '0' : '') + mins + ' M';
+    }
+
+    function showErrorPopup(message, detail) {
+      const popup = document.getElementById('errorPopup');
+      popup.innerHTML = message;
+      if (detail) {
+        popup.innerHTML += '<div style="font-size:12px;font-weight:normal;margin-top:6px;opacity:0.85">' + detail + '</div>';
+      }
+      popup.classList.add('show');
+      setTimeout(() => { popup.classList.remove('show'); }, detail ? 5000 : 3000);
+    }
+
+    function showRefundable(data) {
+      document.getElementById('statusText').className = 'blinking-red';
+      document.getElementById('statusText').textContent = 'Payment error';
+      document.getElementById('expirationBar').style.display = 'none';
+      document.getElementById('pauseBar').style.display = 'none';
+      document.getElementById('pauseBtn').style.display = 'none';
+      document.getElementById('resumeBtn').style.display = 'none';
+      document.getElementById('insertBtn').style.display = 'none';
+      document.getElementById('statusBox').classList.remove('status-loading');
+      const popup = document.getElementById('errorPopup');
+      let html = 'Payment error \u2014 coins not applied. Show this code to the operator:';
+      if (data.refundCode) {
+        html += '<div style="font-size:28px;font-weight:bold;letter-spacing:6px;margin:10px 0;font-family:monospace">' + data.refundCode + '</div>';
+      }
+      if (data.coins && data.minutes) {
+        html += '<div style="font-size:13px;font-weight:normal;margin-bottom:4px">' + data.coins + ' coin' + (data.coins !== 1 ? 's' : '') + ' \u00b7 ' + data.minutes + ' minutes owed</div>';
+      }
+      if (data.message) {
+        html += '<div style="font-size:11px;font-weight:normal;margin-top:4px;opacity:0.75">' + data.message + (data.detail ? ': ' + data.detail : '') + '</div>';
+      }
+      popup.innerHTML = html;
+      popup.style.backgroundColor = '#c0392b';
+      popup.classList.add('show');
+    }
+
+    function showNoSession(detail) {
+      document.getElementById('statusText').className = 'blinking-red';
+      document.getElementById('statusText').textContent = 'No session';
+      document.getElementById('expirationBar').style.display = 'none';
+      document.getElementById('pauseBar').style.display = 'none';
+      document.getElementById('pauseBtn').style.display = 'none';
+      document.getElementById('resumeBtn').style.display = 'none';
+      document.getElementById('insertBtn').style.display = 'none';
+      document.getElementById('statusBox').classList.remove('status-loading');
+      const popup = document.getElementById('errorPopup');
+      popup.innerHTML = 'No active session — turn WiFi off and on again on your device, then refresh this page';
+      if (detail) {
+        popup.innerHTML += '<div style="font-size:11px;font-weight:normal;margin-top:6px;opacity:0.75">' + detail + '</div>';
+      }
+      popup.style.backgroundColor = '#c0392b';
+      popup.classList.add('show');
+    }
+
+    function connectWebSocket() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        return;
+      }
+
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+        ws = null;
+      }
+
+      const host = window.location.host;
+      console.log('[EllaFi] WS connecting', performance.now().toFixed(0) + 'ms');
+      ws = new WebSocket('ws://' + host + '/ws');
+
+      ws.onopen = function() {
+        console.log('[EllaFi] WS open', performance.now().toFixed(0) + 'ms');
+        if (pendingAction) {
+          ws.send(JSON.stringify(pendingAction));
+          pendingAction = null;
+        } else {
+          ws.send(JSON.stringify({ action: 'getStatus' }));
+        }
+      };
+
+      ws.onmessage = function(event) {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (e) {
+          showErrorPopup('Invalid JSON from server', event.data);
+          return;
+        }
+        handleServerMessage(data);
+      };
+
+      ws.onclose = function(event) {
+        console.log('[EllaFi] WS close', event.code, performance.now().toFixed(0) + 'ms');
+        ws = null;
+        if (!document.getElementById('statusBox').classList.contains('status-loading')) {
+          const st = document.getElementById('statusText');
+          st.className = 'blinking-yellow';
+          st.textContent = 'Reconnecting...';
+          document.getElementById('expirationBar').style.display = 'none';
+          document.getElementById('pauseBar').style.display = 'none';
+          document.getElementById('pauseBtn').style.display = 'none';
+          document.getElementById('resumeBtn').style.display = 'none';
+          document.getElementById('insertBtn').style.display = 'none';
+        }
+        scheduleReconnect();
+      };
+
+      ws.onerror = function() {};
+    }
+
+    function scheduleReconnect() {
+      setTimeout(connectWebSocket, 1000);
+    }
+
+    function handleServerMessage(data) {
+      if (data.type === 'authenticated') {
+        window.location.reload();
+      } else if (data.type === 'status') {
+        updateUI(data);
+      } else if (data.type === 'paused' || data.type === 'resumed') {
+        stopProcessing();
+        updateUI(data);
+      } else if (data.type === 'error') {
+        stopCoinInsert();
+        stopProcessing();
+        if (data.subtype === 'no_session') {
+          showNoSession(data.message);
+        } else if (data.subtype === 'refundable') {
+          showRefundable(data);
+        } else {
+          showErrorPopup(data.message || 'Server error', data.detail);
+        }
+      } else {
+        showErrorPopup('Unknown message type: ' + data.type, JSON.stringify(data));
+      }
+    }
+
+    // Reconnect when tab becomes visible — always force fresh connection on iOS
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden) {
+        if (ws) { ws.onclose = null; ws.close(); ws = null; }
+        connectWebSocket();
+      }
+    });
+
+    function stopCoinInsert() {
+      coinInsertMode = false;
+      document.getElementById('coinModal').classList.remove('show');
+    }
+
+    function showProcessing() {
+      processingMode = true;
+      document.getElementById('processingModal').classList.add('show');
+    }
+
+    function stopProcessing() {
+      processingMode = false;
+      document.getElementById('processingModal').classList.remove('show');
+    }
+
+    function showCoinInsert(data) {
+      coinInsertMode = true;
+      processingMode = false;
+      document.getElementById('coinModal').classList.add('show');
+      document.getElementById('progressBar').style.width = (data.coinInsertTimeLeft / 10) * 100 + '%';
+      document.getElementById('progressText').textContent = data.coinInsertTimeLeft + ' seconds remaining';
+      document.getElementById('modalCoins').textContent = data.coinCount;
+      document.getElementById('requestingMinutes').textContent = formatMinutesToHM(data.coinCount * data.minutesPerCoin);
+    }
+
+    function showPaused(data) {
+      document.getElementById('statusText').className = 'blinking-yellow';
+      document.getElementById('statusText').textContent = 'Paused';
+      document.getElementById('expirationBar').style.display = 'none';
+      document.getElementById('pausedTime').textContent = formatMinutesToHM(Math.ceil(data.pausedRemainingMillis / 60000));
+      document.getElementById('pauseBar').style.display = '';
+      document.getElementById('pauseBtn').style.display = 'none';
+      document.getElementById('resumeBtn').style.display = 'block';
+      document.getElementById('insertBtn').style.display = 'none';
+    }
+
+    function showConnected(data) {
+      const expiresInMillis = data.sessionEndMillis - Date.now();
+      document.getElementById('statusText').className = 'blinking-green';
+      document.getElementById('statusText').textContent = 'Connected';
+      document.getElementById('expirationTime').textContent = new Date(data.sessionEndMillis).toLocaleString([], {
+        month: '2-digit', day: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      }).replace(',', '');
+      document.getElementById('expirationBar').style.display = '';
+      document.getElementById('pauseBar').style.display = 'none';
+      const bar = document.getElementById('expiryBar');
+      bar.style.transition = 'none';
+      bar.style.width = (expiresInMillis / (data.sessionEndMillis - data.sessionStartMillis) * 100).toFixed(2) + '%';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        bar.style.transition = 'width ' + (expiresInMillis / 1000).toFixed(1) + 's linear';
+        bar.style.width = '0%';
+      }));
+      document.getElementById('pauseBtn').style.display = 'block';
+      document.getElementById('resumeBtn').style.display = 'none';
+      document.getElementById('insertBtn').style.display = 'block';
+
+      if (expiryTimer) clearTimeout(expiryTimer);
+      expiryTimer = setTimeout(function() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ action: 'getStatus' }));
+        } else {
+          // Server unreachable — flip to disconnected locally so UI isn't stale
+          updateUI({ type: 'status', sessionEndMillis: 0, pausedRemainingMillis: 0, coinInsertTimeLeft: 0 });
+        }
+      }, expiresInMillis + 1000);
+    }
+
+    function showDisconnected() {
+      document.getElementById('statusText').className = 'blinking-red';
+      document.getElementById('statusText').textContent = 'Disconnected';
+      document.getElementById('expirationBar').style.display = 'none';
+      document.getElementById('pauseBar').style.display = 'none';
+      document.getElementById('pauseBtn').style.display = 'none';
+      document.getElementById('resumeBtn').style.display = 'none';
+      document.getElementById('insertBtn').style.display = 'block';
+    }
+
+    function updateUI(data) {
+      document.getElementById('statusBox').classList.remove('status-loading');
+      if (data.clientMac) {
+        document.getElementById('clientMac').textContent = data.clientMac;
+        document.getElementById('clientMacDisplay').textContent = data.clientMac;
+      }
+      if (data.clientIp) {
+        document.getElementById('clientIp').textContent = data.clientIp;
+        document.getElementById('clientIpDisplay').textContent = data.clientIp;
+      }
+      document.getElementById('errorPopup').classList.remove('show');
+
+      if (data.coinInsertTimeLeft > 0) {
+        showCoinInsert(data);
+        return;
+      }
+      // If we were showing coin insert but server says time left is 0, switch to processing
+      if (coinInsertMode) {
+        stopCoinInsert();
+        showProcessing();
+        return;
+      }
+      // While processing auth, ignore all status updates — only authenticated/error/paused exit this state
+      if (processingMode) return;
+
+      if (data.pausedRemainingMillis > 0) {
+        showPaused(data);
+      } else if (data.sessionEndMillis > Date.now()) {
+        showConnected(data);
+      } else {
+        showDisconnected();
+      }
+    }
+
+    function insertCoins() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        pendingAction = { action: 'startCoinInsert' };
+
+        connectWebSocket();
+        return;
+      }
+      ws.send(JSON.stringify({ action: 'startCoinInsert' }));
+    }
+
+    function pauseSession() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        pendingAction = { action: 'pause' };
+        connectWebSocket();
+        return;
+      }
+      showProcessing();
+      ws.send(JSON.stringify({ action: 'pause' }));
+    }
+
+    function resumeSession() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        pendingAction = { action: 'resume' };
+        connectWebSocket();
+        return;
+      }
+      showProcessing();
+      ws.send(JSON.stringify({ action: 'resume' }));
+    }
+
+    if (new URLSearchParams(window.location.search).has('clientMac')) {
+      document.getElementById('openBrowserBtn').style.display = 'block';
+    }
+
+    console.log('[EllaFi] page JS ready', performance.now().toFixed(0) + 'ms');
+    connectWebSocket();
+  </script>
+</body>
+</html>

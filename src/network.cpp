@@ -1,4 +1,5 @@
 #include "network.h"
+#include "coin.h"
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
@@ -14,11 +15,6 @@ String MASTER_MAC;
 uint64_t NET_PSK = 0;
 
 static WiFiUDP udp;
-
-// Defined in main.cpp
-extern void masterRecvCoinInserted();
-extern void slaveRecvCoinInsertStart();
-extern void slaveRecvCoinInsertEnd();
 
 bool isMaster() {
   String own = WiFi.macAddress();
@@ -64,7 +60,7 @@ void networkLoop() {
   }
 }
 
-// Wire format: [uint16_t type][uint16_t psk] — 4 bytes total
+// Wire format: [uint16_t type][uint64_t psk] — 10 bytes total
 static void netSend(NetMsgType type) {
   udp.beginPacket(IPAddress(255, 255, 255, 255), NET_PORT);
   udp.write((const uint8_t*)&type,    sizeof(type));
@@ -72,7 +68,7 @@ static void netSend(NetMsgType type) {
   udp.endPacket();
 }
 
-void masterBroadcastCoinInserted() {
+void masterBroadcastSessionStart() {
   netSend(NET_MSG_SESSION_START);
   ESP_LOGI(TAG, "UDP broadcast session_start");
 }

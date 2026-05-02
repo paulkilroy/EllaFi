@@ -1,4 +1,5 @@
 #include "led.h"
+#include "globals.h"
 
 #include <esp_log.h>
 
@@ -22,10 +23,30 @@ void ledSetup() {
   LED_STRIP.clear();
   LED_STRIP.show();
 #endif
+  // COINSLOT_POWER_PIN and its initial state are set in setup() before ledSetup() is called
 }
 
 void ledReady() {
   if (LED_TASK) xTaskNotify(LED_TASK, LED_NOTIFY_READY, eSetValueWithOverwrite);
+}
+
+void ledHalt() {
+  digitalWrite(COINSLOT_POWER_PIN, LOW);  // cut coin slot power immediately
+#ifdef HAS_RGB_LED
+  if (LED_TASK) vTaskSuspend(LED_TASK);  // stop task fighting us for the strip
+  LED_STRIP.begin();
+  LED_STRIP.setBrightness(80);
+  for (;;) {
+    LED_STRIP.setPixelColor(0, LED_STRIP.Color(255, 0, 0));
+    LED_STRIP.show();
+    delay(100);
+    LED_STRIP.clear();
+    LED_STRIP.show();
+    delay(100);
+  }
+#else
+  for (;;);
+#endif
 }
 
 // Notify LED_TASK with LED_NOTIFY_START to begin blinking, LED_NOTIFY_STOP to end.
@@ -43,14 +64,17 @@ void ledTask(void*) {
       if (val == LED_NOTIFY_READY) {
         booting  = false;
         blinking = false;
+        if (!COINSLOT_PROGRAM_MODE) digitalWrite(COINSLOT_POWER_PIN, LOW);
         LED_STRIP.setPixelColor(0, idleColor);
         LED_STRIP.show();
       } else if (val == LED_NOTIFY_START) {
         booting  = false;
         blinking = true;
         flashOn  = false;
+        if (!COINSLOT_PROGRAM_MODE) digitalWrite(COINSLOT_POWER_PIN, HIGH);
       } else if (val == LED_NOTIFY_STOP) {
         blinking = false;
+        if (!COINSLOT_PROGRAM_MODE) digitalWrite(COINSLOT_POWER_PIN, LOW);
         LED_STRIP.setPixelColor(0, idleColor);
         LED_STRIP.show();
       }

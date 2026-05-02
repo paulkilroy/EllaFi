@@ -24,7 +24,7 @@ void networkSetup();
 void networkLoop();
 
 // Master → slaves: broadcast that a coin session has started / ended.
-void masterBroadcastCoinInserted();
+void masterBroadcastSessionStart();
 void masterBroadcastSessionEnd();
 
 // Slave → master: report a coin pulse.

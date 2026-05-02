@@ -12,3 +12,4 @@ extern TaskHandle_t LED_TASK;  // notify with LED_NOTIFY_START to begin blinking
 void ledSetup();      // initialize strip with dim init color; call after role is known
 void ledReady();      // switch to full idle color; call at end of setup()
 void ledTask(void*);  // FreeRTOS task — notify to start blinking, notify again to stop
+void ledHalt();       // fast red blink forever — safe before or after task starts; never returns

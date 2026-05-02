@@ -21,9 +21,29 @@ Coin-operated WiFi hotspot portal for ESP32, built for TP-Link Omada controller 
 ## Hardware
 
 - ESP32 (tested on ESP32-S3 DevKitC-1)
-- Coin acceptor wired to GPIO (default: GPIO0 / BOOT button for testing)
+- Coin acceptor wired to GPIO5 via PC817 optocoupler (GPIO0 / BOOT button also works for testing)
 - TP-Link Omada controller with hotspot operator account
 - Omada EAP access points on the same LAN
+
+### Coin Acceptor Wiring
+
+```
+                    P6KE6.8A
+Coin acceptor SIG ──┬── (Cathode up, Anode to GND) ── GND
+                    │
+                    └── PC817 PIN2 (Cathode)
+
+3.3V ─────────────── PC817 PIN1 (Anode)
+                     PC817 PIN3 (Emitter) ──── GND
+                     PC817 PIN4 (Collector) ── 10kΩ ──── GPIO4
+
+Coin acceptor GND ──────────────────────────────────── GND (shared)
+```
+
+- **PC817** — optocoupler for galvanic isolation between coin acceptor and 3.3V ESP32
+- **10kΩ** (output side) — current limiting on collector; GPIO4 uses internal pull-up
+- **P6KE6.8A TVS diode** — clamps piezo lighter spikes (10-20kV) to GND before they reach the PC817; cathode to SIG line, anode to GND; rated 600W peak pulse, effectively unlimited lifetime at 1 spike/second
+- **Anti-pitik (software)** — ISR triggers on CHANGE (both edges) on both GPIO4 (coin slot) and GPIO0 (boot button); measures pulse width, rejects anything under 5ms. Piezo spikes attenuated by PC817 to ~5µs on GPIO4, and couple electromagnetically into GPIO0 — both paths filtered by the same threshold
 
 ---
 

@@ -4,148 +4,162 @@
 
 ```
 EllaFi/
-├── data/               # SPIFFS filesystem files
-│   ├── index.html     # Captive portal UI (can edit separately!)
-│   └── README.md      # Instructions for SPIFFS
+├── data/
+│   ├── index.html          # Captive portal UI
+│   ├── unidentified.html   # Served when client MAC cannot be identified
+│   ├── EllaFi.webp         # Logo
+│   ├── config.json         # Credentials — NOT committed (see config.sample.json)
+│   └── config.sample.json  # Template — copy to config.json and fill in
 ├── src/
-│   └── main.cpp       # Main ESP32 code
-├── platformio.ini     # Build configuration
-└── DEVELOPMENT.md     # This file
+│   ├── main.cpp            # setup(), loop(), global definitions
+│   ├── globals.h           # Shared extern declarations and constexpr constants
+│   ├── omada.h / omada.cpp # Omada controller API client
+│   ├── coin.h  / coin.cpp  # Coin ISR, timer, pulse task, finalize task
+│   ├── web.h   / web.cpp   # HTTP + WebSocket handlers, WS job tasks
+│   ├── files.h / files.cpp # Config loading, pause files, error/refund logs
+│   ├── network.h / network.cpp # UDP broadcast (multi-node master/slave)
+│   ├── led.h   / led.cpp   # RGB LED task
+│   └── logger.h            # ESP_LOGE override — auto-appends to /errors.log
+├── test/
+│   ├── ui_state_test.js        # Browser console: cycle through all UI states
+│   ├── authenticated_flow_test.js
+│   ├── mock_omada.py           # Local mock of Omada controller API
+│   ├── stress_test_happy_path.py
+│   ├── stress_test_race_conditions.py
+│   ├── stress_test_chaos.py
+│   ├── run_all_tests.py
+│   ├── omada_clients.py        # CLI tool: list/extend/disconnect hotspot clients
+│   └── omada_auth_test.sh      # curl test for extPortal/auth endpoint
+├── platformio.ini
+└── DEVELOPMENT.md
 ```
 
 ## Quick Start
 
-### 1. Build and Upload Code
+### 1. Configure credentials
+```bash
+cp data/config.sample.json data/config.json
+# edit data/config.json with WiFi, Omada, and network_key values
+```
+
+### 2. Build and upload firmware
 ```bash
 pio run --target upload
 ```
 
-### 2. Upload Web Files to SPIFFS
+### 3. Upload filesystem (HTML, images, config)
 ```bash
 pio run --target uploadfs
 ```
 
-### 3. Monitor Serial Output
+### 4. Monitor serial output
 ```bash
 pio device monitor
 ```
 
-## Testing the Web Interface
+## Configuration
 
-### Option 1: Test on ESP32
-1. Upload code and filesystem
-2. Connect to "CoinWiFi" network
-3. Navigate to http://192.168.4.1
+All configuration lives in `data/config.json` (not committed). Copy from `data/config.sample.json`:
 
-### Option 2: Test in Browser (Development)
-1. Navigate to `data/` directory
-2. Start local web server:
-   ```bash
-   python3 -m http.server 8000
-   ```
-3. Open http://localhost:8000
-4. To simulate the portal, add query parameters:
-   ```
-   http://localhost:8000/index.html?clientMac=AA:BB:CC:DD:EE:FF&ip=192.168.1.100
-   ```
-
-### Mock API for Local Testing
-You can mock the API endpoints by adding this to the HTML:
-```javascript
-// Add before checkStatus() function
-const MOCK_MODE = true;
-
-function checkStatus() {
-  if (MOCK_MODE) {
-    updateUI({
-      coins: 0,
-      sessionActive: false,
-      timeLeft: 0,
-      accessGranted: false,
-      minutes: 0,
-      isAuthenticated: false,
-      isPaused: false,
-      remainingMinutes: 0,
-      expirationTime: "Not Available",
-      dataUp: "0 MB",
-      dataDown: "0 MB",
-      redirectUrl: "http://google.com"
-    });
-    return;
-  }
-  // ... rest of function
+```json
+{
+  "wifi_ssid": "YourNetwork",
+  "wifi_password": "...",
+  "omada_url": "https://use1-api-omada-...",
+  "omada_controller_id": "...",
+  "omada_operator_username": "hotspotadmin",
+  "omada_operator_password": "...",
+  "omada_username": "admin",
+  "omada_password": "...",
+  "master_mac": "AA:BB:CC:DD:EE:FF",
+  "network_key": 12345678
 }
 ```
 
-## Editing the Portal
+- `master_mac` — WiFi MAC of the master node; slaves determined at runtime by comparison
+- `network_key` — shared uint64 for UDP broadcast authentication (all nodes must match)
+- `omada_site_id` is **not** required — fetched automatically via the admin API at startup
 
-### To modify the UI:
-1. Edit `data/index.html`
-2. Test locally in browser (see above)
-3. When satisfied, upload to ESP32:
-   ```bash
-   pio run --target uploadfs
-   ```
-4. **No need to recompile C++ code!**
+## Modifying the UI
 
-### To modify behavior:
-- Edit `src/main.cpp`
-- Rebuild and upload:
-  ```bash
-  pio run --target upload
-  ```
+Edit `data/index.html`, test in browser, then upload filesystem:
+```bash
+pio run --target uploadfs
+```
+No firmware recompile needed for UI-only changes.
+
+**UI state test:** Open `data/index.html` as a static file in Chrome, paste `test/ui_state_test.js` into the browser console. Use arrow keys to step through all UI states.
 
 ## API Endpoints
 
-See the header documentation in `src/main.cpp` for complete API docs.
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/` | Captive portal page (Omada redirects here) |
+| WS | `/ws` | Real-time status and coin insert flow |
+| GET | `/refunds` | Refund log (JSON Lines, operator use) |
+| GET | `/errors` | Error log (JSON Lines, operator use) |
 
-Quick reference:
-- `GET  /` - Portal page
-- `GET  /status?mac=<MAC>` - Check auth status
-- `POST /insert?mac=<MAC>` - Start coin session
-- `POST /pause?mac=<MAC>` - Pause session
-- `POST /unpause?mac=<MAC>` - Resume session
+### WebSocket Protocol
 
-## Configuration
-
-Edit these constants in `src/main.cpp`:
-
-```cpp
-// WiFi AP
-const char* ap_ssid = "CoinWiFi";
-const char* ap_password = "";
-
-// Omada Controller
-const char* CONTROLLER_IP = "192.168.1.100";
-const int CONTROLLER_PORT = 8043;
-const char* CONTROLLER_ID = "...";
-const char* OPERATOR_USERNAME = "portal_operator";
-const char* OPERATOR_PASSWORD = "...";
-
-// Coin Settings
-const int COIN_PIN = 4;
-const int MINUTES_PER_COIN = 5;
-const unsigned long COIN_TIMEOUT = 10000; // 10 seconds
+**Client → Server:**
+```json
+{"action": "getStatus"}
+{"action": "startCoinInsert"}
+{"action": "pause"}
+{"action": "resume"}
+{"action": "testInsertCoin"}   // TEST_MODE only
 ```
+
+**Server → Client:**
+```json
+{"type": "status", "coinCount": 0, "coinInsertTimeLeft": 0, "sessionStartMillis": 0, "sessionEndMillis": 0, "pausedRemainingMillis": 0, "clientMac": "...", "clientIp": "...", "minutesPerCoin": 5}
+{"type": "authenticated"}
+{"type": "paused", ...}
+{"type": "resumed", ...}
+{"type": "error", "subtype": "refundable", "message": "...", "detail": "...", "refundCode": "4X9K2A"}
+{"type": "error", "subtype": "no_session", "message": "..."}
+```
+
+## Multi-Node Deployment
+
+Three ESP32 nodes (one master, two slaves) connected to three Omada EAP603 APs on the same LAN.
+
+- Single firmware build — role determined at runtime by comparing WiFi MAC to `master_mac` in config
+- Master runs the HTTP/WS server and handles all Omada API calls
+- Slaves accept coin pulses and forward to master via UDP broadcast (port 4210)
+- Master broadcasts session start/end to slaves via UDP
+
+## Log Files
+
+Two log files are maintained on LittleFS, purged of entries older than 24 hours at startup:
+
+- `/errors.log` — all `ESP_LOGE` calls (JSON Lines: `{"ts":...,"tag":"...","msg":"..."}`)
+- `/refunds.log` — refundable auth failures (JSON Lines: `{"ts":...,"mac":"...","coins":...,"minutes":...,"code":"..."}`)
+
+Access at `http://<device-ip>/errors` and `http://<device-ip>/refunds` (master only, LAN only).
 
 ## Troubleshooting
 
-### SPIFFS Won't Mount
-- Make sure `platformio.ini` has `board_build.filesystem = littlefs`
-- Try uploading filesystem: `pio run --target uploadfs`
-- Check serial monitor for error messages
+### LittleFS won't mount
+- Check `platformio.ini` has `board_build.filesystem = littlefs`
+- Upload filesystem: `pio run --target uploadfs`
+- Fast red LED blink = unrecoverable startup failure; check serial for last error
 
-### HTML Not Loading
-- Verify file exists in SPIFFS: Check serial output on boot
-- File must be named exactly `/index.html` (case-sensitive)
-- Upload filesystem before testing
+### Config errors
+- Fast red LED blink at startup = config missing or invalid
+- Check serial output for which field is missing
+- Verify `data/config.json` exists and was included in filesystem upload
 
-### Can't Connect to WiFi
-- ESP32 creates AP named "CoinWiFi"
-- Default IP: 192.168.4.1
-- Check serial monitor for startup messages
+### Omada API failures
+- Check `/errors` endpoint for recent error log
+- Verify `omada_url` does not include trailing `:443`
+- Admin credentials (`omada_username`/`omada_password`) are required for site discovery and WiFi client lookup
 
-### API Calls Fail in Browser
-- CORS is not an issue when loaded from ESP32
-- If testing locally, use same origin or disable CORS
-- Check browser console for errors
+### Running tests locally
+```bash
+# Start mock Omada server
+python3 test/mock_omada.py
+
+# Run all stress tests against mock
+python3 test/run_all_tests.py
+```

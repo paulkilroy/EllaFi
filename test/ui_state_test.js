@@ -42,7 +42,7 @@ const steps = [
     run: () => { coinInsertMode = true; updateUI({ clientMac: mac, clientIp: ip, coinInsertTimeLeft: 0, coinCount: 0, minutesPerCoin: 30, pausedRemainingMillis: 0, sessionEndMillis: 0, sessionStartMillis: 0 }); } },
 
   { label: 'Connected (30s session, bar moves visibly)',
-    run: () => { processingMode = true; updateUI({ clientMac: mac, clientIp: ip, coinInsertTimeLeft: 0, pausedRemainingMillis: 0, sessionEndMillis: now() + 30000, sessionStartMillis: now() - 5000 }); } },
+    run: () => { stopProcessing(); updateUI({ clientMac: mac, clientIp: ip, coinInsertTimeLeft: 0, pausedRemainingMillis: 0, sessionEndMillis: now() + 30000, sessionStartMillis: now() - 5000 }); } },
 
   { label: 'Paused (2hr remaining)',
     run: () => { stopProcessing(); updateUI({ clientMac: mac, clientIp: ip, coinInsertTimeLeft: 0, pausedRemainingMillis: 2*60*60*1000, sessionEndMillis: 0, sessionStartMillis: 0 }); } },
@@ -60,6 +60,8 @@ const steps = [
 let i = 0;
 function show(index) {
   stopAnimation(); stopAnimation = () => {};
+  stopCoinInsert();
+  stopProcessing();
   i = Math.max(0, Math.min(index, steps.length - 1));
   console.log(`[${i+1}/${steps.length}] ${steps[i].label}`);
   steps[i].run();

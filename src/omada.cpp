@@ -2,13 +2,13 @@
  * Omada API Parameter Sources:
  *
  *                                          Omada    WiFi    Hotspot
- *   Field             Used By              Redir.   Cli.    Cli.    Hardcoded  Other
+ *   Field             Used By              Redir    Client  Client   Hardcoded  Other
  *   ----------------  -------------------  -------  ------  -------  ---------  ----------
  *   clientMac *       Auth                 ✓        ✓       ✓
  *   apMac *           Auth                 ✓        ✓
  *   ssidName *        Auth                 ✓        ✓       ✓
  *   radioId *         Auth                 ✓        ✓
- *   site (name)       Auth                 ✓                                     Sites API
+ *   site (name)       Auth                 ✓                                      Sites API
  *   time              Auth                                                        Calculated
  *   authType          Auth                          ✓       ✓        4
  *   id (client) *     Extend, Disconnect                    ✓
@@ -18,10 +18,13 @@
  */
 
 #include "omada.h"
+#include "globals.h"
+#include "files.h"
 
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <esp_log.h>
+#include "logger.h"
 
 static const char* TAG = "EllaFi";
 
@@ -39,41 +42,25 @@ String ADMIN_PASSWORD;
 
 static const unsigned long CONTROLLER_SESSION_MAX_AGE_MILLIS = 3600000;
 
-// ---- Omada session state ----
-
-String OPERATOR_CSRF_TOKEN = "";
-unsigned long OPERATOR_SESSION_START = 0;
-CookieJar OPERATOR_COOKIEJAR;
-
-String ADMIN_CSRF_TOKEN = "";
-unsigned long ADMIN_SESSION_START = 0;
-CookieJar ADMIN_COOKIEJAR;
-
-// ---- Cross-references to main.cpp ----
-
-extern SessionCache HOTSPOT_SESSION_CACHE;
-extern bool hasPausedSessionFile(const String& mac);
-extern unsigned long loadPausedSessionFile(const String& mac);
-
 // ---- Omada API implementations ----
 
 // POST /api/v2/hotspot/login — gets CSRF token and session cookie for subsequent API calls.
 // Reuses existing session if less than CONTROLLER_SESSION_MAX_AGE_MILLIS old.
-bool loginToController(String& errorDetail) {
-  if (OPERATOR_SESSION_START > 0 && (millis() - OPERATOR_SESSION_START) < CONTROLLER_SESSION_MAX_AGE_MILLIS) {
-    ESP_LOGI(TAG, "loginToController: Session age: %lu ms, reusing session", millis() - OPERATOR_SESSION_START);
+bool loginToController(OmadaSession& op, String& errorDetail) {
+  if (op.sessionStart > 0 && (millis() - op.sessionStart) < CONTROLLER_SESSION_MAX_AGE_MILLIS) {
+    ESP_LOGI(TAG, "loginToController: Session age: %lu ms, reusing session", millis() - op.sessionStart);
     return true;
   }
 
   ESP_LOGI(TAG, "loginToController: No valid session, performing login");
 
-  OPERATOR_CSRF_TOKEN = "";
-  OPERATOR_SESSION_START = 0;
+  op.csrfToken = "";
+  op.sessionStart = 0;
 
   WiFiClientSecure wifiClient;
   HTTPClient http;
   wifiClient.setInsecure();
-  http.setCookieJar(&OPERATOR_COOKIEJAR);
+  http.setCookieJar(&op.cookieJar);
 
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/login";
   String postData = "{\"name\":\"" + OPERATOR_USERNAME + "\",\"password\":\"" + OPERATOR_PASSWORD + "\"}";
@@ -105,7 +92,7 @@ bool loginToController(String& errorDetail) {
 
   if (doc["errorCode"].as<int>() == 0) {
     if (doc["result"]["token"].is<const char*>()) {
-      OPERATOR_CSRF_TOKEN = doc["result"]["token"].as<String>();
+      op.csrfToken = doc["result"]["token"].as<String>();
       // Workaround: ESP32 HTTPClient sets cookie.date=0 because the Date: response header
       // arrives after Set-Cookie: in the Omada response. generateCookieString() then evaluates
       // 0 + max_age < now → true and erases the cookie before sending subsequent requests.
@@ -113,7 +100,7 @@ bool loginToController(String& errorDetail) {
       {
         time_t now_local = time(NULL);
         time_t now_gmt = mktime(gmtime(&now_local));
-        for (auto& cookie : OPERATOR_COOKIEJAR) {
+        for (auto& cookie : op.cookieJar) {
           if (cookie.name == "TPOMADA_SESSIONID") {
             cookie.date = now_gmt;
             ESP_LOGD(TAG, "Patched TPOMADA_SESSIONID cookie.date to %ld", (long)now_gmt);
@@ -121,8 +108,8 @@ bool loginToController(String& errorDetail) {
           }
         }
       }
-      OPERATOR_SESSION_START = millis();
-      ESP_LOGI(TAG, "Login successful! Token: %s", OPERATOR_CSRF_TOKEN.c_str());
+      op.sessionStart = millis();
+      ESP_LOGI(TAG, "Login successful! Token: %s", op.csrfToken.c_str());
       return true;
     }
     errorDetail = "Login: response missing token";
@@ -137,8 +124,8 @@ bool loginToController(String& errorDetail) {
 
 // POST /api/v2/login — admin login for session reconstruction.
 // Uses separate cookie jar and CSRF token from the operator session.
-bool loginToAdminController(String& errorDetail) {
-  if (ADMIN_SESSION_START > 0 && (millis() - ADMIN_SESSION_START) < CONTROLLER_SESSION_MAX_AGE_MILLIS) {
+bool loginToAdminController(OmadaSession& admin, String& errorDetail) {
+  if (admin.sessionStart > 0 && (millis() - admin.sessionStart) < CONTROLLER_SESSION_MAX_AGE_MILLIS) {
     return true;
   }
   if (ADMIN_USERNAME.isEmpty()) {
@@ -146,13 +133,13 @@ bool loginToAdminController(String& errorDetail) {
     return false;
   }
 
-  ADMIN_CSRF_TOKEN = "";
-  ADMIN_SESSION_START = 0;
+  admin.csrfToken = "";
+  admin.sessionStart = 0;
 
   WiFiClientSecure wifiClient;
   HTTPClient http;
   wifiClient.setInsecure();
-  http.setCookieJar(&ADMIN_COOKIEJAR);
+  http.setCookieJar(&admin.cookieJar);
 
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/login";
   String postData = "{\"username\":\"" + ADMIN_USERNAME + "\",\"password\":\"" + ADMIN_PASSWORD + "\"}";
@@ -180,19 +167,19 @@ bool loginToAdminController(String& errorDetail) {
 
   if (doc["errorCode"].as<int>() == 0) {
     if (doc["result"]["token"].is<const char*>()) {
-      ADMIN_CSRF_TOKEN = doc["result"]["token"].as<String>();
+      admin.csrfToken = doc["result"]["token"].as<String>();
       // Same cookie.date=0 workaround as operator login
       {
         time_t now_local = time(NULL);
         time_t now_gmt = mktime(gmtime(&now_local));
-        for (auto& cookie : ADMIN_COOKIEJAR) {
+        for (auto& cookie : admin.cookieJar) {
           if (cookie.name == "TPOMADA_SESSIONID") {
             cookie.date = now_gmt;
             break;
           }
         }
       }
-      ADMIN_SESSION_START = millis();
+      admin.sessionStart = millis();
       ESP_LOGI(TAG, "Admin login successful");
       return true;
     }
@@ -208,20 +195,20 @@ bool loginToAdminController(String& errorDetail) {
 // GET /api/v2/user/sites — fetch the site ID from the controller at startup.
 // Note - only takes the first one in the list
 // Eliminates the need to hard-code omada_site_id in config.json.
-bool loadOmadaSites(String& errorDetail) {
-  if (!loginToAdminController(errorDetail)) return false;
+bool loadOmadaSites(OmadaSession& admin, String& errorDetail) {
+  if (!loginToAdminController(admin, errorDetail)) return false;
 
   WiFiClientSecure wifiClient;
   HTTPClient http;
   wifiClient.setInsecure();
-  http.setCookieJar(&ADMIN_COOKIEJAR);
+  http.setCookieJar(&admin.cookieJar);
 
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
                "/api/v2/user/sites?currentPage=1&currentPageSize=100";
   ESP_LOGI(TAG, "GET %s", url.c_str());
 
   http.begin(wifiClient, url);
-  http.addHeader("Csrf-Token", ADMIN_CSRF_TOKEN);
+  http.addHeader("Csrf-Token", admin.csrfToken);
 
   int httpCode = http.GET();
   if (httpCode <= 0) {
@@ -261,13 +248,13 @@ bool loadOmadaSites(String& errorDetail) {
   return true;
 }
 
-bool authenticateOmadaClient(SessionParams& session, unsigned long long durationMillis, String& errorDetail) {
-  if (!loginToController(errorDetail)) return false;
+bool authenticateOmadaClient(OmadaSession& op, SessionParams& session, unsigned long long durationMillis, String& errorDetail) {
+  if (!loginToController(op, errorDetail)) return false;
 
   WiFiClientSecure wifiClient;
   HTTPClient http;
   wifiClient.setInsecure();
-  http.setCookieJar(&OPERATOR_COOKIEJAR);
+  http.setCookieJar(&op.cookieJar);
 
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/extPortal/auth";
 
@@ -290,7 +277,7 @@ bool authenticateOmadaClient(SessionParams& session, unsigned long long duration
 
   http.begin(wifiClient, url);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Csrf-Token", OPERATOR_CSRF_TOKEN);
+  http.addHeader("Csrf-Token", op.csrfToken);
 
   int httpCode = http.POST(postData);
   if (httpCode <= 0) {
@@ -320,13 +307,13 @@ bool authenticateOmadaClient(SessionParams& session, unsigned long long duration
 
 // POST /api/v2/hotspot/sites/{siteId}/cmd/clients/{clientId}/extend
 // Adds periodMillis to the session's existing end timestamp (not to now).
-bool extendOmadaClient(SessionParams& session, unsigned long long durationMillis, String& errorDetail) {
-  if (!loginToController(errorDetail)) return false;
+bool extendOmadaClient(OmadaSession& op, SessionParams& session, unsigned long long durationMillis, String& errorDetail) {
+  if (!loginToController(op, errorDetail)) return false;
 
   WiFiClientSecure wifiClient;
   HTTPClient http;
   wifiClient.setInsecure();
-  http.setCookieJar(&OPERATOR_COOKIEJAR);
+  http.setCookieJar(&op.cookieJar);
 
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
                "/api/v2/hotspot/sites/" + SITE_ID +
@@ -336,7 +323,7 @@ bool extendOmadaClient(SessionParams& session, unsigned long long durationMillis
   ESP_LOGI(TAG, "POST %s body=%s", url.c_str(), postData.c_str());
   http.begin(wifiClient, url);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Csrf-Token", OPERATOR_CSRF_TOKEN);
+  http.addHeader("Csrf-Token", op.csrfToken);
 
   int httpCode = http.POST(postData);
   if (httpCode <= 0) {
@@ -365,13 +352,13 @@ bool extendOmadaClient(SessionParams& session, unsigned long long durationMillis
 
 // POST /api/v2/hotspot/sites/{siteId}/cmd/clients/{clientId}/disconnect
 // No body. Works on both active and expired sessions (Omada does not auto-kick on expiry).
-bool disconnectOmadaClient(SessionParams& session, String& errorDetail) {
-  if (!loginToController(errorDetail)) return false;
+bool disconnectOmadaClient(OmadaSession& op, SessionParams& session, String& errorDetail) {
+  if (!loginToController(op, errorDetail)) return false;
 
   WiFiClientSecure wifiClient;
   HTTPClient http;
   wifiClient.setInsecure();
-  http.setCookieJar(&OPERATOR_COOKIEJAR);
+  http.setCookieJar(&op.cookieJar);
 
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
                "/api/v2/hotspot/sites/" + SITE_ID +
@@ -380,7 +367,7 @@ bool disconnectOmadaClient(SessionParams& session, String& errorDetail) {
   ESP_LOGI(TAG, "POST %s (no body)", url.c_str());
   http.begin(wifiClient, url);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Csrf-Token", OPERATOR_CSRF_TOKEN);
+  http.addHeader("Csrf-Token", op.csrfToken);
 
   int httpCode = http.POST("");
   if (httpCode <= 0) {
@@ -410,22 +397,22 @@ bool disconnectOmadaClient(SessionParams& session, String& errorDetail) {
 
 // Fetches and parses the hotspot client list (operator session).
 // Returns a JsonDocument on success; empty document on failure.
-JsonDocument getHotspotClientsJson() {
+JsonDocument getHotspotClientsJson(OmadaSession& op) {
   String errorDetail;
-  if (!loginToController(errorDetail)) {
+  if (!loginToController(op, errorDetail)) {
     ESP_LOGE(TAG, "getHotspotClientsJson: operator login failed: %s", errorDetail.c_str());
     return JsonDocument();
   }
   WiFiClientSecure wc;
   HTTPClient h;
   wc.setInsecure();
-  h.setCookieJar(&OPERATOR_COOKIEJAR);
+  h.setCookieJar(&op.cookieJar);
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
                "/api/v2/hotspot/sites/" + SITE_ID +
                "/clients?sorts.end=desc&page=1&pageSize=100";
   ESP_LOGI(TAG, "GET %s", url.c_str());
   h.begin(wc, url);
-  h.addHeader("Csrf-Token", OPERATOR_CSRF_TOKEN);
+  h.addHeader("Csrf-Token", op.csrfToken);
   int code = h.GET();
   if (code <= 0) {
     ESP_LOGE(TAG, "getHotspotClientsJson: HTTP error: %s", h.errorToString(code).c_str());
@@ -435,8 +422,8 @@ JsonDocument getHotspotClientsJson() {
   h.end();
   ESP_LOGI(TAG, "getHotspotClientsJson: HTTP %d, %d bytes", code, body.length());
   if (code != 200 || body.isEmpty()) {
-    ESP_LOGE(TAG, "getHotspotClientsJson: bad response: %.200s — invalidating operator session", body.c_str());
-    OPERATOR_SESSION_START = 0;
+    ESP_LOGE(TAG, "getHotspotClientsJson: bad response: %.200s - invalidating operator session", body.c_str());
+    op.sessionStart = 0;
     return JsonDocument();
   }
   JsonDocument doc;
@@ -447,22 +434,22 @@ JsonDocument getHotspotClientsJson() {
 
 // Fetches and parses the all-clients list (admin session).
 // Returns a JsonDocument on success; empty document on failure (non-fatal — merge handles gracefully).
-JsonDocument getAllClientsJson() {
+JsonDocument getAllClientsJson(OmadaSession& admin) {
   String errorDetail;
-  if (!loginToAdminController(errorDetail)) {
+  if (!loginToAdminController(admin, errorDetail)) {
     ESP_LOGW(TAG, "getAllClientsJson: admin login failed: %s", errorDetail.c_str());
     return JsonDocument();
   }
   WiFiClientSecure wc;
   HTTPClient h;
   wc.setInsecure();
-  h.setCookieJar(&ADMIN_COOKIEJAR);
+  h.setCookieJar(&admin.cookieJar);
   // Omada UI equivalent: POST body {"filters":{"active":true},"sorts":{},"page":1,"pageSize":100,"scope":1}
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
                "/api/v2/sites/" + SITE_ID + "/clients?page=1&pageSize=100&filters.active=true";
   ESP_LOGI(TAG, "GET %s", url.c_str());
   h.begin(wc, url);
-  h.addHeader("Csrf-Token", ADMIN_CSRF_TOKEN);
+  h.addHeader("Csrf-Token", admin.csrfToken);
   int code = h.GET();
   if (code <= 0) {
     ESP_LOGW(TAG, "getAllClientsJson: HTTP error: %s", h.errorToString(code).c_str());
@@ -473,7 +460,7 @@ JsonDocument getAllClientsJson() {
   ESP_LOGI(TAG, "getAllClientsJson: HTTP %d, %d bytes", code, body.length());
   if (code != 200 || body.isEmpty()) {
     ESP_LOGW(TAG, "getAllClientsJson: bad response: %.200s — invalidating admin session", body.c_str());
-    ADMIN_SESSION_START = 0;
+    admin.sessionStart = 0;
     return JsonDocument();
   }
   JsonDocument doc;
@@ -520,9 +507,9 @@ JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, ui
 
 // Merges the two client lists and updates the in-memory session cache.
 // Called at startup, after any auth/extend/disconnect, and every 60s from loop().
-void refreshHotspotSessionCache() {
-  JsonDocument hotspotDoc = getHotspotClientsJson();
-  JsonDocument allDoc = getAllClientsJson();
+void refreshHotspotSessionCache(OmadaSession& op, OmadaSession& admin) {
+  JsonDocument hotspotDoc = getHotspotClientsJson(op);
+  JsonDocument allDoc = getAllClientsJson(admin);
 
   JsonDocument merged = mergeClientLists(
     hotspotDoc["result"]["data"].as<JsonArray>(),
@@ -595,18 +582,13 @@ void refreshHotspotSessionCache() {
 }
 
 void omadaSetup() {
+  OmadaSession admin;
+  OmadaSession op;
   String error;
-  if (!loadOmadaSites(error)) {
-    ESP_LOGE(TAG, "Failed to load Omada sites: %s — halting", error.c_str());
+  if (!loadOmadaSites(admin, error)) {
+    ESP_LOGE(TAG, "Failed to load Omada sites: %s - halting", error.c_str());
     halt();
   }
-  refreshHotspotSessionCache();
+  refreshHotspotSessionCache(op, admin);
 }
 
-void omadaLoop() {
-  static unsigned long lastCacheRefresh = 0;
-  if (millis() - lastCacheRefresh > 60000) {
-    lastCacheRefresh = millis();
-    refreshHotspotSessionCache();
-  }
-}

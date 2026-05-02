@@ -4,13 +4,15 @@
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <HTTPClient.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 #include <map>
 #include <time.h>
+#include "led.h"
 
 // Halts the device permanently (used for unrecoverable startup failures)
-#define halt() do { while(1); } while(0)
+#define halt() do { ledHalt(); } while(0)
 
 // Returns current time as Unix epoch milliseconds (requires NTP sync in setup)
 inline uint64_t nowEpochMillis() { return (uint64_t)time(NULL) * 1000ULL; }
@@ -107,6 +109,14 @@ public:
   bool empty()  const { return _byIp.empty(); }
 };
 
+// ---- Omada session state — one instance per task, passed into every API call ----
+
+struct OmadaSession {
+  CookieJar cookieJar;
+  String csrfToken;
+  unsigned long sessionStart = 0;
+};
+
 // ---- Omada config globals (defined in omada.cpp, populated by loadConfig in main.cpp) ----
 
 extern String CONTROLLER_BASE_URL;
@@ -120,15 +130,14 @@ extern String ADMIN_PASSWORD;
 
 // ---- Omada API functions ----
 
-bool loginToController(String& errorDetail);
-bool loginToAdminController(String& errorDetail);
-bool loadOmadaSites(String& errorDetail);
-bool authenticateOmadaClient(SessionParams& session, unsigned long long durationMillis, String& errorDetail);
-bool extendOmadaClient(SessionParams& session, unsigned long long durationMillis, String& errorDetail);
-bool disconnectOmadaClient(SessionParams& session, String& errorDetail);
-JsonDocument getHotspotClientsJson();
-JsonDocument getAllClientsJson();
+bool loginToController(OmadaSession& op, String& errorDetail);
+bool loginToAdminController(OmadaSession& admin, String& errorDetail);
+bool loadOmadaSites(OmadaSession& admin, String& errorDetail);
+bool authenticateOmadaClient(OmadaSession& op, SessionParams& session, unsigned long long durationMillis, String& errorDetail);
+bool extendOmadaClient(OmadaSession& op, SessionParams& session, unsigned long long durationMillis, String& errorDetail);
+bool disconnectOmadaClient(OmadaSession& op, SessionParams& session, String& errorDetail);
+JsonDocument getHotspotClientsJson(OmadaSession& op);
+JsonDocument getAllClientsJson(OmadaSession& admin);
 JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, uint64_t nowMs);
-void refreshHotspotSessionCache();
+void refreshHotspotSessionCache(OmadaSession& op, OmadaSession& admin);
 void omadaSetup(); // Call from setup() after NTP sync — loads sites and primes session cache
-void omadaLoop();  // Call from loop() — runs periodic cache refresh
