@@ -8,13 +8,18 @@
  *   apMac *           Auth                 ✓        ✓
  *   ssidName *        Auth                 ✓        ✓       ✓
  *   radioId *         Auth                 ✓        ✓
+ *   ip *              Cache lookup                  ✓†      ✓
+ *   start *           UI timer                              ✓
+ *   end *             Session expiry                        ✓
  *   site (name)       Auth                 ✓                                      Sites API
  *   time              Auth                                                        Calculated
- *   authType          Auth                          ✓       ✓        4
+ *   authType          Auth                          ✓       ✓        OMADA_AUTH_TYPE_EXTERNAL_PORTAL (4)
  *   id (client) *     Extend, Disconnect                    ✓
  *   period            Extend                                                      Calculated
+ *   pausedRemaining * Pause/resume                                                Flash (LittleFS)
  *
- *   * = stored in HOTSPOT_SESSION_CACHE (SessionParams)
+ *   *  = stored in HOTSPOT_SESSION_CACHE (SessionParams)
+ *   †  = only present in WiFi Client response when client is currently connected
  */
 
 #include "omada.h"
@@ -265,7 +270,7 @@ bool authenticateOmadaClient(OmadaSession& op, SessionParams& session, unsigned 
 #endif
   postData += "\"site\":\"" + SITE_NAME + "\",";
   postData += "\"time\":\"" + String(durationMillis) + "\",";
-  postData += "\"authType\":4,";
+  postData += "\"authType\":" + String(OMADA_AUTH_TYPE_EXTERNAL_PORTAL) + ",";
   postData += "\"apMac\":\"" + session.apMac + "\",";
   postData += "\"ssidName\":\"" + session.ssidName + "\",";
   postData += "\"radioId\":\"" + session.radioId + "\"";
@@ -409,7 +414,7 @@ JsonDocument getHotspotClientsJson(OmadaSession& op) {
   h.setCookieJar(&op.cookieJar);
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
                "/api/v2/hotspot/sites/" + SITE_ID +
-               "/clients?sorts.end=desc&page=1&pageSize=100";
+               "/clients?sorts.end=desc&currentPage=1&currentPageSize=200";
   ESP_LOGI(TAG, "GET %s", url.c_str());
   h.begin(wc, url);
   h.addHeader("Csrf-Token", op.csrfToken);
@@ -444,9 +449,9 @@ JsonDocument getAllClientsJson(OmadaSession& admin) {
   HTTPClient h;
   wc.setInsecure();
   h.setCookieJar(&admin.cookieJar);
-  // Omada UI equivalent: POST body {"filters":{"active":true},"sorts":{},"page":1,"pageSize":100,"scope":1}
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
-               "/api/v2/sites/" + SITE_ID + "/clients?page=1&pageSize=100&filters.active=true";
+               "/api/v2/sites/" + SITE_ID +
+               "/clients?currentPage=1&currentPageSize=200&filters.active=true";
   ESP_LOGI(TAG, "GET %s", url.c_str());
   h.begin(wc, url);
   h.addHeader("Csrf-Token", admin.csrfToken);
@@ -475,31 +480,34 @@ JsonDocument getAllClientsJson(OmadaSession& admin) {
 // Only includes sessions where end > nowMs (expired records are filtered out).
 // Each entry in the returned array has:
 //   mac, id, end              — from hotspot clients
-//   ip, apMac, ssid, radioId  — from all-clients (ip is "" if MAC not found there)
+//   ip               — from hotspot clients (authoritative; wifi clients list lags after auth)
+//   apMac, ssid, radioId  — from all-clients (empty if client not yet visible there)
 JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, uint64_t nowMs) {
   std::map<String, JsonObject> allMap;
   for (JsonObject c : allClients) allMap[c["mac"].as<String>()] = c;
 
   JsonDocument merged;
   JsonArray arr = merged.to<JsonArray>();
+  std::set<String> seen;  // deduplicate: list sorted end desc, keep first (latest) session per MAC
   for (JsonObject hs : hotspotClients) {
     uint64_t end = hs["end"].as<uint64_t>();
     if (end <= nowMs) continue;
+    if (hs["authType"].as<int>() != OMADA_AUTH_TYPE_EXTERNAL_PORTAL) continue;
+    String mac = hs["mac"].as<String>();
+    if (!seen.insert(mac).second) continue;  // already have a later session for this MAC
 
     JsonObject entry = arr.add<JsonObject>();
     entry["mac"]   = hs["mac"];
     entry["id"]    = hs["id"];
     entry["start"] = hs["start"].as<uint64_t>();
     entry["end"]   = end;
+    entry["ip"]    = hs["ip"];  // hotspot API is authoritative for ip; wifi clients list lags
 
     auto it = allMap.find(hs["mac"].as<String>());
     if (it != allMap.end()) {
-      entry["ip"]      = it->second["ip"];
       entry["apMac"]   = it->second["apMac"];
       entry["ssid"]    = it->second["ssid"];
       entry["radioId"] = it->second["radioId"];
-    } else {
-      entry["ip"] = "";  // not yet visible in all-clients
     }
   }
   return merged;

@@ -40,6 +40,7 @@ bool loadConfig() {
   ADMIN_PASSWORD        = doc["omada_password"]           | "";
   MASTER_MAC            = doc["master_mac"]               | "";
   NET_PSK               = doc["network_key"]              | 0ULL;
+  MINUTES_PER_COIN      = doc["minutes_per_coin"]         | 24;
   if (AP_SSID.isEmpty())             { ESP_LOGE(TAG, "config.json missing: wifi_ssid");              return false; }
   if (AP_PASSWORD.isEmpty())         { ESP_LOGE(TAG, "config.json missing: wifi_password");          return false; }
   if (CONTROLLER_BASE_URL.isEmpty()) { ESP_LOGE(TAG, "config.json missing: omada_url");              return false; }

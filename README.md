@@ -21,19 +21,19 @@ Coin-operated WiFi hotspot portal for ESP32, built for TP-Link Omada controller 
 ## Hardware
 
 - ESP32 (tested on ESP32-S3 DevKitC-1)
-- Coin acceptor wired to GPIO5 via PC817 optocoupler (GPIO0 / BOOT button also works for testing)
+- Coin acceptor wired to GPIO4 via PC817 optocoupler (GPIO0 / BOOT button also works for testing)
 - TP-Link Omada controller with hotspot operator account
 - Omada EAP access points on the same LAN
 
 ### Coin Acceptor Wiring
 
 ```
-                    P6KE6.8A
-Coin acceptor SIG ──┬── (Cathode up, Anode to GND) ── GND
+                    P6KE6.8A (TVS)
+Coin acceptor SIG ──┬── (across signal to GND) ── GND
                     │
                     └── PC817 PIN2 (Cathode)
 
-3.3V ─────────────── PC817 PIN1 (Anode)
+3.3V ── 220Ω ─────── PC817 PIN1 (Anode)
                      PC817 PIN3 (Emitter) ──── GND
                      PC817 PIN4 (Collector) ── 10kΩ ──── GPIO4
 
@@ -41,9 +41,76 @@ Coin acceptor GND ────────────────────�
 ```
 
 - **PC817** — optocoupler for galvanic isolation between coin acceptor and 3.3V ESP32
-- **10kΩ** (output side) — current limiting on collector; GPIO4 uses internal pull-up
-- **P6KE6.8A TVS diode** — clamps piezo lighter spikes (10-20kV) to GND before they reach the PC817; cathode to SIG line, anode to GND; rated 600W peak pulse, effectively unlimited lifetime at 1 spike/second
+- **220Ω** (input side, R2) — limits PC817 LED current from 3.3V; (3.3V − 1.2V Vf) / 220Ω ≈ 9.5mA
+- **10kΩ** (output side, R1) — series resistor between PC817 collector and GPIO4; GPIO4 uses ESP32 internal pull-up (INPUT_PULLUP). When PC817 conducts, GPIO4 is pulled low through R1; when off, internal pull-up holds GPIO4 high
+- **P6KE6.8A TVS diode** — clamps piezo lighter spikes (10-20kV) to GND before they reach the PC817; bidirectional, wired across signal line to GND; rated 600W peak pulse, effectively unlimited lifetime at 1 spike/second. With 3.3V drive, the signal line idles at ~2.1V — well below the 6.8V clamp — so TVS only fires on actual spikes, not at idle
 - **Anti-pitik (software)** — ISR triggers on CHANGE (both edges) on both GPIO4 (coin slot) and GPIO0 (boot button); measures pulse width, rejects anything under 5ms. Piezo spikes attenuated by PC817 to ~5µs on GPIO4, and couple electromagnetically into GPIO0 — both paths filtered by the same threshold
+
+### PCB Wiring (Full Circuit)
+
+Within each net, order doesn't matter — wire items in whatever sequence is convenient for your layout.
+
+**+12V net**
+- J3 pin 1 (barrel jack +)
+- C1 pin 1 (input cap +)
+- U3 pin 1 (LM2596 VIN)
+- J1 pin 1 (coin acceptor power)
+- J2 pin 1 (LED ring + power)
+
+**GND net**
+- J3 pin 2 (barrel jack GND)
+- C1 pin 2 (input cap −)
+- U3 pin 3 (LM2596 GND)
+- U3 pin 5 (LM2596 ON/OFF — tie to GND = always on)
+- D2 pin 2 (freewheeling diode anode)
+- C2 pin 2 (output cap −)
+- Q1 pin 3 (MOSFET source)
+- U1 pin 3 (PC817 emitter)
+- U2 pins 22, 23, 24, 44 (ESP32 GND)
+- D1 pin 1 (TVS anode — system GND directly, not switched)
+
+** More documentation on the LM2596 here: https://www.ti.com/lit/ds/symlink/lm2596.pdf
+**Switching node** (short wires — keep these close together)
+- U3 pin 2 (LM2596 OUT)
+- D2 pin 1 (freewheeling diode cathode)
+- L1 pin 1
+
+**+5V net**
+- L1 pin 2 (inductor output)
+- C2 pin 1 (output cap +)
+- U3 pin 4 (LM2596 FB)
+- U2 pin 21 (ESP32 5V)
+
+**+3.3V net**
+- U2 pin 2 (ESP32 3V3 output)
+- R2 pin 1 (PC817 LED current limiter, 220Ω)
+
+**Switched GND node** — controlled by Q1 (MOSFET); HIGH on GPIO14 = coin slot on
+- Q1 pin 2 (MOSFET drain)
+- J1 pin 3 (coin acceptor GND)
+- J2 pin 2 (activate signal — hardwired to pin 3; always on when switched power is on)
+- J2 pin 3 (LED ring GND −)
+
+J2 is a 3-pin screw terminal (2.54mm or 5.08mm pitch). 2-wire LED rings: use pins 1 and 3. 3-wire LED rings (with activate signal): use all 3 pins — pins 2 and 3 are both on switched GND, so activate is always asserted.
+
+**Coin signal node**
+- J1 pin 2 (coin acceptor open-collector output — LOW = coin pulse)
+- U1 pin 2 (PC817 LED cathode)
+- D1 pin 2 (TVS cathode — clamps spikes; orient banded end toward this node)
+
+**R2 → PC817 LED**
+- R2 pin 2
+- U1 pin 1 (PC817 LED anode)
+
+**PC817 output → ESP32 coin pulse (GPIO4)** — series path, not a single net
+- U1 pin 4 (PC817 collector) → R1 (10kΩ) → U2 pin 4 (GPIO4, COINSLOT_PIN)
+- R1 limits collector current; GPIO4 pulled high by ESP32 internal pull-up
+
+**Q1 gate — coin slot enable (GPIO14)**
+- Q1 pin 1 (MOSFET gate)
+- U2 pin 20 (GPIO14, COINSLOT_POWER_PIN)
+
+J1 pin 4 — NC (leave unconnected)
 
 ---
 

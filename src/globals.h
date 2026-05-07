@@ -64,13 +64,23 @@ extern unsigned long          COIN_SLOT_READY_MILLIS;  // suppress pulses until 
 extern String AP_SSID;
 extern String AP_PASSWORD;
 
+// ── Omada auth types ─────────────────────────────────────────────────────────
+
+constexpr int OMADA_AUTH_TYPE_EXTERNAL_PORTAL = 4;  // coin-operated / External Portal Server
+constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 constexpr int           COINBUTTON_PIN                = 0;   // GPIO0 — BOOT button (debounced)
-constexpr int           COINSLOT_PIN                  = 4;   // GPIO4 — real coin acceptor signal
-constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — coin slot power relay
+// COINSLOT_PIN: coin acceptor signal (CH-926 style open-collector). The acceptor never drives the
+// line HIGH — it only pulls it to its own GND on a coin pulse. Safe to wire directly to a 3.3V GPIO.
+//   GPIO4 ---+--- 10k resistor --- 3V3   (INPUT_PULLUP or external pull-up)
+//            |
+//           coin (open-collector: LOW = coin pulse, open = idle)
+constexpr int           COINSLOT_PIN                  = 4;
+constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — LOW-side switch (IRF540N gate): HIGH enables coin acceptor by connecting its GND to system GND via MOSFET
 constexpr unsigned long COIN_INSERT_TIMEOUT_MILLIS    = 10000;
-constexpr int           MINUTES_PER_COIN              = 5;
+extern int              MINUTES_PER_COIN;              // minutes of access per coin — loaded from config
 constexpr unsigned long COIN_DEBOUNCE_MILLIS              = 300;
 constexpr unsigned long COINSLOT_MIN_PULSE_INTERVAL_MILLIS = 100; // PSK got 116ms in testing .. lets use 100mb us a baseline 120;  // fast mode: 20ms pulse + 100ms gap
 constexpr unsigned long COINSLOT_MIN_PULSE_WIDTH_MICROS    = 3000; // piezo spike ~100µs, real coin 20,000µs — reject anything shorter than 3ms (seen 3828µs on real coins)
@@ -80,5 +90,5 @@ constexpr unsigned long MILLIS_PER_MINUTE             = 60000UL;
 constexpr unsigned long WIFI_RETRY_DELAY_MILLIS       = 5000;
 constexpr unsigned long UPDATE_CLIENT_INTERVAL_MILLIS = 500;
 constexpr time_t        NTP_EPOCH_MIN                 = 1000000000L;  // Sep 9 2001
-constexpr int           NTP_SYNC_RETRIES              = 20;
+constexpr int           NTP_SYNC_RETRIES              = 40;
 constexpr int           COIN_PULSE_QUEUE_SIZE          = 32;

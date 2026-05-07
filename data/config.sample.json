@@ -4,6 +4,7 @@
 
   "master_mac": "AA:BB:CC:DD:EE:FF",
   "network_key": a number between 1 and 9007199254740991,
+  "minutes_per_coin": 24,
 
   "omada_url": "copy from one of the reference URLs below",
   "omada_controller_id": "copy from one of the reference controller IDs below",

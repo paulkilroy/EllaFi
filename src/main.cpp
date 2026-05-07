@@ -101,6 +101,7 @@ TimerHandle_t     COIN_INSERT_TIMER   = NULL;
 
 bool IS_MASTER = false;
 
+int           MINUTES_PER_COIN      = 24;
 volatile bool COIN_INSERT_ACTIVE    = false;
 volatile bool         COINSLOT_PROGRAM_MODE  = false;
 unsigned long         COIN_SLOT_READY_MILLIS = 0;
@@ -162,7 +163,7 @@ void setup() {
   networkSetup();
 
   // Sync wall clock via NTP (required for comparing against Omada epoch timestamps)
-  configTime(0, 0, "pool.ntp.org");
+  configTime(0, 0, "pool.ntp.org", "time.cloudflare.com", "time.google.com");
   ESP_LOGI(TAG, "Waiting for NTP time sync...");
   {
     time_t now = 0;
