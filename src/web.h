@@ -6,6 +6,7 @@
 #include <PsychicFileResponse.h>
 
 esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleGetStatus(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleNotFound(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleRefunds(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleErrors(PsychicRequest* request, PsychicResponse* response);

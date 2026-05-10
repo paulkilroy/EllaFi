@@ -119,6 +119,9 @@ void setup() {
   Serial.begin(115200);
   delay(2000);
 
+  pinMode(COINSLOT_POWER_PIN, OUTPUT);
+  digitalWrite(COINSLOT_POWER_PIN, LOW);  // coin slot off until session starts
+
   if (!LittleFS.begin(true)) {
     ESP_LOGE(TAG, "LittleFS Mount Failed");
     halt();
@@ -129,10 +132,8 @@ void setup() {
     halt();
   }
 
-  pinMode(COINBUTTON_PIN,    INPUT_PULLUP);
-  pinMode(COINSLOT_PIN, INPUT_PULLUP);
-  pinMode(COINSLOT_POWER_PIN,   OUTPUT);
-  digitalWrite(COINSLOT_POWER_PIN, LOW);  // coin slot off until session starts
+  pinMode(COINBUTTON_PIN, INPUT_PULLUP);
+  pinMode(COINSLOT_PIN,   INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(COINBUTTON_PIN),    coinButtonPulse,     CHANGE);
   attachInterrupt(digitalPinToInterrupt(COINSLOT_PIN), coinSlotPulse, CHANGE);
 
@@ -145,20 +146,28 @@ void setup() {
   xTaskCreatePinnedToCore(ledTask, "LedTask", 2048, NULL, 2, &LED_TASK, 1);
 
   ESP_LOGI(TAG, "Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    if (WiFi.status() == WL_NO_SSID_AVAIL) {
-      ESP_LOGE(TAG, "WiFi network not found: %s", AP_SSID.c_str());
-      delay(WIFI_RETRY_DELAY_MILLIS);
-    } else if (WiFi.status() == WL_CONNECT_FAILED) {
-      ESP_LOGE(TAG, "WiFi connection failed with provided credentials");
-      delay(WIFI_RETRY_DELAY_MILLIS);
-    } else {
+  {
+    wl_status_t lastStatus = WL_IDLE_STATUS;
+    while (WiFi.status() != WL_CONNECTED) {
+      wl_status_t status = WiFi.status();
+      if (status != lastStatus) {
+        lastStatus = status;
+        if (status == WL_NO_SSID_AVAIL) {
+          ESP_LOGE(TAG, "WiFi: SSID not found: %s", AP_SSID.c_str());
+          ledError();
+        } else if (status == WL_CONNECT_FAILED) {
+          ESP_LOGE(TAG, "WiFi: connection failed (wrong password?)");
+          ledError();
+        }
+      }
       delay(500);
-      ESP_LOGI(TAG, ".");
     }
   }
-  ESP_LOGI(TAG, "WiFi Connected");
-  ESP_LOGI(TAG, "IP Address: %s", WiFi.localIP().toString().c_str());
+  {
+    int rssi = WiFi.RSSI();
+    ESP_LOGI(TAG, "WiFi Connected — IP: %s  RSSI: %d dBm", WiFi.localIP().toString().c_str(), rssi);
+    if (rssi < -75) ESP_LOGW(TAG, "Weak signal (%d dBm) — check antenna", rssi);
+  }
 
   networkSetup();
 
@@ -180,7 +189,11 @@ void setup() {
   purgeOldLogEntries("/refunds.log");
 
   if (IS_MASTER) {
-    omadaSetup();
+    while (!omadaSetup()) {
+      ESP_LOGE(TAG, "omadaSetup failed — retrying in 10s");
+      ledError();
+      delay(10000);
+    }
 
     if (MDNS.begin("ellafi")) {
       ESP_LOGI(TAG, "mDNS started: ellafi.local");
@@ -188,7 +201,9 @@ void setup() {
       ESP_LOGW(TAG, "mDNS failed to start");
     }
 
-    server.config.stack_size = 16384;  // Larger stack for SSL calls in WS handlers
+    server.config.stack_size       = 16384;  // Larger stack for SSL calls in WS handlers
+    server.config.max_open_sockets = 12;
+    server.config.lru_purge_enable = true;
 
     server.on("/", HTTP_GET, handleRoot);
 
@@ -203,6 +218,8 @@ void setup() {
     server.on("/config.json", HTTP_GET, [](PsychicRequest* request, PsychicResponse* response) {
       return response->send(403, "text/plain", "Forbidden");
     });
+    server.on("/status",     HTTP_GET, handleGetStatus);
+    server.on("/index.html", HTTP_GET, handleRoot);  // no-cache: must re-run on every visit to store session
     server.serveStatic("/", LittleFS, "/", "max-age=86400");
     server.onNotFound(handleNotFound);  // Must be set AFTER serveStatic
 
@@ -223,7 +240,8 @@ void setup() {
       COIN_PULSE_QUEUE == NULL ||
       WEBSOCKET_JOB_QUEUE == NULL ||
       (IS_MASTER && COIN_INSERT_TIMER == NULL)) {
-    ESP_LOGE(TAG, "Failed to create synchronization primitives");
+    ESP_LOGE(TAG, "Failed to create synchronization primitives - halting");
+    ledHalt();
   }
 
   xTaskCreatePinnedToCore(coinPulseTask,    "CoinPulseTask",    4096, NULL, 6, NULL,               1);

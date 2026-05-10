@@ -65,7 +65,9 @@ bool loginToController(OmadaSession& op, String& errorDetail) {
   WiFiClientSecure wifiClient;
   HTTPClient http;
   wifiClient.setInsecure();
+  wifiClient.setTimeout(15000);
   http.setCookieJar(&op.cookieJar);
+  http.setTimeout(15000);
 
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/login";
   String postData = "{\"name\":\"" + OPERATOR_USERNAME + "\",\"password\":\"" + OPERATOR_PASSWORD + "\"}";
@@ -144,7 +146,9 @@ bool loginToAdminController(OmadaSession& admin, String& errorDetail) {
   WiFiClientSecure wifiClient;
   HTTPClient http;
   wifiClient.setInsecure();
+  wifiClient.setTimeout(15000);
   http.setCookieJar(&admin.cookieJar);
+  http.setTimeout(15000);
 
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/login";
   String postData = "{\"username\":\"" + ADMIN_USERNAME + "\",\"password\":\"" + ADMIN_PASSWORD + "\"}";
@@ -589,14 +593,15 @@ void refreshHotspotSessionCache(OmadaSession& op, OmadaSession& admin) {
   HOTSPOT_SESSION_CACHE.unlock();
 }
 
-void omadaSetup() {
+bool omadaSetup() {
   OmadaSession admin;
   OmadaSession op;
   String error;
   if (!loadOmadaSites(admin, error)) {
-    ESP_LOGE(TAG, "Failed to load Omada sites: %s - halting", error.c_str());
-    halt();
+    ESP_LOGE(TAG, "omadaSetup failed: %s", error.c_str());
+    return false;
   }
   refreshHotspotSessionCache(op, admin);
+  return true;
 }
 

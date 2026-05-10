@@ -12,56 +12,74 @@ static const char* TAG = "EllaFi";
 // Serve captive portal page. Omada redirects here with query params:
 // ?clientMac=...&apMac=...&ssidName=...&radioId=...&site=...&redirectUrl=...
 esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response) {
-  ESP_LOGI(TAG, "======handleRoot request");
-
 #ifdef TEST_MODE
   String clientIp = request->hasParam("clientIp") ? request->getParam("clientIp")->value() : request->client()->remoteIP().toString();
 #else
   String clientIp = request->client()->remoteIP().toString();
 #endif
-  String clientMac = request->hasParam("clientMac") ? request->getParam("clientMac")->value() : "";
+  String clientMac  = request->hasParam("clientMac")  ? request->getParam("clientMac")->value()  : "";
+  String apMac      = request->hasParam("apMac")      ? request->getParam("apMac")->value()      : "";
+  String ssidName   = request->hasParam("ssidName")   ? request->getParam("ssidName")->value()   : "";
+  String radioId    = request->hasParam("radioId")    ? request->getParam("radioId")->value()     : "";
+
+  SessionParams* existing = HOTSPOT_SESSION_CACHE.findByIp(clientIp);
+  bool isNew = (existing == nullptr || existing->clientMac.isEmpty());
+
+  ESP_LOGI(TAG, "======handleRoot [%s] ip=%s mac=%s apMac=%s ssid=%s radioId=%s paused=%lums openConn=%d",
+    isNew ? "NEW" : "RETURNING",
+    clientIp.c_str(), clientMac.c_str(), apMac.c_str(),
+    ssidName.c_str(), radioId.c_str(),
+    existing ? existing->pausedRemainingMillis : 0UL,
+    (int)server.getClientList().size());
 
   // Guard: if clientMac is missing, look up by IP — do NOT upsert yet (would create a phantom entry)
   if (clientMac.isEmpty()) {
-    SessionParams* existing = HOTSPOT_SESSION_CACHE.findByIp(clientIp);
     if (!existing || existing->clientMac.isEmpty()) {
       ESP_LOGW(TAG, "No MAC for IP %s — rejecting portal request", clientIp.c_str());
       PsychicFileResponse errorResponse(response, LittleFS, "/unidentified.html");
       return errorResponse.send();
     }
     clientMac = existing->clientMac;
-    ESP_LOGI(TAG, "Restored session for IP %s -> MAC %s", clientIp.c_str(), clientMac.c_str());
+    ESP_LOGI(TAG, "Restored MAC %s from cache for IP %s", clientMac.c_str(), clientIp.c_str());
   }
 
   SessionParams& session = HOTSPOT_SESSION_CACHE.upsert(clientIp, clientMac);
-  if (request->hasParam("apMac"))    session.apMac    = request->getParam("apMac")->value();
-  if (request->hasParam("ssidName")) session.ssidName = request->getParam("ssidName")->value();
-  if (request->hasParam("radioId"))  session.radioId  = request->getParam("radioId")->value();
-  ESP_LOGI(TAG, "Stored session for IP %s -> MAC %s", clientIp.c_str(), clientMac.c_str());
+  if (!apMac.isEmpty())    session.apMac    = apMac;
+  if (!ssidName.isEmpty()) session.ssidName = ssidName;
+  if (!radioId.isEmpty())  session.radioId  = radioId;
 
   // Load paused session from disk if needed (outside session mutex — only LittleFS I/O)
   if (hasPausedSessionFile(clientMac) && session.pausedRemainingMillis == 0)
     session.pausedRemainingMillis = loadPausedSessionFile(clientMac);
 
-  ESP_LOGI(TAG, "Client MAC: %s, IP: %s", clientMac.c_str(), clientIp.c_str());
-
-  // Force new connection so browser doesn't reuse keep-alive for WS upgrade
   response->addHeader("Connection", "close");
+  response->addHeader("Cache-Control", "no-store");
 
   PsychicFileResponse fileResponse(response, LittleFS, "/index.html");
   return fileResponse.send();
 }
 
+esp_err_t handleGetStatus(PsychicRequest* request, PsychicResponse* response) {
+#ifdef TEST_MODE
+  String clientIp = request->hasParam("clientIp") ? request->getParam("clientIp")->value() : request->client()->remoteIP().toString();
+#else
+  String clientIp = request->client()->remoteIP().toString();
+#endif
+  SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(clientIp);
+  String json = session ? buildStatusJson(*session)
+    : "{\"type\":\"status\",\"sessionEndMillis\":0,\"pausedRemainingMillis\":0,\"coinInsertTimeLeft\":0}";
+  response->addHeader("Cache-Control", "no-store");
+  return response->send(200, "application/json", json.c_str());
+}
+
 esp_err_t handleNotFound(PsychicRequest* request, PsychicResponse* response) {
-  ESP_LOGI(TAG, "404 Not Found: %s", request->path().c_str());
-
-  String message = "<!DOCTYPE html><html><head><title>404 Not Found</title></head><body>";
-  message += "<h1>404 - Not Found</h1>";
-  message += "<p>The requested resource was not found on this server.</p>";
-  message += "<p>Path: " + request->path() + "</p>";
-  message += "</body></html>";
-
-  return response->send(404, "text/html", message.c_str());
+  String host = request->host();
+  String url  = request->url();  // full path + query string
+  if (host != "ellafi.local" && host != WiFi.localIP().toString())
+    ESP_LOGW(TAG, "404 unexpected host: %s %s", host.c_str(), url.c_str());
+  else
+    ESP_LOGI(TAG, "404: %s", url.c_str());
+  return response->send(404, "text/plain", "Not found");
 }
 
 esp_err_t handleProgram(PsychicRequest* request, PsychicResponse* response) {
@@ -319,10 +337,10 @@ void processPause(const String& mac, OmadaSession& op) {
   String errorDetail;
   if (disconnectOmadaClient(op, *session, errorDetail)) {
     session->pausedRemainingMillis = remaining;
-    if (ws) ws->sendMessage(buildStatusJson(*session, "paused").c_str());
+    if (ws) { ws->sendMessage(buildStatusJson(*session, "paused").c_str()); ws->close(); }
   } else {
     deletePausedSessionFile(session->clientMac);
-    if (ws) ws->sendMessage(("{\"type\":\"error\",\"message\":\"Pause failed\",\"detail\":\"" + errorDetail + "\"}").c_str());
+    if (ws) { ws->sendMessage(("{\"type\":\"error\",\"message\":\"Pause failed\",\"detail\":\"" + errorDetail + "\"}").c_str()); ws->close(); }
   }
 }
 
@@ -345,9 +363,9 @@ void processResume(const String& mac, OmadaSession& op, OmadaSession& admin) {
   if (authenticateOmadaClient(op, *session, (unsigned long long)pausedRemainingMillis, errorDetail)) {
     session->pausedRemainingMillis = 0;
     deletePausedSessionFile(session->clientMac);
-    if (ws) ws->sendMessage(buildStatusJson(*session, "resumed").c_str());
+    if (ws) { ws->sendMessage(buildStatusJson(*session, "resumed").c_str()); ws->close(); }
     refreshHotspotSessionCache(op, admin);  // get updated clientId from Omada
   } else {
-    if (ws) ws->sendMessage(("{\"type\":\"error\",\"message\":\"Resume failed\",\"detail\":\"" + errorDetail + "\"}").c_str());
+    if (ws) { ws->sendMessage(("{\"type\":\"error\",\"message\":\"Resume failed\",\"detail\":\"" + errorDetail + "\"}").c_str()); ws->close(); }
   }
 }

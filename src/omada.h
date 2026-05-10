@@ -141,4 +141,4 @@ JsonDocument getHotspotClientsJson(OmadaSession& op);
 JsonDocument getAllClientsJson(OmadaSession& admin);
 JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, uint64_t nowMs);
 void refreshHotspotSessionCache(OmadaSession& op, OmadaSession& admin);
-void omadaSetup(); // Call from setup() after NTP sync — loads sites and primes session cache
+bool omadaSetup(); // Call from setup() after NTP sync — loads sites and primes session cache; returns false on failure

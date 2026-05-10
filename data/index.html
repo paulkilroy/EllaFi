@@ -344,8 +344,6 @@
         if (pendingAction) {
           ws.send(JSON.stringify(pendingAction));
           pendingAction = null;
-        } else {
-          ws.send(JSON.stringify({ action: 'getStatus' }));
         }
       };
 
@@ -383,6 +381,13 @@
       setTimeout(connectWebSocket, 1000);
     }
 
+    function fetchStatus() {
+      fetch('/status')
+        .then(r => r.json())
+        .then(handleServerMessage)
+        .catch(() => setTimeout(fetchStatus, 2000));
+    }
+
     function handleServerMessage(data) {
       if (data.type === 'authenticated') {
         window.location.reload();
@@ -391,9 +396,11 @@
       } else if (data.type === 'paused' || data.type === 'resumed') {
         stopProcessing();
         updateUI(data);
+        if (ws) { ws.onclose = null; ws.close(); ws = null; }
       } else if (data.type === 'error') {
         stopCoinInsert();
         stopProcessing();
+        if (ws) { ws.onclose = null; ws.close(); ws = null; }
         if (data.subtype === 'no_session') {
           showNoSession(data.message);
         } else if (data.subtype === 'refundable') {
@@ -410,7 +417,7 @@
     document.addEventListener('visibilitychange', function() {
       if (!document.hidden) {
         if (ws) { ws.onclose = null; ws.close(); ws = null; }
-        connectWebSocket();
+        fetchStatus();
       }
     });
 
@@ -472,14 +479,7 @@
       document.getElementById('insertBtn').style.display = 'block';
 
       if (expiryTimer) clearTimeout(expiryTimer);
-      expiryTimer = setTimeout(function() {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ action: 'getStatus' }));
-        } else {
-          // Server unreachable — flip to disconnected locally so UI isn't stale
-          updateUI({ type: 'status', sessionEndMillis: 0, pausedRemainingMillis: 0, coinInsertTimeLeft: 0 });
-        }
-      }, expiresInMillis + 1000);
+      expiryTimer = setTimeout(fetchStatus, expiresInMillis + 1000);
     }
 
     function showDisconnected() {
@@ -555,7 +555,7 @@
     }
 
     console.log('[EllaFi] page JS ready', performance.now().toFixed(0) + 'ms');
-    connectWebSocket();
+    fetchStatus();
   </script>
 </body>
 </html>

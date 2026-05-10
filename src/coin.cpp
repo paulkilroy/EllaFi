@@ -297,6 +297,7 @@ void finalizeCoinInsert(OmadaSession& op) {
       errJson += "}";
       ws->sendMessage(errJson.c_str());
     }
+    ws->close();
   } else {
     ESP_LOGW(TAG, "Auth result not delivered — client already disconnected");
   }

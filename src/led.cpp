@@ -30,6 +30,10 @@ void ledReady() {
   if (LED_TASK) xTaskNotify(LED_TASK, LED_NOTIFY_READY, eSetValueWithOverwrite);
 }
 
+void ledError() {
+  if (LED_TASK) xTaskNotify(LED_TASK, LED_NOTIFY_ERROR, eSetValueWithOverwrite);
+}
+
 void ledHalt() {
   digitalWrite(COINSLOT_POWER_PIN, LOW);  // cut coin slot power immediately
 #ifdef HAS_RGB_LED
@@ -56,20 +60,23 @@ void ledTask(void*) {
   uint32_t idleColor = IS_MASTER ? LED_STRIP.Color(128, 0, 128) : LED_STRIP.Color(255, 80, 0);
   bool booting  = true;   // startup blink: idle ↔ off at 500ms
   bool blinking = false;  // coin-insert blink: green ↔ idle at 200ms
+  bool error    = false;  // error blink: red ↔ off at 200ms; cleared by READY
   bool flashOn  = false;
   for (;;) {
     uint32_t val = 0;
-    TickType_t timeout = (booting || blinking) ? pdMS_TO_TICKS(booting ? 500 : 200) : portMAX_DELAY;
+    TickType_t timeout = (booting || blinking || error) ? pdMS_TO_TICKS(booting ? 500 : 200) : portMAX_DELAY;
     if (xTaskNotifyWait(0, ULONG_MAX, &val, timeout) == pdTRUE) {
       if (val == LED_NOTIFY_READY) {
         booting  = false;
         blinking = false;
+        error    = false;
         if (!COINSLOT_PROGRAM_MODE) digitalWrite(COINSLOT_POWER_PIN, LOW);
         LED_STRIP.setPixelColor(0, idleColor);
         LED_STRIP.show();
       } else if (val == LED_NOTIFY_START) {
         booting  = false;
         blinking = true;
+        error    = false;
         flashOn  = false;
         if (!COINSLOT_PROGRAM_MODE) digitalWrite(COINSLOT_POWER_PIN, HIGH);
       } else if (val == LED_NOTIFY_STOP) {
@@ -77,12 +84,19 @@ void ledTask(void*) {
         if (!COINSLOT_PROGRAM_MODE) digitalWrite(COINSLOT_POWER_PIN, LOW);
         LED_STRIP.setPixelColor(0, idleColor);
         LED_STRIP.show();
+      } else if (val == LED_NOTIFY_ERROR) {
+        booting  = false;
+        blinking = false;
+        error    = true;
+        flashOn  = false;
       }
     } else {
       // timeout — toggle
       flashOn = !flashOn;
       if (blinking) {
         LED_STRIP.setPixelColor(0, flashOn ? LED_STRIP.Color(0, 255, 0) : idleColor);
+      } else if (error) {
+        LED_STRIP.setPixelColor(0, flashOn ? LED_STRIP.Color(255, 0, 0) : 0);
       } else {  // booting
         LED_STRIP.setPixelColor(0, flashOn ? idleColor : 0);
       }
