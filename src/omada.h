@@ -110,35 +110,37 @@ public:
   bool empty()  const { return _byIp.empty(); }
 };
 
-// ---- Omada session state — one instance per task, passed into every API call ----
-
-struct OmadaSession {
-  CookieJar cookieJar;
-  String csrfToken;
-  unsigned long sessionStart = 0;
-};
-
 // ---- Omada config globals (defined in omada.cpp, populated by loadConfig in main.cpp) ----
 
 extern String CONTROLLER_BASE_URL;
 extern String CONTROLLER_ID;
-extern String OPERATOR_USERNAME;
-extern String OPERATOR_PASSWORD;
 extern String SITE_ID;
 extern String SITE_NAME;
 extern String ADMIN_USERNAME;
 extern String ADMIN_PASSWORD;
 
 // ---- Omada API functions ----
+// Credential management is internal — callers pass no session state.
+// Concurrent calls from different tasks are safe: each call gets a credential
+// snapshot and builds its own local HTTPClient.
 
-bool loginToController(OmadaSession& op, String& errorDetail);
-bool loginToAdminController(OmadaSession& admin, String& errorDetail);
-bool loadOmadaSites(OmadaSession& admin, String& errorDetail);
-bool authenticateOmadaClient(OmadaSession& op, SessionParams& session, unsigned long long durationMillis, String& errorDetail);
-bool extendOmadaClient(OmadaSession& op, SessionParams& session, unsigned long long durationMillis, String& errorDetail);
-bool disconnectOmadaClient(OmadaSession& op, SessionParams& session, String& errorDetail);
-JsonDocument getHotspotClientsJson(OmadaSession& op);
-JsonDocument getAllClientsJson(OmadaSession& admin);
+bool loadOmadaSites(String& errorDetail);
+bool authenticateOmadaClient(SessionParams& session, unsigned long long durationMillis, String& errorDetail);
+bool extendOmadaClient(SessionParams& session, unsigned long long durationMillis, String& errorDetail);
+bool disconnectOmadaClient(SessionParams& session, String& errorDetail);
+JsonDocument getHotspotClientsJson();
+JsonDocument getAllClientsJson();
 JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, uint64_t nowMs);
-void refreshHotspotSessionCache(OmadaSession& op, OmadaSession& admin);
-bool omadaSetup(); // Call from setup() after NTP sync — loads sites and primes session cache; returns false on failure
+void refreshHotspotSessionCache();
+unsigned long getOmadaSessionAgeMs();   // ms since last Omada login; 0 if never logged in
+unsigned long getLastCacheRefreshMs();  // ms since last refreshHotspotSessionCache(); 0 if never run
+
+JsonDocument getVoucherGroupsJson();
+bool createVoucherGroup(const String& name, int durationMin, int totalCount,
+                        const String& description,
+                        String& groupId, String& errorDetail);
+JsonDocument getVoucherCodesJson(const String& groupId, int page);
+
+bool omadaSetup(); // Call from setup() after NTP sync — initialises mutex, loads sites, primes cache
+
+extern volatile int VOUCHER_ACTIVE_COUNT;

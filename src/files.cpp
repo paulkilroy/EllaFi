@@ -1,4 +1,5 @@
 #include "files.h"
+#include "log_buffer.h"
 #include "network.h"
 
 #include <ArduinoJson.h>
@@ -34,22 +35,18 @@ bool loadConfig() {
   AP_PASSWORD           = doc["wifi_password"]            | "";
   CONTROLLER_BASE_URL   = doc["omada_url"]                | "";
   CONTROLLER_ID         = doc["omada_controller_id"]      | "";
-  OPERATOR_USERNAME     = doc["omada_operator_username"]  | "";
-  OPERATOR_PASSWORD     = doc["omada_operator_password"]  | "";
   ADMIN_USERNAME        = doc["omada_username"]           | "";
   ADMIN_PASSWORD        = doc["omada_password"]           | "";
   MASTER_MAC            = doc["master_mac"]               | "";
   NET_PSK               = doc["network_key"]              | 0ULL;
   MINUTES_PER_COIN      = doc["minutes_per_coin"]         | 24;
-  if (AP_SSID.isEmpty())             { ESP_LOGE(TAG, "config.json missing: wifi_ssid");              return false; }
-  if (AP_PASSWORD.isEmpty())         { ESP_LOGE(TAG, "config.json missing: wifi_password");          return false; }
-  if (CONTROLLER_BASE_URL.isEmpty()) { ESP_LOGE(TAG, "config.json missing: omada_url");              return false; }
-  if (CONTROLLER_ID.isEmpty())       { ESP_LOGE(TAG, "config.json missing: omada_controller_id");    return false; }
-  if (OPERATOR_USERNAME.isEmpty())   { ESP_LOGE(TAG, "config.json missing: omada_operator_username");return false; }
-  if (OPERATOR_PASSWORD.isEmpty())   { ESP_LOGE(TAG, "config.json missing: omada_operator_password");return false; }
-  if (ADMIN_USERNAME.isEmpty())      { ESP_LOGE(TAG, "config.json missing: omada_username");         return false; }
-  if (ADMIN_PASSWORD.isEmpty())      { ESP_LOGE(TAG, "config.json missing: omada_password");         return false; }
-  if (NET_PSK == 0)                  { ESP_LOGE(TAG, "config.json missing: network_key");            return false; }
+  if (AP_SSID.isEmpty())             { ESP_LOGE(TAG, "config.json missing: wifi_ssid");           return false; }
+  if (AP_PASSWORD.isEmpty())         { ESP_LOGE(TAG, "config.json missing: wifi_password");       return false; }
+  if (CONTROLLER_BASE_URL.isEmpty()) { ESP_LOGE(TAG, "config.json missing: omada_url");           return false; }
+  if (CONTROLLER_ID.isEmpty())       { ESP_LOGE(TAG, "config.json missing: omada_controller_id"); return false; }
+  if (ADMIN_USERNAME.isEmpty())      { ESP_LOGE(TAG, "config.json missing: omada_username");      return false; }
+  if (ADMIN_PASSWORD.isEmpty())      { ESP_LOGE(TAG, "config.json missing: omada_password");      return false; }
+  if (NET_PSK == 0)                  { ESP_LOGE(TAG, "config.json missing: network_key");         return false; }
   ESP_LOGI(TAG, "Config loaded: ssid=%s url=%s", AP_SSID.c_str(), CONTROLLER_BASE_URL.c_str());
   return true;
 }
@@ -150,6 +147,7 @@ void appendFormattedErrorLog(const char* tag, const char* fmt, ...) {
   vsnprintf(buf, sizeof(buf), fmt, args);
   va_end(args);
   appendErrorLog(tag, buf);
+  logDirect('I', tag, buf);
 }
 
 void appendRefundLog(const String& mac, int coins, int minutes, const String& code) {

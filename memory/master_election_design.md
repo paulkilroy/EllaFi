@@ -124,3 +124,94 @@ Lets you see which node is currently master and whether a failover occurred.
 | `healthchecks_url` | **Add** — ping URL from healthchecks.io dashboard (empty = disabled) |
 | `network_key` | Keep |
 | `minutes_per_coin` | Keep (already added) |
+
+---
+
+## Config Propagation (admin UI → all nodes)
+
+Because any slave can be promoted to master, all nodes need an up-to-date full config including Omada credentials.
+
+When admin saves config via the admin UI:
+1. Master validates and writes its own `config.json`
+2. Master broadcasts `{"type":"config_update","config":{...}}` over UDP
+3. Each slave receiving it writes `config.json` to its LittleFS and reboots
+4. Master reboots last (after a short delay to give slaves time to receive)
+
+**Broadcast reliability:** Master has no roster of connected slaves and can't wait for ACKs. Mitigation: broadcast 3× with ~500ms gap. On the same LAN with 2–3 nodes packet loss is near zero.
+
+**Missed broadcast (slave offline during push):** Slave can pull config from master on boot — `GET http://<master_ip>/admin/config`. If config differs from local copy, save and reboot. Also useful for freshly flashed slaves that only have minimal config.
+
+### The chicken-and-egg fields
+
+Some config changes cannot self-propagate:
+
+| Field | Problem | Mitigation |
+|-------|---------|------------|
+| `wifi_ssid` / `wifi_password` | Master switches network; slaves still on old network can't receive broadcast | Manual reflash of all slaves required |
+| `network_key` | The broadcast is validated by PSK — slaves with old key will reject a broadcast carrying a new key | Manual reflash of all slaves required |
+| All other fields | Safe to propagate via UDP | — |
+
+Admin UI must warn clearly when either of these fields is changed. *Exact wording and UX to be decided before implementing.*
+
+### New firmware endpoints needed
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /admin/config` | Validate, save, broadcast to slaves, schedule reboot |
+| `GET /admin/config` | Serve current config (for admin UI load + slave pull-on-boot) |
+
+`/config.json` already returns 403 — `/admin/config` is a separate, intentionally accessible endpoint. Decide whether to add any auth before exposing it.
+
+---
+
+## Persistent State Gaps on Failover
+
+When a slave promotes to master it starts with a clean LittleFS. The following state from the old master is gone:
+
+### Session cache (HOTSPOT_SESSION_CACHE)
+**No gap.** Already designed: `refreshHotspotSessionCache()` is called in `startMasterServices()` and rebuilds from Omada. Active sessions are unaffected from the client's perspective.
+
+### Paused sessions (`pause_<MAC>.dat`)
+**Decision: Option C — broadcast pause/resume events as they happen.** Slaves maintain a mirror in RAM. On promotion, new master loads the RAM snapshot. Any slave that was online during the pause has the data; only a slave reboot between pause and failover loses it (narrow window, acceptable).
+
+New UDP message types needed:
+- `{"type":"pause_mirror","mac":"...","remaining_ms":12345}` — master → all, on each pause
+- `{"type":"resume_mirror","mac":"..."}` — master → all, on each resume (slaves discard the entry)
+
+### errors.log / refunds.log / sales.log (planned)
+**Decision: Accept loss.** Logs are operational aids. Historical data stays on the old node's LittleFS; admin can pull before decommissioning. Not worth the broadcast overhead.
+
+### Slave error logs
+**Decision: Forward to master via UDP.** Serial access isn't practical in a deployed village. Master stores with a `source` field so admin UI can show which node generated each error.
+
+New UDP message type needed:
+- `{"type":"log_error","source":"AA:BB:CC:DD:EE:FF","tag":"...","msg":"..."}` — slave → master
+
+### In-flight coin session on failover
+If the old master dies mid-coin-insert, `COIN_INSERT_ACTIVE` and `COIN_COUNT` are RAM state — gone. The new master starts clean. The client's UI will be in an inconsistent state; the coin insert timeout will fire on the client side with no server response.
+
+This is an inherently narrow window (within a 10s coin insert) and a known acceptable gap. No action proposed.
+
+---
+
+## Chicken-and-Egg Config Fields
+
+WiFi creds and `network_key` cannot self-propagate (slaves can't receive a broadcast they're not connected to / can't validate). Mitigation: **SoftAP fallback**.
+
+If a node fails to connect to WiFi after N retries, it starts a fallback AP (`EllaFi-Setup-XXXX`, hardcoded password baked into firmware). Admin connects phone to it and pushes new config via HTTP. Works for both WiFi creds and `network_key` changes — no USB reflash required.
+
+Admin UI must show a hard warning when either field is changed: "WiFi credentials / network key changes require connecting to each node's setup AP to apply."
+
+---
+
+## Decisions
+
+| Topic | Decision |
+|-------|----------|
+| Config propagation | Broadcast from master on save; slaves write + reboot |
+| Paused sessions on failover | Option C — broadcast pause/resume events; slaves mirror in RAM |
+| Log mirroring (errors/refunds/sales) | Accept loss — not worth broadcast overhead |
+| Slave error forwarding | Yes — UDP `log_error` to master; stored with `source` field |
+| `/admin/config` auth | Yes — same admin token check as other admin endpoints |
+| WiFi/network_key UI | Hard warning + SoftAP fallback for applying changes |
+| Slave FS OTA | Deferred — LittleFS partition is ~100% full with static files, no room to store the 3.5MB image for redistribution. Slaves currently receive firmware OTA only. Revisit when gossip/voting is implemented: options are per-file HTTP sync (manifest + individual GETs) or a dedicated storage partition. |

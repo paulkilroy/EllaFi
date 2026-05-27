@@ -207,18 +207,16 @@ void coinPulseTask(void*) {
 }
 
 // FinalizeCoinTask: sleeps until coinTimerCallback() signals COIN_FINALIZE_SEM.
-// Owns its own operator session — no shared mutex needed.
 // Pinned to Core 1 alongside loop() — never touches the radio stack on Core 0.
 void finalizeCoinTask(void*) {
-  static OmadaSession opSession;
   for (;;) {
     xSemaphoreTake(COIN_FINALIZE_SEM, portMAX_DELAY);
-    finalizeCoinInsert(opSession);
+    finalizeCoinInsert();
   }
 }
 
 // Called 10s after last coin insertion. Authenticates with Omada and pushes result via WS.
-void finalizeCoinInsert(OmadaSession& op) {
+void finalizeCoinInsert() {
   ESP_LOGI(TAG, "======finalizeCoinInsert called");
 
   // Close the insertion window. COIN_INSERT_ACTIVE stays true so no new session can start
@@ -248,7 +246,7 @@ void finalizeCoinInsert(OmadaSession& op) {
                coinCount * MINUTES_PER_COIN,
                (int)((session->sessionEndMillis - nowMillis) / MILLIS_PER_MINUTE));
 
-      if (extendOmadaClient(op, *session, additionalMillis, errorDetail)) {
+      if (extendOmadaClient(*session, additionalMillis, errorDetail)) {
         success = true;
       } else {
         ESP_LOGE(TAG, "Extend failed: %s", errorDetail.c_str());
@@ -260,7 +258,7 @@ void finalizeCoinInsert(OmadaSession& op) {
       ESP_LOGI(TAG, "Authenticating %s for %d minutes",
                session->clientMac.c_str(), coinCount * MINUTES_PER_COIN);
 
-      if (authenticateOmadaClient(op, *session, additionalMillis, errorDetail)) {
+      if (authenticateOmadaClient(*session, additionalMillis, errorDetail)) {
         success = true;
       } else {
         ESP_LOGE(TAG, "Auth failed: %s", errorDetail.c_str());

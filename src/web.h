@@ -3,8 +3,18 @@
 #include "globals.h"
 #include "coin.h"
 #include "files.h"
-#include <PsychicFileResponse.h>
+#include "embedded_files.h"
 
+void      setupOtaRoute();
+void      setupFsOtaRoute();
+esp_err_t handleFwBin(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleAdminPage(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleAdminLog(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleAdminSellers(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleAdminConfig(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleAdminReboot(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleGetStatus(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleNotFound(PsychicRequest* request, PsychicResponse* response);
@@ -20,5 +30,5 @@ void pushCoinUpdateToClient();
 
 void updateClientTask(void*);
 void webSocketTask(void*);
-void processPause(const String& mac, OmadaSession& op);
-void processResume(const String& mac, OmadaSession& op, OmadaSession& admin);
+void processPause(const String& mac);
+void processResume(const String& mac);

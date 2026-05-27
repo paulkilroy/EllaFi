@@ -71,8 +71,16 @@ constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
+// ── Firmware version ─────────────────────────────────────────────────────────
+
+#define FIRMWARE_VERSION "1.0.0"
+#define FIRMWARE_BUILD   38       // increment on every release; used for slave version comparison
+
+// ── Hardware pins ─────────────────────────────────────────────────────────────
+
 constexpr int           COINBUTTON_PIN                = 0;   // GPIO0 — BOOT button (debounced)
 // COINSLOT_PIN: coin acceptor signal (CH-926 style open-collector). The acceptor never drives the
+// Coin acceptor pinout reference: https://www.cable-tester.com/coin-acceptor-connector-pin-out/
 // line HIGH — it only pulls it to its own GND on a coin pulse. Safe to wire directly to a 3.3V GPIO.
 //   GPIO4 ---+--- 10k resistor --- 3V3   (INPUT_PULLUP or external pull-up)
 //            |
@@ -92,3 +100,5 @@ constexpr unsigned long UPDATE_CLIENT_INTERVAL_MILLIS = 500;
 constexpr time_t        NTP_EPOCH_MIN                 = 1000000000L;  // Sep 9 2001
 constexpr int           NTP_SYNC_RETRIES              = 40;
 constexpr int           COIN_PULSE_QUEUE_SIZE          = 32;
+constexpr unsigned long HEARTBEAT_INTERVAL_MILLIS      = 15000;  // how often each node broadcasts its health
+constexpr unsigned long OTA_REBOOT_DELAY_MILLIS        = 30000;  // wait for slaves to fetch /fw.bin before master reboots

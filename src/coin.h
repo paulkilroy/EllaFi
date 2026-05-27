@@ -15,4 +15,4 @@ void slaveRecvCoinInsertEnd();
 
 void coinPulseTask(void*);
 void finalizeCoinTask(void*);
-void finalizeCoinInsert(OmadaSession& op);
+void finalizeCoinInsert();

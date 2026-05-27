@@ -6,14 +6,10 @@
   "network_key": a number between 1 and 9007199254740991,
   "minutes_per_coin": 24,
 
-  "omada_url": "copy from one of the reference URLs below",
-  "omada_controller_id": "copy from one of the reference controller IDs below",
+  "omada_url": "Settings -> Controller -> Controller URL  |  Cloud US-East: https://use1-api-omada-essential-controller.tplinkcloud.com  |  Local: https://<controller-ip>:8043",
+  "omada_controller_id": "visible in the browser URL path after logging in to the Omada web UI",
   "omada_username": "your-omada-admin-username",
   "omada_password": "your-omada-admin-password",
-
-  "omada_operator_username": "your-omada-operator-username",
-  "omada_operator_password": "your-omada-operator-password",
-  "omada_site_id": "from Omada web UI URL or users/current API response (privilege.sites[].key)",
 
   "openapi_client_id": "from GlobalView -> OpenAPI -> Client Management -> Create Client",
   "openapi_client_secret": "from GlobalView -> OpenAPI -> Client Management -> Create Client",

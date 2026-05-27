@@ -221,7 +221,7 @@
         <span id="clientMac">Loading...</span>
       </div>
     </div>
-    <a id="openBrowserBtn" href="http://ellaFi.local" style="display:none; text-decoration:none;">
+    <a id="openBrowserBtn" href="http://ellafi.local" target="_blank" rel="noopener" onclick="window.open('http://ellafi.local','_blank'); return false;" style="display:none; text-decoration:none;">
       <button class="btn btn-primary">Open EllaFi.local</button>
     </a>
   </div>
@@ -264,6 +264,11 @@
     let expiryTimer = null;
     let coinInsertMode = false;
     let processingMode = false;
+    let lastCoinCount = 0;
+
+    const audioBg   = new Audio('assets/insertcoinbg.mp3');
+    audioBg.loop    = true;
+    const audioCoin = new Audio('assets/coin-received.mp3');
 
     function formatMinutesToHM(totalMinutes) {
       const hours = Math.floor(totalMinutes / 60);
@@ -423,7 +428,10 @@
 
     function stopCoinInsert() {
       coinInsertMode = false;
+      lastCoinCount = 0;
       document.getElementById('coinModal').classList.remove('show');
+      audioBg.pause();
+      audioBg.currentTime = 0;
     }
 
     function showProcessing() {
@@ -437,6 +445,14 @@
     }
 
     function showCoinInsert(data) {
+      if (!coinInsertMode) {
+        audioBg.play().catch(() => {});
+      }
+      if (data.coinCount > lastCoinCount) {
+        audioCoin.currentTime = 0;
+        audioCoin.play().catch(() => {});
+      }
+      lastCoinCount = data.coinCount;
       coinInsertMode = true;
       processingMode = false;
       document.getElementById('coinModal').classList.add('show');
@@ -531,22 +547,22 @@
     }
 
     function pauseSession() {
+      showProcessing();
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         pendingAction = { action: 'pause' };
         connectWebSocket();
         return;
       }
-      showProcessing();
       ws.send(JSON.stringify({ action: 'pause' }));
     }
 
     function resumeSession() {
+      showProcessing();
       if (!ws || ws.readyState !== WebSocket.OPEN) {
         pendingAction = { action: 'resume' };
         connectWebSocket();
         return;
       }
-      showProcessing();
       ws.send(JSON.stringify({ action: 'resume' }));
     }
 

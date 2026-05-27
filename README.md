@@ -1,6 +1,6 @@
 # EllaFi
 
-![EllaFi](data/EllaFi.png)
+![EllaFi](data/EllaFi.webp)
 
 Coin-operated WiFi hotspot portal for ESP32, built for TP-Link Omada controller networks. Clients insert physical coins to purchase internet access — the ESP32 handles coin counting, session management, pause/resume, and communicates with the Omada controller to grant and revoke access.
 
@@ -26,6 +26,8 @@ Coin-operated WiFi hotspot portal for ESP32, built for TP-Link Omada controller 
 - Omada EAP access points on the same LAN
 
 ### Coin Acceptor Wiring
+
+Coin acceptor pinout reference: https://www.cable-tester.com/coin-acceptor-connector-pin-out/
 
 ```
                     P6KE6.8A (TVS)
@@ -111,6 +113,31 @@ J2 is a 3-pin screw terminal (2.54mm or 5.08mm pitch). 2-wire LED rings: use pin
 - U2 pin 20 (GPIO14, COINSLOT_POWER_PIN)
 
 J1 pin 4 — NC (leave unconnected)
+
+---
+
+## Bill of Materials (DigiKey)
+
+| Ref          | Description                                          | DigiKey #              | Qty | Confidence | Verify |
+|--------------|------------------------------------------------------|------------------------|-----|------------|--------|
+| R1           | 10kΩ 0.25W axial THT (DIN0207)                      | `MF0207FRE52-10K-ND`   | 1   | 90% | DigiKey confirmed body 6.3mm ✓, dia 2.4mm (spec 2.5mm) — check fits through pads; lead pitch not confirmed |
+| R2, R4, R5   | 220Ω 0.25W axial THT                                | `220QBK-ND`            | 3   | 90% | Same series as R1 — same caveats |
+| R3           | 330Ω 0.25W axial THT                                | `330QBK-ND`            | 1   | 90% | Same series as R1 — same caveats |
+| C1, C2       | 100uF 25V radial electrolytic 8mm/3.5mm             | `493-14973-ND`         | 2   | 99% | DigiKey confirmed 8.0mm dia ✓, 3.5mm pitch ✓ |
+| D1           | P6KE6.8A TVS diode DO-15                            | `P6KE6.8ALFCT-ND`      | 1   | 90% | Footprint needs P10.16mm lead pitch — confirm on DigiKey "Lead Spacing" spec |
+| D2           | 1N5822 Schottky diode DO-201AD                      | `1N5822-E3/54GICT-ND`  | 1   | 90% | Footprint needs P15.24mm lead pitch — confirm on DigiKey "Lead Spacing" spec |
+| D3           | 3mm right-angle LED red                             | `754-1298-ND`          | 1   | 90% | Footprint is `O1.27mm_Z2.0mm` — confirm horizontal offset and height on DigiKey dimensional drawing |
+| D4           | 3mm right-angle LED yellow                          | `754-1300-ND`          | 1   | 90% | Same series as D3 — same caveats |
+| D5           | 3mm right-angle LED green                           | `754-1297-ND`          | 1   | 90% | Same series as D3 — same caveats |
+| Q1           | IRF540N N-channel MOSFET TO-220-3                   | `IRF540NPBF-ND`        | 1   | 90% | Footprint is vertical TO-220-3 — confirm part is vertical mount not tab-down horizontal |
+| SW1          | OS102011MS2QN1 SPDT slide switch                    | `CKN9565-ND`           | 1   | 99% | Exact C&K part number — KiCad footprint named after this exact part |
+| U1           | FOD817 optocoupler DIP-4 (PC817 compatible)         | `FOD817-ND`            | 1   | 95% | Standard DIP-4 7.62mm row spacing — confirm FOD817 matches PC817 pin layout |
+| U3           | LM2596T-5.0 buck regulator TO-220-5                 | `LM2596T-5.0/NOPB-ND`  | 1   | 90% | TO-220-5 stagger confirmed; 1.70mm lead pitch × 2 = 3.4mm span matches `P3.4x3.7mm_StaggerEven` ✓ |
+| L1           | 100uH radial inductor 9.5mm dia / 5mm pitch         | `732-3081-ND`          | 1   | 90% | DigiKey confirmed 9.5mm dia ✓; 5mm pitch from Würth series spec, not directly on DigiKey page |
+| J1           | 1×4 female socket 2.54mm                           | `S7037-ND`             | 1   | 95% | Standard 2.54mm pitch — Sullins exact part, KiCad footprint named to spec |
+| J2           | 3-pos terminal block 5.08mm pitch                  | `277-1976-ND`          | 1   | 95% | Phoenix Contact exact part — 5.08mm pitch confirmed |
+| J3           | CUI PJ-002AH barrel jack 2.1mm ID / 5.5mm OD       | `CP-002AH-ND`          | 1   | 75% | Center-to-sleeve 3.0mm confirmed ✓; mounting tab offset ~3.0mm but KiCad footprint uses 3.5mm — tab holes may not align, verify before routing |
+| J4, J5       | 1×22 female socket 2.54mm (ESP32 DevKitC-1)        | `S7055-ND`             | 2   | 95% | Standard 2.54mm pitch — Sullins exact part |
 
 ---
 
