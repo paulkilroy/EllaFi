@@ -328,17 +328,24 @@ def get_organization_device_id(session, controller_id, csrf_token, debug):
     return None, None
 
 def get_user_sites_remote(session, connector_url, omadac_id, controller_id, csrf_token, debug):
-    """Probe: mirrors the first call the browser makes after cloud login."""
+    """Fetch sites list and return the first site_id. Returns None on failure."""
     url = _remote_url(connector_url, omadac_id, controller_id,
                       "api/v2/user/sites?currentPage=1&currentPageSize=100")
-    print(f"GET {url}  (probe)")
+    print(f"GET {url}")
     r = session.get(url, headers=_remote_headers(csrf_token))
     data = r.json()
     if debug:
         print(f"  Response: {json.dumps(data, indent=2)}")
-    ec = data.get("errorCode")
-    print(f"  errorCode={ec}  msg={data.get('msg', '')}")
-    return ec == 0
+    if data.get("errorCode") != 0:
+        print(f"  ERROR: {data.get('msg')} (errorCode={data.get('errorCode')})")
+        return None
+    sites = data.get("result", {}).get("data", [])
+    if not sites:
+        print(f"  ERROR: no sites returned")
+        return None
+    site_id = sites[0]["id"]
+    print(f"  site_id={site_id}  name={sites[0].get('name', '?')}")
+    return site_id
 
 def get_hotspot_clients_remote(session, connector_url, omadac_id, controller_id, site_id, csrf_token, debug,
                                active_only=True):
@@ -402,9 +409,7 @@ def main():
 
     config = load_config()
     controller_id = config["omada_controller_id"]
-    site_id       = config["omada_site_id"]
     print(f"Controller ID : {controller_id}")
-    print(f"Site ID       : {site_id}")
     print()
 
     s = requests.Session()
@@ -445,8 +450,16 @@ def main():
         sys.exit(1)
     print()
 
-    # 6. Hotspot clients — TPEC_SID + deviceId is the implicit auth, no Omada login needed
-    print("--- Step 6: hotspot clients ---")
+    # 6. Fetch site_id from controller
+    print("--- Step 6: get site ID ---")
+    site_id = get_user_sites_remote(s, connector_url, device_id, controller_id, csrf_token, args.debug)
+    if not site_id:
+        print("  Failed to get site_id.")
+        sys.exit(1)
+    print()
+
+    # 7. Hotspot clients — TPEC_SID + deviceId is the implicit auth, no Omada login needed
+    print("--- Step 7: hotspot clients ---")
     clients = get_hotspot_clients_remote(
         s, connector_url, device_id, controller_id, site_id, csrf_token, args.debug)
 

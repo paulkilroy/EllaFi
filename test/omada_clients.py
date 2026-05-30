@@ -67,6 +67,22 @@ def operator_login(base_url, omada_id, username, password, verify_ssl):
 
     return data["result"]["token"], r.cookies
 
+def fetch_site_id(base_url, omada_id, token, verify_ssl, cookies):
+    """Fetch the first site ID from /api/v2/user/sites using an admin session."""
+    url = f"{base_url}/{omada_id}/api/v2/user/sites?currentPage=1&currentPageSize=100"
+    r = requests.get(url, headers={"Csrf-Token": token}, cookies=cookies, verify=verify_ssl)
+    data = r.json()
+    if data.get("errorCode") != 0:
+        print(f"ERROR fetching sites: {data.get('msg')}")
+        sys.exit(1)
+    sites = data.get("result", {}).get("data", [])
+    if not sites:
+        print("ERROR: no sites returned")
+        sys.exit(1)
+    site_id = sites[0]["id"]
+    print(f"Site ID: {site_id}  ({sites[0].get('name', '?')})\n")
+    return site_id
+
 def get_site_id(base_url, omada_id, token, site_name, verify_ssl, cookies):
     url = f"{base_url}/{omada_id}/api/v2/users/current?currentPage=1&currentPageSize=10000"
     headers = {"Csrf-Token": token}
@@ -217,10 +233,12 @@ def main():
         omada_id   = config["omada_controller_id_prod_local"]
         verify_ssl = False
 
-    site_id = config["omada_site_id"]
-
     print(f"=== Target: {args.target} ({base_url}) ===\n")
-    print(f"Site ID: {site_id}\n")
+
+    # Admin login to fetch site_id
+    admin_token, admin_cookies = admin_login(
+        base_url, omada_id, config["omada_username"], config["omada_password"], verify_ssl)
+    site_id = fetch_site_id(base_url, omada_id, admin_token, verify_ssl, admin_cookies)
 
     # --- Operator login: hotspot-authed clients ---
     print("=" * 60)

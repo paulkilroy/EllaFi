@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fake Omada controller for running tests without real hardware.
 
-Listens on HTTPS port 443 with a self-signed cert.
+Listens on HTTPS port 8043 with a self-signed cert.
 Implements all API endpoints the firmware calls:
 
   Operator session:
@@ -16,24 +16,44 @@ Implements all API endpoints the firmware calls:
     GET  /{cid}/api/v2/user/sites
     GET  /{cid}/api/v2/sites/{siteId}/clients
 
+  Voucher management (admin session, forwarded to real cloud if --cloud):
+    GET  /{cid}/api/v2/hotspot/sites/{siteId}/voucherGroups
+    POST /{cid}/api/v2/hotspot/sites/{siteId}/voucherGroups
+    GET  /{cid}/api/v2/hotspot/sites/{siteId}/voucherGroups/{groupId}
+
 Session state is tracked in memory:
   - all_clients: keyed by MAC → IP/AP info (represents physically connected clients)
   - hotspot_sessions: dynamic, keyed by MAC — created/updated by auth, mutated by extend/disconnect
 
 Usage:
-  sudo python3 test/mock_omada.py
-  (sudo needed for port 443)
+  sudo python3 test/mock_omada.py                # full mock
+  sudo python3 test/mock_omada.py --cloud        # mock hotspot, real cloud for vouchers
+
+--cloud mode:
+  Runs the 5-step TP-Link OAuth flow on startup. Admin login responses carry the
+  cloud session encoded in the TPOMADA_SESSIONID cookie value (base64url JSON with
+  tpec_sid, csrf, device_id, connector_url). Voucher calls and user/sites are
+  forwarded to the real cloud controller; all other endpoints remain mocked.
+
+  Why extPortal/auth and hotspot session CRUD stay mocked: those calls involve
+  apMac/radioId/ssid that only exist in a real Omada AP captive-portal redirect,
+  and real session IDs that only exist when a client connects through a real AP.
 """
 
+import argparse
+import base64
 import json
-import ssl
-import tempfile
 import os
 import re
+import ssl
+import sys
+import tempfile
+import threading
 import time
 import uuid
-from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, unquote, urlparse
 
 BOLD   = "\033[1m"
 GREEN  = "\033[92m"
@@ -78,16 +98,6 @@ def _assign_ip(mac):
 all_clients = {}
 
 # Active hotspot sessions, keyed by MAC.
-# {
-#   "AA-BB-CC-DD-EE-FF": {
-#     "id":        hex string,
-#     "mac":       "AA-BB-CC-DD-EE-FF",
-#     "start":     epoch_ms,
-#     "end":       epoch_ms,
-#     "permanent": False,
-#     "authType":  4,
-#   }
-# }
 hotspot_sessions = {}
 
 
@@ -112,6 +122,186 @@ def generate_self_signed_cert():
     return cert_file, key_file
 
 
+# ── Cloud proxy support ────────────────────────────────────────────────────────
+#
+# In --cloud mode, admin login encodes the real cloud session creds (tpec_sid,
+# csrf, device_id, connector_url) directly into the TPOMADA_SESSIONID cookie
+# value as base64url JSON. Subsequent voucher calls decode the cookie and forward
+# to the cloud connector — no server-side session map needed.
+
+CLOUD_SESSION = None   # {"tpec_sid": str, "csrf": str, "device_id": str, "connector_url": str}
+_cloud_lock   = threading.Lock()
+
+_ID_HOST       = "https://h2api-id.tplinkcloud.com"
+_CLOUD_MANAGER = "https://use1-api-omada-cloud-manager.tplinkcloud.com"
+_CLOUD_ACCESS  = "https://use1-api-omada-cloud-access.tplinkcloud.com"
+_BROWSER_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+def _do_cloud_auth(config):
+    """5-step TP-Link OAuth flow. Returns session dict. Raises RuntimeError on failure."""
+    import requests as _req
+    s             = _req.Session()
+    controller_id = config["omada_controller_id"]
+
+    # Step 1: session_code from TP-Link ID login page
+    r = s.get("https://id.tplinkcloud.com/", headers=_BROWSER_HEADERS)
+    session_code = None
+    for pat in [r'["\']sessionCode["\']\s*:\s*["\']([A-F0-9]{32})["\']',
+                r'sessionCode[=:\s]+["\']?([A-F0-9]{32})']:
+        m = re.search(pat, r.text, re.IGNORECASE)
+        if m:
+            session_code = m.group(1)
+            break
+    if not session_code:
+        qs = parse_qs(urlparse(r.url).query)
+        session_code = (qs.get("sessionCode") or qs.get("session_code") or
+                        ["EA7C2AE2D0A045ACAC76A33F929ED1EA"])[0]
+
+    # Step 2: TP-Link ID login → redirectParams (state, clientId, redirect_uri, …)
+    r = s.post(f"{_ID_HOST}/api/v1/login",
+               json={"email": config["omada_username"], "password": config["omada_password"],
+                     "terminalUUID": "d3084c5a-60b8-4fa3-b166-f9b7c3e13f58",
+                     "privatePolicyChecked": False},
+               headers={"session_code": session_code, "Content-Type": "application/json",
+                        "Origin": "https://id.tplinkcloud.com",
+                        "Referer": "https://id.tplinkcloud.com/"})
+    data = r.json()
+    if not data.get("success") and data.get("errorCode", 0) != 0:
+        raise RuntimeError(f"TP-Link login failed: {data.get('msg', data)}")
+    result      = data.get("result", {})
+    rp_raw      = result.get("redirectParams", "")
+    rp          = parse_qs(rp_raw)
+    state       = rp.get("state",    [""])[0]
+    service_url = result.get("serviceUrl", "https://use1-api-id.tplinkcloud.com")
+
+    # Step 3: OAuth2 authorize → extract code from 302 Location
+    r = s.get(f"{service_url}/oauth/authorize?{rp_raw}",
+              cookies={c.name: c.value for c in s.cookies},
+              headers={**_BROWSER_HEADERS,
+                       "Origin": "https://id.tplinkcloud.com",
+                       "Referer": "https://id.tplinkcloud.com/",
+                       "Sec-Fetch-Mode": "navigate"},
+              allow_redirects=False)
+    code = None
+    if r.status_code in (301, 302, 303, 307, 308):
+        loc   = r.headers.get("Location", "")
+        parts = loc.split("#", 1)
+        qsd   = parse_qs(urlparse(parts[0]).query)
+        if "code" in qsd:
+            code = qsd["code"][0]
+        elif len(parts) > 1 and "?" in parts[1]:
+            fqs = parse_qs(parts[1].split("?", 1)[1])
+            if "code" in fqs:
+                code = fqs["code"][0]
+    if not code:
+        raise RuntimeError("OAuth2: no code= found in authorize redirect")
+
+    # Step 4: exchange code for TPEC_SID + csrfToken
+    r = s.post(f"{_CLOUD_MANAGER}/api/v1/central/account/login-with-uid-code",
+               json={"code": code, "state": state,
+                     "uidServiceUrl": "https://use1-api-id.tplinkcloud.com", "canary": True})
+    data = r.json()
+    if data.get("errorCode", -1) != 0:
+        raise RuntimeError(f"login-with-uid-code failed: {data.get('msg', data)}")
+    csrf_token = data.get("result", {}).get("csrfToken", "")
+    if csrf_token:
+        s.cookies.set("csrfToken", csrf_token, domain=".tplinkcloud.com", path="/")
+
+    tpec_sid = s.cookies.get("TPEC_SID")
+    if not tpec_sid:
+        for c in s.cookies:
+            if len(c.value) > 30 and "tplinkcloud" in (c.domain or ""):
+                tpec_sid = c.value
+                break
+    if not tpec_sid:
+        raise RuntimeError("TPEC_SID cookie not found after login-with-uid-code")
+
+    # Step 5: get device_id and connector_url from cloud-access organizations
+    r = s.get(f"{_CLOUD_ACCESS}/api/v1/cloudaccess/organizations"
+              "?currentPage=1&currentPageSize=10&searchKey=&filters.deviceType=0",
+              headers={"csrf-token": csrf_token, "X-Requested-With": "XMLHttpRequest",
+                       "Origin": "https://use1-omada-cloud.tplinkcloud.com",
+                       "Referer": "https://use1-omada-cloud.tplinkcloud.com/",
+                       "request-hash": "1"})
+    data = r.json()
+    if data.get("errorCode") != 0:
+        raise RuntimeError(f"organizations API failed: {data.get('msg', data)}")
+    device_id = connector_url = None
+    for entry in data.get("result", {}).get("data", []):
+        if entry.get("omadacId") == controller_id:
+            device_id     = entry["deviceId"]
+            connector_url = entry.get("connectorUrl",
+                                      "https://use1-api-omada-controller-connector.tplinkcloud.com")
+            break
+    if not device_id:
+        raise RuntimeError(f"No organization entry for controller_id={controller_id}")
+
+    return {"tpec_sid": tpec_sid, "csrf": csrf_token,
+            "device_id": device_id, "connector_url": connector_url}
+
+
+def _make_tpomada_cookie(session):
+    """Encode cloud session creds into a TPOMADA_SESSIONID cookie value (base64url JSON)."""
+    payload = {"s": session["tpec_sid"], "c": session["csrf"],
+               "d": session["device_id"], "u": session["connector_url"]}
+    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip("=")
+
+
+def _decode_tpomada_cookie(val):
+    """Decode a cloud-encoded TPOMADA_SESSIONID value. Returns dict or None."""
+    try:
+        padded = val + "=" * (-len(val) % 4)
+        return json.loads(base64.urlsafe_b64decode(padded))
+    except Exception:
+        return None
+
+
+_CLOUD_FWD_HEADERS = {
+    "omada-remote-timeout": "60",
+    "omada-request-source": "web-remote",
+    "Origin":               "https://use1-omada-cloud.tplinkcloud.com",
+    "Referer":              "https://use1-omada-cloud.tplinkcloud.com/",
+    "X-Requested-With":     "XMLHttpRequest",
+}
+
+
+def _forward_to_cloud(method, path, qs, body_bytes, controller_id, creds):
+    """Proxy one request to the real cloud connector. Returns (http_status, body_bytes)."""
+    import requests as _req
+    url = f"{creds['u']}/omadac/{creds['d']}/{controller_id}{path}"
+    if qs:
+        url += "?" + qs
+    s = _req.Session()
+    s.cookies.set("TPEC_SID",  creds["s"])
+    s.cookies.set("csrfToken", creds["c"])
+    headers = {**_CLOUD_FWD_HEADERS, "csrf-token": creds["c"]}
+    if body_bytes:
+        headers["Content-Type"] = "application/json"
+    r = s.request(method, url, headers=headers, data=body_bytes, verify=False, timeout=30)
+    return r.status_code, r.content
+
+
+def _cloud_refresh_loop(config):
+    """Background thread: refresh cloud session every 4 hours before it expires."""
+    while True:
+        time.sleep(4 * 3600)
+        try:
+            new = _do_cloud_auth(config)
+            with _cloud_lock:
+                CLOUD_SESSION.update(new)
+            print(f"{GREEN}Cloud session refreshed{RESET}")
+        except Exception as e:
+            print(f"{RED}Cloud session refresh failed: {e}{RESET}")
+
+
+# ── HTTP handler ───────────────────────────────────────────────────────────────
+
 class OmadaHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -126,16 +316,26 @@ class OmadaHandler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             return {}, raw
 
-    def _api_path(self):
-        """Strip /{controllerId} prefix and query string."""
-        path = self.path.split("?")[0]
+    def _api_path_qs(self):
+        """Return (api_path_without_controller_id, query_string)."""
+        path = self.path
+        qs   = ""
+        if "?" in path:
+            path, qs = path.split("?", 1)
         parts = path.strip("/").split("/", 1)
-        return ("/" + parts[1]) if len(parts) > 1 else path
+        return ("/" + parts[1]) if len(parts) > 1 else path, qs
+
+    def _api_path(self):
+        api, _ = self._api_path_qs()
+        return api
+
+    def _controller_id(self):
+        return self.path.strip("/").split("/")[0]
 
     def do_POST(self):
         ts = datetime.now().strftime("%H:%M:%S")
         data, raw = self._read_body()
-        api = self._api_path()
+        api, qs   = self._api_path_qs()
 
         if api == "/api/v2/hotspot/login":
             self.handle_operator_login(ts, data)
@@ -144,20 +344,24 @@ class OmadaHandler(BaseHTTPRequestHandler):
         elif api == "/api/v2/hotspot/extPortal/auth":
             self.handle_auth(ts, data)
         elif re.match(r"^/api/v2/hotspot/sites/[^/]+/cmd/clients/[^/]+/extend$", api):
-            client_id = api.split("/")[-2]
-            self.handle_extend(ts, client_id, data)
+            self.handle_extend(ts, api.split("/")[-2], data)
         elif re.match(r"^/api/v2/hotspot/sites/[^/]+/cmd/clients/[^/]+/disconnect$", api):
-            client_id = api.split("/")[-2]
-            self.handle_disconnect(ts, client_id)
+            self.handle_disconnect(ts, api.split("/")[-2])
+        elif CLOUD_SESSION and re.match(r"^/api/v2/hotspot/sites/[^/]+/voucherGroups", api):
+            self.handle_cloud_forward(ts, "POST", api, qs, raw.encode() if raw else None)
         else:
             print(f"  {ts}  {RED}UNKNOWN POST{RESET}  {self.path}  body={raw}")
             self.send_json(404, {"errorCode": -1, "msg": "Not found"})
 
     def do_GET(self):
         ts = datetime.now().strftime("%H:%M:%S")
-        api = self._api_path()
+        api, qs = self._api_path_qs()
 
-        if api == "/api/v2/user/sites":
+        if CLOUD_SESSION and api == "/api/v2/user/sites":
+            self.handle_cloud_forward(ts, "GET", api, qs, None)
+        elif CLOUD_SESSION and re.match(r"^/api/v2/hotspot/sites/[^/]+/voucherGroups", api):
+            self.handle_cloud_forward(ts, "GET", api, qs, None)
+        elif api == "/api/v2/user/sites":
             self.handle_sites(ts)
         elif re.match(r"^/api/v2/sites/[^/]+/clients$", api):
             self.handle_all_clients(ts)
@@ -167,9 +371,38 @@ class OmadaHandler(BaseHTTPRequestHandler):
             print(f"  {ts}  {RED}UNKNOWN GET{RESET}  {self.path}")
             self.send_json(404, {"errorCode": -1, "msg": "Not found"})
 
-    # -------------------------------------------------------------------------
-    # Auth endpoints
-    # -------------------------------------------------------------------------
+    # ── Cloud forwarding ───────────────────────────────────────────────────────
+
+    def handle_cloud_forward(self, ts, method, api, qs, body_bytes):
+        """Extract TPOMADA_SESSIONID from Cookie header and proxy the call to real cloud."""
+        session_id = None
+        for part in self.headers.get("Cookie", "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == "TPOMADA_SESSIONID":
+                session_id = v
+                break
+        if not session_id:
+            self.send_json(401, {"errorCode": -1, "msg": "no TPOMADA_SESSIONID cookie"})
+            return
+        creds = _decode_tpomada_cookie(session_id)
+        if not creds:
+            self.send_json(401, {"errorCode": -1, "msg": "invalid TPOMADA_SESSIONID"})
+            return
+        print(f"  {ts}  {CYAN}→ cloud{RESET}  {method} {api}{('?' + qs) if qs else ''}")
+        try:
+            status, body = _forward_to_cloud(method, api, qs, body_bytes,
+                                             self._controller_id(), creds)
+        except Exception as e:
+            print(f"  {ts}  {RED}cloud forward error: {e}{RESET}")
+            self.send_json(502, {"errorCode": -1, "msg": str(e)})
+            return
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    # ── Auth endpoints ─────────────────────────────────────────────────────────
 
     def handle_operator_login(self, ts, data):
         time.sleep(DELAYS["login"])
@@ -182,16 +415,24 @@ class OmadaHandler(BaseHTTPRequestHandler):
 
     def handle_admin_login(self, ts, data):
         time.sleep(DELAYS["login"])
-        print(f"  {ts}  {GREEN}{BOLD}ADMIN LOGIN{RESET}  user={data.get('username', '?')}")
-        self.send_json(200, {
-            "errorCode": 0,
-            "msg": "Login successfully.",
-            "result": {"token": ADMIN_CSRF_TOKEN}
-        }, cookies={"TPOMADA_SESSIONID": "mock-admin-session"})
+        if CLOUD_SESSION:
+            with _cloud_lock:
+                cookie_val = _make_tpomada_cookie(CLOUD_SESSION)
+            print(f"  {ts}  {GREEN}{BOLD}ADMIN LOGIN → cloud{RESET}  user={data.get('username', '?')}")
+            self.send_json(200, {
+                "errorCode": 0,
+                "msg": "Login successfully.",
+                "result": {"token": "proxy"}
+            }, cookies={"TPOMADA_SESSIONID": cookie_val})
+        else:
+            print(f"  {ts}  {GREEN}{BOLD}ADMIN LOGIN{RESET}  user={data.get('username', '?')}")
+            self.send_json(200, {
+                "errorCode": 0,
+                "msg": "Login successfully.",
+                "result": {"token": ADMIN_CSRF_TOKEN}
+            }, cookies={"TPOMADA_SESSIONID": "mock-admin-session"})
 
-    # -------------------------------------------------------------------------
-    # Hotspot session management
-    # -------------------------------------------------------------------------
+    # ── Hotspot session management ─────────────────────────────────────────────
 
     def handle_auth(self, ts, data):
         time.sleep(DELAYS["auth"])
@@ -201,15 +442,13 @@ class OmadaHandler(BaseHTTPRequestHandler):
         is_deauth = duration == 0
 
         if is_deauth:
-            # Remove hotspot session; leave all-clients entry intact (client stays connected)
             hotspot_sessions.pop(mac, None)
             print(f"  {ts}  {YELLOW}{BOLD}DEAUTH{RESET}  mac={mac} site={site}")
         else:
             minutes = duration // 60000
             end     = now_ms() + duration
             if mac in hotspot_sessions:
-                # Re-auth: keep same client ID, reset end time
-                hotspot_sessions[mac]["end"] = end
+                hotspot_sessions[mac]["end"]   = end
                 hotspot_sessions[mac]["start"] = now_ms()
             else:
                 hotspot_sessions[mac] = {
@@ -220,8 +459,6 @@ class OmadaHandler(BaseHTTPRequestHandler):
                     "permanent": False,
                     "authType":  4,
                 }
-            # Add/update all-clients entry using params from auth request.
-            # Prefer clientIp from the request body (sent by firmware); fall back to pool assignment.
             client_ip_from_body = data.get("clientIp", "")
             ip = client_ip_from_body or _assign_ip(mac)
             if client_ip_from_body:
@@ -244,13 +481,12 @@ class OmadaHandler(BaseHTTPRequestHandler):
 
     def handle_extend(self, ts, client_id, data):
         time.sleep(DELAYS["extend"])
-        period = int(data.get("period", 0))
+        period  = int(data.get("period", 0))
         session = next((s for s in hotspot_sessions.values() if s["id"] == client_id), None)
         if session is None:
             print(f"  {ts}  {RED}EXTEND FAILED{RESET}  clientId={client_id} — not found")
             self.send_json(200, {"errorCode": -1, "msg": "Client not found"})
             return
-
         session["end"] += period
         remaining = (session["end"] - now_ms()) // 1000
         print(f"  {ts}  {CYAN}{BOLD}EXTEND{RESET}  mac={session['mac']}  +{period // 60000}m"
@@ -264,17 +500,13 @@ class OmadaHandler(BaseHTTPRequestHandler):
             print(f"  {ts}  {RED}DISCONNECT FAILED{RESET}  clientId={client_id} — not found")
             self.send_json(200, {"errorCode": -1, "msg": "Client not found"})
             return
-
         mac = session["mac"]
-        # Terminate the hotspot session and remove from all-clients
         session["end"] = now_ms()
         all_clients.pop(mac, None)
         print(f"  {ts}  {YELLOW}{BOLD}DISCONNECT{RESET}  mac={mac}  clientId={client_id}")
         self.send_json(200, {"errorCode": 0, "msg": "Disconnect success."})
 
-    # -------------------------------------------------------------------------
-    # Query endpoints
-    # -------------------------------------------------------------------------
+    # ── Query endpoints ────────────────────────────────────────────────────────
 
     def handle_sites(self, ts):
         time.sleep(DELAYS["query"])
@@ -289,7 +521,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
 
     def handle_hotspot_clients(self, ts):
         time.sleep(DELAYS["query"])
-        active = [s for s in hotspot_sessions.values() if s["end"] > now_ms()]
+        active  = [s for s in hotspot_sessions.values() if s["end"] > now_ms()]
         summary = "  ".join(
             f"mac={s['mac']} remaining={(s['end'] - now_ms()) // 1000}s" for s in active
         ) or "none"
@@ -319,7 +551,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
             }
         })
 
-    # -------------------------------------------------------------------------
+    # ── Response helper ────────────────────────────────────────────────────────
 
     def send_json(self, status, data, cookies=None):
         body = json.dumps(data).encode("utf-8")
@@ -334,6 +566,30 @@ class OmadaHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Mock Omada controller")
+    parser.add_argument(
+        "--cloud", action="store_true",
+        help="Proxy admin login, user/sites, and voucher calls to the real TP-Link cloud. "
+             "Requires omada_username, omada_password, omada_controller_id in data/config.json. "
+             "extPortal/auth and hotspot session CRUD remain mocked.")
+    args = parser.parse_args()
+
+    if args.cloud:
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   "../data/config.json")
+        with open(config_path) as f:
+            cloud_config = json.load(f)
+        print(f"{BOLD}Authenticating with TP-Link cloud (5-step OAuth)...{RESET}")
+        global CLOUD_SESSION
+        try:
+            CLOUD_SESSION = _do_cloud_auth(cloud_config)
+        except Exception as e:
+            print(f"{RED}Cloud auth failed: {e}{RESET}")
+            sys.exit(1)
+        print(f"{GREEN}Cloud session OK — device_id={CLOUD_SESSION['device_id'][:8]}...{RESET}")
+        t = threading.Thread(target=_cloud_refresh_loop, args=(cloud_config,), daemon=True)
+        t.start()
+
     port = 8043
     cert_file, key_file = generate_self_signed_cert()
 
@@ -343,9 +599,11 @@ def main():
     server = ThreadingHTTPServer(("0.0.0.0", port), OmadaHandler)
     server.socket = context.wrap_socket(server.socket, server_side=True)
 
-    print(f"{BOLD}Mock Omada Controller{RESET}")
+    cloud_note = f" {CYAN}(+cloud proxy for vouchers){RESET}" if args.cloud else ""
+    print(f"{BOLD}Mock Omada Controller{RESET}{cloud_note}")
     print(f"Listening on https://0.0.0.0:{port}")
-    print(f"Mock site: {MOCK_SITE_NAME} ({MOCK_SITE_ID})")
+    if not args.cloud:
+        print(f"Mock site: {MOCK_SITE_NAME} ({MOCK_SITE_ID})")
     print(f"Known client IPs: {CLIENT_IPS}")
     print(f"Sessions start empty — auth calls will create them.")
     print(f"Waiting for requests...\n")

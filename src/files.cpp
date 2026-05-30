@@ -140,14 +140,37 @@ void appendErrorLog(const char* tag, const char* msg) {
   f.close();
 }
 
-void appendFormattedErrorLog(const char* tag, const char* fmt, ...) {
+static LogForwardFn s_logForwardFn = nullptr;
+
+void setLogForwardCallback(LogForwardFn fn) {
+  s_logForwardFn = fn;
+}
+
+static void logCore(char level, const char* tag, const char* buf) {
+  Serial.printf("%c (%lu) %s: %s\r\n", level, (unsigned long)millis(), tag, buf);
+  logDirect(level, tag, buf);
+  if (level == 'W' || level == 'E') {
+    appendErrorLog(tag, buf);
+    if (s_logForwardFn) s_logForwardFn(level, tag, buf);
+  }
+}
+
+void _logToBuffer(char level, const char* tag, const char* fmt, ...) {
   char buf[512];
   va_list args;
   va_start(args, fmt);
   vsnprintf(buf, sizeof(buf), fmt, args);
   va_end(args);
-  appendErrorLog(tag, buf);
-  logDirect('I', tag, buf);
+  logCore(level, tag, buf);
+}
+
+void logAppend(char level, const char* tag, const char* fmt, ...) {
+  char buf[512];
+  va_list args;
+  va_start(args, fmt);
+  vsnprintf(buf, sizeof(buf), fmt, args);
+  va_end(args);
+  logCore(level, tag, buf);
 }
 
 void appendRefundLog(const String& mac, int coins, int minutes, const String& code) {

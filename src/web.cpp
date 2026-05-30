@@ -45,8 +45,8 @@ esp_err_t handleAdminPage(PsychicRequest* request, PsychicResponse* response) {
   if (!checkAdminAuth(request, response)) return ESP_OK;
   response->addHeader("Cache-Control", "no-store");
   return response->send(200, "text/html",
-    (const uint8_t*)data_admin_html_start,
-    data_admin_html_end - data_admin_html_start);
+    (const uint8_t*)web_admin_html_start,
+    web_admin_html_end - web_admin_html_start);
 }
 
 // ── HTTP / WS handlers ────────────────────────────────────────────────────────
@@ -79,8 +79,8 @@ esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response) {
     if (!existing || existing->clientMac.isEmpty()) {
       ESP_LOGW(TAG, "No MAC for IP %s — rejecting portal request", clientIp.c_str());
       return response->send(200, "text/html",
-        (const uint8_t*)data_unidentified_html_start,
-        data_unidentified_html_end - data_unidentified_html_start);
+        (const uint8_t*)web_unidentified_html_start,
+        web_unidentified_html_end - web_unidentified_html_start);
     }
     clientMac = existing->clientMac;
     ESP_LOGI(TAG, "Restored MAC %s from cache for IP %s", clientMac.c_str(), clientIp.c_str());
@@ -98,8 +98,8 @@ esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response) {
   response->addHeader("Connection", "close");
   response->addHeader("Cache-Control", "no-store");
   return response->send(200, "text/html",
-    (const uint8_t*)data_index_html_start,
-    data_index_html_end - data_index_html_start);
+    (const uint8_t*)web_index_html_start,
+    web_index_html_end - web_index_html_start);
 }
 
 esp_err_t handleGetStatus(PsychicRequest* request, PsychicResponse* response) {
@@ -337,17 +337,15 @@ void setupOtaRoute() {
     if (index == 0) {
       if (!isAuthorized(request)) {
         ESP_LOGW(TAG, "OTA upload rejected: unauthorized");
-        appendFormattedErrorLog("ota", "fw upload rejected: unauthorized");
         return ESP_FAIL;
       }
       size_t contentLen = request->contentLength();
       ESP_LOGI(TAG, "OTA fw upload start: %zu bytes", contentLen);
-      appendFormattedErrorLog("ota", "fw upload start: %zu bytes", contentLen);
       if (!Update.begin(contentLen)) {
         ESP_LOGE(TAG, "OTA Update.begin failed: %s", Update.errorString());
         return ESP_FAIL;
       }
-      appendFormattedErrorLog("ota", "fw Update.begin OK");
+      ESP_LOGI("ota", "fw Update.begin OK");
     }
 
     if (Update.write(data, len) != len) {
@@ -356,23 +354,23 @@ void setupOtaRoute() {
     }
 
     if (final) {
-      appendFormattedErrorLog("ota", "fw final chunk received: %llu bytes total — calling Update.end", index + len);
+      ESP_LOGI("ota", "fw final chunk received: %llu bytes total — calling Update.end", index + len);
       if (!Update.end(true)) {
         ESP_LOGE(TAG, "OTA Update.end failed: %s", Update.errorString());
         return ESP_FAIL;
       }
-      appendFormattedErrorLog("ota", "fw Update.end OK — partition committed");
+      ESP_LOGI("ota", "fw Update.end OK — partition committed");
       Preferences prefs;
       prefs.begin("ellafi", false);
       prefs.putUInt("fw_size", (uint32_t)(index + len));
       prefs.end();
-      appendFormattedErrorLog("ota", "fw fw_size=%llu saved to NVS", index + len);
+      ESP_LOGI("ota", "fw fw_size=%llu saved to NVS", index + len);
     }
     return ESP_OK;
   });
 
   otaHandler->onRequest([](PsychicRequest* /*request*/, PsychicResponse* response) -> esp_err_t {
-    appendFormattedErrorLog("ota", "fw onRequest fired — sending 200 OK, reboot in 500ms");
+    ESP_LOGI("ota", "fw onRequest fired — sending 200 OK, reboot in 500ms");
     response->send(200, "application/json", "{\"ok\":true}");
     // Reboot master — slaves detect version mismatch via heartbeat and self-update
     TimerHandle_t t = xTimerCreate("OtaReboot", pdMS_TO_TICKS(500), pdFALSE, NULL,
@@ -396,27 +394,39 @@ esp_err_t handleFwBin(PsychicRequest* request, PsychicResponse* response) {
 
   if (fw_size == 0) {
     ESP_LOGW(TAG, "/fw.bin requested by %s but fw_size=0", request->client()->remoteIP().toString().c_str());
-    appendFormattedErrorLog("ota", "/fw.bin req from %s — fw_size=0, 404", request->client()->remoteIP().toString().c_str());
     return response->send(404, "text/plain", "Not found");
   }
 
   ESP_LOGI(TAG, "/fw.bin requested by %s — serving %u bytes from OTA partition",
            request->client()->remoteIP().toString().c_str(), (unsigned)fw_size);
-  appendFormattedErrorLog("ota", "/fw.bin req from %s — serving %u bytes", request->client()->remoteIP().toString().c_str(), (unsigned)fw_size);
 
   const esp_partition_t* partition = esp_ota_get_running_partition();
+  response->addHeader("Content-Disposition", "attachment; filename=\"firmware.bin\"");
+
+  // Stream directly from flash via mmap — no PSRAM copy needed.
+  // response->send() with a raw pointer is synchronous, so munmap after is safe.
+  const void* mapped = nullptr;
+  spi_flash_mmap_handle_t mmap_handle;
+  if (esp_partition_mmap(partition, 0, fw_size, SPI_FLASH_MMAP_DATA,
+                         &mapped, &mmap_handle) == ESP_OK) {
+    esp_err_t err = response->send(200, "application/octet-stream",
+                                   (const uint8_t*)mapped, fw_size);
+    spi_flash_munmap(mmap_handle);
+    ESP_LOGI(TAG, "/fw.bin sent to %s (err=%d)", request->client()->remoteIP().toString().c_str(), err);
+    return err;
+  }
+
+  // mmap failed — fall back to PSRAM copy
+  ESP_LOGW(TAG, "/fw.bin: mmap failed, falling back to PSRAM copy");
   uint8_t* buf = (uint8_t*)heap_caps_malloc(fw_size, MALLOC_CAP_SPIRAM);
   if (!buf) {
     ESP_LOGE(TAG, "/fw.bin: PSRAM alloc failed for %u bytes", (unsigned)fw_size);
     return response->send(500, "text/plain", "Out of memory");
   }
-
   esp_partition_read(partition, 0, buf, fw_size);
-  response->addHeader("Content-Disposition", "attachment; filename=\"firmware.bin\"");
   esp_err_t err = response->send(200, "application/octet-stream", buf, fw_size);
-  ESP_LOGI(TAG, "/fw.bin sent to %s (err=%d)", request->client()->remoteIP().toString().c_str(), err);
-  appendFormattedErrorLog("ota", "/fw.bin sent to %s err=%d", request->client()->remoteIP().toString().c_str(), err);
   heap_caps_free(buf);
+  ESP_LOGI(TAG, "/fw.bin sent to %s (err=%d)", request->client()->remoteIP().toString().c_str(), err);
   return err;
 }
 
@@ -436,21 +446,18 @@ void setupFsOtaRoute() {
     if (index == 0) {
       if (!isAuthorized(request)) {
         ESP_LOGW(TAG, "FS OTA upload rejected: unauthorized");
-        appendFormattedErrorLog("ota", "fs upload rejected: unauthorized");
         return ESP_FAIL;
       }
       size_t contentLen = request->contentLength();
       ESP_LOGI(TAG, "FS OTA upload start: %zu bytes", contentLen);
-      appendFormattedErrorLog("ota", "fs upload start: %zu bytes", contentLen);
       if (fsPsramBuf) { heap_caps_free(fsPsramBuf); fsPsramBuf = nullptr; }
       fsPsramBuf    = (uint8_t*)heap_caps_malloc(contentLen, MALLOC_CAP_SPIRAM);
       fsPsramBufLen = contentLen;
       fsPsramBufPos = 0;
       if (!fsPsramBuf) {
-        ESP_LOGW(TAG, "FS OTA: PSRAM alloc failed — master self-flash skipped");
-        appendFormattedErrorLog("ota", "fs PSRAM alloc failed for %zu bytes", contentLen);
+        ESP_LOGE("ota", "fs PSRAM alloc failed for %zu bytes", contentLen);
       } else {
-        appendFormattedErrorLog("ota", "fs PSRAM alloc OK: %zu bytes", contentLen);
+        ESP_LOGI("ota", "fs PSRAM alloc OK: %zu bytes", contentLen);
       }
     }
     if (fsPsramBuf && fsPsramBufPos + len <= fsPsramBufLen) {
@@ -458,17 +465,17 @@ void setupFsOtaRoute() {
       fsPsramBufPos += len;
     }
     if (final) {
-      appendFormattedErrorLog("ota", "fs upload final chunk done: %llu bytes total", index + len);
+      ESP_LOGI("ota", "fs upload final chunk done: %llu bytes total", index + len);
     }
     return ESP_OK;
   });
 
   fsHandler->onRequest([](PsychicRequest* /*request*/, PsychicResponse* response) -> esp_err_t {
-    appendFormattedErrorLog("ota", "fs onRequest fired — sending 200 OK");
+    ESP_LOGI("ota", "fs onRequest fired — sending 200 OK");
     response->send(200, "application/json", "{\"ok\":true}");
 
     if (!fsPsramBuf || fsPsramBufLen == 0) {
-      appendFormattedErrorLog("ota", "fs no PSRAM buf — skipping self-flash");
+      ESP_LOGW("ota", "fs no PSRAM buf — skipping self-flash");
       return ESP_OK;
     }
 
@@ -501,42 +508,42 @@ void setupFsOtaRoute() {
     TimerHandle_t t = xTimerCreate("FsFlash", pdMS_TO_TICKS(500), pdFALSE, fb,
       [](TimerHandle_t timer) {
         FsBuf* a = (FsBuf*)pvTimerGetTimerID(timer);
-        appendFormattedErrorLog("ota", "fs self-flash start: %zu bytes", a->len);
+        ESP_LOGI("ota", "fs self-flash start: %zu bytes", a->len);
         LittleFS.end();
         bool beginOk = Update.begin(a->len, U_SPIFFS);
         if (!beginOk) {
-          appendFormattedErrorLog("ota", "fs Update.begin failed: %s", Update.errorString());
+          ESP_LOGE("ota", "fs Update.begin failed: %s", Update.errorString());
           for (int i = 0; i < a->nPreserved; i++) heap_caps_free(a->preserved[i].buf);
           heap_caps_free(a->buf); delete a; esp_restart(); return;
         }
-        appendFormattedErrorLog("ota", "fs Update.begin OK");
+        ESP_LOGI("ota", "fs Update.begin OK");
         size_t written = Update.write(a->buf, a->len);
         if (written != a->len) {
-          appendFormattedErrorLog("ota", "fs Update.write failed: wrote %zu of %zu", written, a->len);
+          ESP_LOGE("ota", "fs Update.write failed: wrote %zu of %zu", written, a->len);
           for (int i = 0; i < a->nPreserved; i++) heap_caps_free(a->preserved[i].buf);
           heap_caps_free(a->buf); delete a; esp_restart(); return;
         }
-        appendFormattedErrorLog("ota", "fs Update.write OK: %zu bytes", written);
+        ESP_LOGI("ota", "fs Update.write OK: %zu bytes", written);
         if (!Update.end(true)) {
-          appendFormattedErrorLog("ota", "fs Update.end failed: %s", Update.errorString());
+          ESP_LOGE("ota", "fs Update.end failed: %s", Update.errorString());
           for (int i = 0; i < a->nPreserved; i++) heap_caps_free(a->preserved[i].buf);
           heap_caps_free(a->buf); delete a; esp_restart(); return;
         }
-        appendFormattedErrorLog("ota", "fs Update.end OK — partition committed");
+        ESP_LOGI("ota", "fs Update.end OK — partition committed");
         LittleFS.begin(false);
         heap_caps_free(a->buf);
         for (int i = 0; i < a->nPreserved; i++) {
           File rf = LittleFS.open(a->preserved[i].path, "w", true);
           if (rf) {
             rf.write(a->preserved[i].buf, a->preserved[i].len); rf.close();
-            appendFormattedErrorLog("ota", "fs restored %s", a->preserved[i].path.c_str());
+            ESP_LOGI("ota", "fs restored %s", a->preserved[i].path.c_str());
           } else {
-            appendFormattedErrorLog("ota", "fs FAILED to restore %s", a->preserved[i].path.c_str());
+            ESP_LOGE("ota", "fs FAILED to restore %s", a->preserved[i].path.c_str());
           }
           heap_caps_free(a->preserved[i].buf);
         }
         delete a;
-        appendFormattedErrorLog("ota", "fs complete — rebooting");
+        ESP_LOGI("ota", "fs complete — rebooting");
         esp_restart();
       });
     if (t) xTimerStart(t, 0);

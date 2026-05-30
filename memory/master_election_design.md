@@ -13,7 +13,7 @@ Self-healing in ~5 seconds vs potential hours of downtime justifies the complexi
 
 ---
 
-## Protocol: Gossip + Lowest MAC wins
+## Protocol: Gossip + Preferred MAC + Uptime-weighted election
 
 Every node (master and slave) broadcasts a HELLO every **300ms**.
 
@@ -22,10 +22,22 @@ Every node (master and slave) broadcasts a HELLO every **300ms**.
 [uint16_t type][uint64_t psk][uint8_t mac[6]][uint8_t is_master]
 ```
 
+The HELLO body already includes `uptime_sec` and `rssi` (carried in the existing HeartbeatBody; HELLO reuses or extends this).
+
+### Election priority (highest wins)
+
+1. **Preferred MAC** (`master_mac` in config) — always wins if present. When it returns after a failover, it reclaims master by announcing `is_master=true`; the temporary master demotes itself.
+2. **Highest uptime** — a node that has been up for days is demonstrably more stable than one that just rebooted. Uptime is already broadcast in HeartbeatBody.
+3. **Best RSSI** — tiebreaker when uptimes are close (within ~30s). Already broadcast in HeartbeatBody.
+4. **Lowest MAC** — final deterministic tiebreaker.
+
+> Why not traceroute or hop count? All three nodes are on the same flat LAN subnet via Omada APs — every node is 1 IP hop to the gateway. RSSI + uptime are better proxies and are already on the wire.
+
 If no master HELLO heard for **2 seconds** (~6 missed packets):
-- Each node collects all MACs heard in the last 2s (including own)
-- Node with the **lowest MAC** self-promotes
-- Tie-breaking delay before promoting: `(ownMac[5]) * 5ms` — prevents simultaneous promotion on exact same timeout
+- Each node collects all HELLOs heard in the last 2s (including own)
+- Each node independently runs the priority ranking above and identifies the winner
+- Winner self-promotes; all others stand by
+- Tie-breaking delay before promoting: `(ownMac[5]) * 5ms` — prevents simultaneous promotion when ranking is tied
 
 On promotion, new master:
 1. Sets `IS_MASTER = true`
@@ -56,7 +68,7 @@ ELECTION and ELECTED message types are **not needed** — gossip presence is suf
 
 **Simultaneous boot:** All hear nothing for 2s, all collect same MAC list, all pick same winner (lowest MAC). Only winner promotes; others stand down when they hear winner's HELLO.
 
-**Master reboots:** Stops broadcasting. After 2s, lowest remaining slave promotes. Old master comes back, hears new master, stays slave (unless it has lower MAC — in which case it promotes and the current master demotes on hearing the lower-MAC HELLO with `is_master=true`).
+**Master reboots:** Stops broadcasting. After 2s, highest-priority remaining slave promotes (uptime → RSSI → lowest MAC). Old master comes back and runs the ranking: if it is the preferred MAC, it announces `is_master=true` and the current master demotes (calls `esp_restart()`); otherwise it stays slave.
 
 **Two masters detected:** If a node that thinks it's master hears a lower-MAC HELLO with `is_master=true`, it calls `esp_restart()`. On reboot it hears the real master immediately and stays slave.
 
@@ -81,7 +93,7 @@ ELECTION and ELECTED message types are **not needed** — gossip presence is suf
 
 ### `files.cpp`
 - Load `MASTER_IP` from config: `MASTER_IP = doc["master_ip"] | ""`
-- Remove `MASTER_MAC` loading and validation
+- Keep `MASTER_MAC` loading — used as election priority hint
 - Add `HEALTHCHECKS_URL` loading: `HEALTHCHECKS_URL = doc["healthchecks_url"] | ""`
 
 ### `config.sample.json` / `config.json`
@@ -119,7 +131,7 @@ Lets you see which node is currently master and whether a failover occurred.
 
 | Key | Change |
 |-----|--------|
-| `master_mac` | **Remove** |
+| `master_mac` | **Keep** — preferred master; always wins election when present |
 | `master_ip` | **Add** — static IP claimed by master on election (e.g. `"192.168.1.50"`) |
 | `healthchecks_url` | **Add** — ping URL from healthchecks.io dashboard (empty = disabled) |
 | `network_key` | Keep |

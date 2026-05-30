@@ -147,22 +147,15 @@ void setup() {
   ledSetup();
   xTaskCreatePinnedToCore(ledTask, "LedTask", 2048, NULL, 2, &LED_TASK, 1);
 
-  ESP_LOGI(TAG, "Connecting to WiFi");
-  {
-    wl_status_t lastStatus = WL_IDLE_STATUS;
-    while (WiFi.status() != WL_CONNECTED) {
-      wl_status_t status = WiFi.status();
-      if (status != lastStatus) {
-        lastStatus = status;
-        if (status == WL_NO_SSID_AVAIL) {
-          ESP_LOGW(TAG, "WiFi: SSID not found: %s — retrying", AP_SSID.c_str());
-        } else if (status == WL_CONNECT_FAILED) {
-          ESP_LOGE(TAG, "WiFi: connection failed (wrong password?)");
-          ledError();
-        }
-      }
-      delay(500);
-    }
+  ESP_LOGI(TAG, "Connecting to WiFi: %s", AP_SSID.c_str());
+  for (int i = 0; i < 5; i++) {
+    delay(500);
+    if (WiFi.status() == WL_CONNECTED) break;
+    ESP_LOGW(TAG, "WiFi not connected — attempt %d/5", i + 1);
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    ESP_LOGE(TAG, "WiFi failed after 5 attempts (SSID: %s) — halting", AP_SSID.c_str());
+    halt();
   }
   {
     int rssi = WiFi.RSSI();
@@ -239,19 +232,19 @@ void setup() {
     // Embedded static assets — served directly from firmware flash
     server.on("/assets/insertcoinbg.mp3",  HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
       res->addHeader("Cache-Control", "max-age=86400");
-      return res->send(200, "audio/mpeg", (const uint8_t*)data_assets_insertcoinbg_mp3_start, data_assets_insertcoinbg_mp3_end - data_assets_insertcoinbg_mp3_start);
+      return res->send(200, "audio/mpeg", (const uint8_t*)web_assets_insertcoinbg_mp3_start, web_assets_insertcoinbg_mp3_end - web_assets_insertcoinbg_mp3_start);
     });
     server.on("/assets/coin-received.mp3", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
       res->addHeader("Cache-Control", "max-age=86400");
-      return res->send(200, "audio/mpeg", (const uint8_t*)data_assets_coin_received_mp3_start, data_assets_coin_received_mp3_end - data_assets_coin_received_mp3_start);
+      return res->send(200, "audio/mpeg", (const uint8_t*)web_assets_coin_received_mp3_start, web_assets_coin_received_mp3_end - web_assets_coin_received_mp3_start);
     });
     server.on("/EllaFi.webp", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
       res->addHeader("Cache-Control", "max-age=86400");
-      return res->send(200, "image/webp", (const uint8_t*)data_EllaFi_webp_start, data_EllaFi_webp_end - data_EllaFi_webp_start);
+      return res->send(200, "image/webp", (const uint8_t*)web_EllaFi_webp_start, web_EllaFi_webp_end - web_EllaFi_webp_start);
     });
     server.on("/favicon.ico", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
       res->addHeader("Cache-Control", "max-age=86400");
-      return res->send(200, "image/x-icon", (const uint8_t*)data_favicon_ico_start, data_favicon_ico_end - data_favicon_ico_start);
+      return res->send(200, "image/x-icon", (const uint8_t*)web_favicon_ico_start, web_favicon_ico_end - web_favicon_ico_start);
     });
 
     server.onNotFound(handleNotFound);

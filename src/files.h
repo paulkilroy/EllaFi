@@ -16,6 +16,10 @@ void deletePausedSessionFile(const String& mac);
 
 void purgeOldLogEntries(const char* path);            // remove entries older than 24h; call at startup
 void appendErrorLog(const char* tag, const char* msg);
-void appendFormattedErrorLog(const char* tag, const char* fmt, ...);
+void logAppend(char level, const char* tag, const char* fmt, ...);  // W/E → errors.log + slave forward; all levels → ring buffer
 void appendRefundLog(const String& mac, int coins, int minutes, const String& code);
 String generateRefundCode();
+
+// Optional callback invoked by logAppend for W/E entries — used by network.cpp to forward slave logs to master.
+typedef void (*LogForwardFn)(char level, const char* tag, const char* msg);
+void setLogForwardCallback(LogForwardFn fn);

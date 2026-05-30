@@ -1,7 +1,8 @@
 #include "network.h"
 #include "coin.h"     // masterRecvCoinInserted, slaveRecvCoinInsert{Start,End}
 #include "globals.h"  // FIRMWARE_VERSION, FIRMWARE_BUILD, OTA_REBOOT_DELAY_MILLIS
-#include "files.h"    // appendFormattedErrorLog — TEMP: master OTA debug visible on web
+#include "files.h"     // appendErrorLog, logAppend
+#include "log_buffer.h"
 
 #include <WiFi.h>
 #include <WiFiUdp.h>
@@ -11,6 +12,7 @@
 #include <Preferences.h>
 #include <esp_log.h>
 #include <map>
+#include "logger.h"
 
 static const char* TAG = "net";
 
@@ -43,6 +45,14 @@ struct __attribute__((packed)) OtaCmdBody {
   char targetMac[18];  // null-terminated — slave only acts if this matches its own MAC
 };
 
+// Log-entry body after the 10-byte [type][psk] header.
+struct __attribute__((packed)) LogEntryBody {
+  char level;    // 'W' or 'E'
+  char tag[16];  // null-terminated
+  char msg[128]; // null-terminated
+  char mac[18];  // null-terminated sender MAC
+};
+
 // ── Slave OTA state ───────────────────────────────────────────────────────────
 
 static volatile bool     OTA_IN_PROGRESS    = false;
@@ -67,6 +77,22 @@ void networkSetup() {
   ESP_LOGI(TAG, "UDP listening on port %d — role: %s (own MAC: %s) build=%u",
            NET_PORT, isMaster() ? "MASTER" : "SLAVE",
            WiFi.macAddress().c_str(), (unsigned)FIRMWARE_BUILD);
+
+  if (!isMaster()) {
+    setLogForwardCallback([](char level, const char* tag, const char* msg) {
+      LogEntryBody body = {};
+      body.level = level;
+      strncpy(body.tag, tag, sizeof(body.tag) - 1);
+      strncpy(body.msg, msg, sizeof(body.msg) - 1);
+      WiFi.macAddress().toCharArray(body.mac, sizeof(body.mac));
+      NetMsgType type = NET_MSG_LOG_ENTRY;
+      udp.beginPacket(IPAddress(255, 255, 255, 255), NET_PORT);
+      udp.write((const uint8_t*)&type,    sizeof(type));
+      udp.write((const uint8_t*)&NET_PSK, sizeof(NET_PSK));
+      udp.write((const uint8_t*)&body,    sizeof(body));
+      udp.endPacket();
+    });
+  }
 }
 
 // ── Heartbeat ─────────────────────────────────────────────────────────────────
@@ -112,7 +138,7 @@ void masterSendOtaToNode(const String& targetMac, IPAddress targetIp) {
   udp.write((const uint8_t*)&NET_PSK, sizeof(NET_PSK));
   udp.write((const uint8_t*)&body,    sizeof(body));
   udp.endPacket();
-  appendFormattedErrorLog("net", "OTA send → %s (%s)", targetMac.c_str(), targetIp.toString().c_str());
+  ESP_LOGI(TAG, "OTA send → %s (%s)", targetMac.c_str(), targetIp.toString().c_str());
 }
 
 // Stream a URL into Update, using the given update type (U_FLASH or U_SPIFFS).
@@ -216,7 +242,7 @@ void networkLoop() {
   {
     int stale = udp.available();
     if (stale > 0) {
-      appendFormattedErrorLog("net", "WARN: %d stale bytes before parsePacket — unread from previous packet", stale);
+      ESP_LOGW(TAG, "%d stale bytes before parsePacket — unread from previous packet", stale);
       while (udp.available()) udp.read();
     }
   }
@@ -225,14 +251,14 @@ void networkLoop() {
   static unsigned long lastWifiDiag = 0;
   if (millis() - lastWifiDiag > 30000) {
     lastWifiDiag = millis();
-    appendFormattedErrorLog("net", "wifi [self]: status=%d ip=%s rssi=%d",
+    ESP_LOGD(TAG, "wifi [self]: status=%d ip=%s rssi=%d",
         (int)WiFi.status(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
   }
 
   int size = udp.parsePacket();
   if (size == 0) return;
   if (size < (int)(sizeof(NetMsgType) + sizeof(uint64_t))) {
-    appendFormattedErrorLog("net", "UDP short packet: %d bytes from %s", size, udp.remoteIP().toString().c_str());
+    ESP_LOGW(TAG, "UDP short packet: %d bytes from %s", size, udp.remoteIP().toString().c_str());
     return;
   }
 
@@ -243,7 +269,7 @@ void networkLoop() {
 
   if (psk != NET_PSK) {
     ESP_LOGW(TAG, "UDP packet from %s rejected: bad PSK", udp.remoteIP().toString().c_str());
-    appendFormattedErrorLog("net", "UDP bad PSK from %s", udp.remoteIP().toString().c_str());
+    ESP_LOGW(TAG, "UDP bad PSK from %s", udp.remoteIP().toString().c_str());
     return;
   }
 
@@ -285,9 +311,9 @@ void networkLoop() {
     prefs.begin("ellafi", false);
     uint32_t fw_size = prefs.getUInt("fw_size", 0);
     prefs.end();
-    appendFormattedErrorLog("net", "HB from %s build=%u [mine=%u] fw=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD, (unsigned)fw_size);
+    ESP_LOGD(TAG, "HB from %s build=%u [mine=%u] fw=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD, (unsigned)fw_size);
     if (mac != ownMac && body.buildNumber < FIRMWARE_BUILD && fw_size > 0) {
-      appendFormattedErrorLog("net", "OTA trigger: %s build=%u < mine=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD);
+      ESP_LOGW(TAG, "OTA trigger: %s build=%u < mine=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD);
       masterSendOtaToNode(mac, senderIp);
       if (xSemaphoreTake(nodeMapMutex, pdMS_TO_TICKS(10)) == pdTRUE) {
         nodeMap[mac].otaSentCount++;
@@ -340,6 +366,20 @@ void networkLoop() {
       free(ipBytes);
       OTA_IN_PROGRESS = false;
     }
+
+  } else if (type == NET_MSG_LOG_ENTRY) {
+    int bodySize = size - sizeof(NetMsgType) - sizeof(uint64_t);
+    if (bodySize < (int)sizeof(LogEntryBody)) return;
+    LogEntryBody body;
+    udp.read((uint8_t*)&body, sizeof(body));
+    if (!isMaster()) return;
+    body.tag[sizeof(body.tag) - 1] = '\0';
+    body.msg[sizeof(body.msg) - 1] = '\0';
+    body.mac[sizeof(body.mac) - 1] = '\0';
+    char msgBuf[160];
+    snprintf(msgBuf, sizeof(msgBuf), "[%s] %s", body.mac, body.msg);
+    logDirect(body.level, body.tag, msgBuf);
+    if (body.level == 'W' || body.level == 'E') appendErrorLog(body.tag, msgBuf);
 
   } else if (isMaster()) {
     if (type == NET_MSG_COIN_INSERTED) {

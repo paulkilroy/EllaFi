@@ -100,6 +100,10 @@
     .log-I { color: #5dade2; }
     .log-D { color: #6a7a90; }
     .log-V { color: #4a5a6a; }
+    #dev-log.hide-E .log-E { display: none; }
+    #dev-log.hide-W .log-W { display: none; }
+    #dev-log.hide-I .log-I { display: none; }
+    #dev-log.hide-D .log-D { display: none; }
 
     /* Voucher cards — screen preview only (cards are hidden until print) */
     .v-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -295,7 +299,7 @@
         <button class="btn btn-sm" onclick="clearDevLog()" title="Clear display">Clear</button>
       </span>
     </div>
-    <div id="dev-log" style="height:380px;overflow-y:auto;font-family:monospace;font-size:12px;background:#111;border-radius:6px;padding:6px"></div>
+    <div id="dev-log" class="hide-D" style="height:380px;overflow-y:auto;font-family:monospace;font-size:12px;background:#111;border-radius:6px;padding:6px"></div>
   </div>
 
   <!-- ── Persisted error log ───────────────────────────────────────── -->
@@ -988,6 +992,7 @@ const LOG_COLORS = { E:'log-E', W:'log-W', I:'log-I', D:'log-D', V:'log-V' };
 function toggleLevel(l) {
   devLogLevels[l] = !devLogLevels[l];
   document.getElementById('log-btn-' + l).classList.toggle('active', devLogLevels[l]);
+  document.getElementById('dev-log').classList.toggle('hide-' + l, !devLogLevels[l]);
 }
 
 function clearDevLog() {
@@ -998,6 +1003,10 @@ function clearDevLog() {
 function fmtUptimeMs(ms) {
   const s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60);
   return h ? `${h}h${String(m%60).padStart(2,'0')}m` : m ? `${m}m${String(s%60).padStart(2,'0')}s` : `${s}s`;
+}
+function fmtUtcToLocal(utcStr) {
+  const d = new Date(utcStr + ' UTC');
+  return isNaN(d) ? utcStr : d.toLocaleString();
 }
 
 async function pollDevLog() {
@@ -1011,10 +1020,11 @@ async function pollDevLog() {
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
 
     for (const e of d.entries) {
-      if (!devLogLevels[e.level] && e.level !== 'E') continue;
+      if (e.level === 'V') continue;
       const div = document.createElement('div');
       div.className = 'log-line ' + (LOG_COLORS[e.level] || '');
-      div.textContent = `[${fmtUptimeMs(e.ms)}] ${e.tag}: ${e.msg}`;
+      const timeStr = e.ts > 0 ? new Date(e.ts * 1000).toLocaleTimeString() : fmtUptimeMs(e.ms);
+      div.textContent = `[${timeStr}] [${e.level}] ${e.tag}: ${e.msg}`;
       el.appendChild(div);
       if (el.children.length > 1000) el.removeChild(el.firstChild);
     }
@@ -1048,7 +1058,7 @@ async function loadErrors() {
     tbody.innerHTML = lines.reverse().map(l => {
       const m = l.match(/^(\S+ \S+)\s+\[(\w+)]\s+(.+)$/);
       return m ? `<tr>
-        <td style="white-space:nowrap" class="muted">${m[1]}</td>
+        <td style="white-space:nowrap" class="muted">${fmtUtcToLocal(m[1])}</td>
         <td><span class="tag tag-err">${m[2]}</span></td>
         <td>${m[3]}</td>
       </tr>` : '';
@@ -1067,7 +1077,7 @@ async function loadRefunds() {
     tbody.innerHTML = lines.reverse().map(l => {
       const m = l.match(/^(\S+ \S+)\s+(\S+)\s+(\d+) coin.+?\/ (\d+) min\s+Code: (\S+)/);
       return m ? `<tr>
-        <td style="white-space:nowrap" class="muted">${m[1]}</td>
+        <td style="white-space:nowrap" class="muted">${fmtUtcToLocal(m[1])}</td>
         <td style="font-size:11px;font-family:monospace">${m[2]}</td>
         <td>${m[3]}</td><td>${m[4]}</td>
         <td style="font-family:monospace;color:#f0b429">${m[5]}</td>

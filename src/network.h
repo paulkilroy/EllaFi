@@ -10,6 +10,7 @@ enum NetMsgType : uint16_t {
   NET_MSG_SESSION_END    = 3,
   NET_MSG_HEARTBEAT      = 4,  // all nodes broadcast periodically; master stores in NODE_MAP
   NET_MSG_OTA_AVAILABLE  = 5,  // master → slaves after OTA upload; payload = master IP (4 bytes)
+  NET_MSG_LOG_ENTRY      = 6,  // slave → master; W/E log entries forwarded for visibility
 };
 
 // Snapshot of one node's health, populated from UDP heartbeats.
