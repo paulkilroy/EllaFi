@@ -4,6 +4,10 @@
 
 Coin-operated WiFi hotspot portal for ESP32, built for TP-Link Omada controller networks. Clients insert physical coins to purchase internet access — the ESP32 handles coin counting, session management, pause/resume, and communicates with the Omada controller to grant and revoke access.
 
+## Flash & Provision
+
+**[→ Open the EllaFi Provisioner](https://paulkilroy.github.io/EllaFi/flasher.html)** — browser-based tool (Chrome/Edge) to flash firmware and configure a new node over USB. No Python or esptool install required.
+
 ---
 
 ## Features
@@ -178,7 +182,9 @@ Copy `data/config.sample.json` to `data/config.json` and fill in:
 
 ## Build & Flash
 
-Requires [PlatformIO](https://platformio.org/).
+**Easiest:** use the [browser-based provisioner](https://paulkilroy.github.io/EllaFi/flasher.html) — no tools to install.
+
+**From source** — requires [PlatformIO](https://platformio.org/):
 
 ```bash
 # Build and flash firmware
@@ -189,6 +195,12 @@ pio run --target uploadfs
 
 # Monitor serial output
 pio device monitor
+```
+
+Tag a release to trigger a GitHub Actions build and publish firmware binaries:
+
+```bash
+git tag v1.0.0 && git push --tags
 ```
 
 ---
