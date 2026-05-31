@@ -141,6 +141,22 @@ function resetNetworkKey() {
 })();
 const OFFSETS = { bootloader: 0x00000, partitions: 0x08000, firmware: 0x10000, littlefs: 0x610000 };
 
+// Pre-fill form from URL params — e.g. ?wifi_ssid=MyNet&wifi_password=...
+;(function loadFromUrl() {
+  const p = new URLSearchParams(window.location.search);
+  const fields = ['wifi_ssid','wifi_password','omada_url','omada_controller_id',
+                  'omada_username','omada_password','master_mac','minutes_per_coin'];
+  for (const f of fields) {
+    if (p.has(f)) document.getElementById(f).value = p.get(f);
+  }
+  // network_key from URL overrides localStorage
+  if (p.has('network_key')) {
+    const k = p.get('network_key');
+    document.getElementById('network_key').value = k;
+    localStorage.setItem('ellafi_network_key', k);
+  }
+})();
+
 let currentMode = 'fresh';
 
 function setMode(m) {
