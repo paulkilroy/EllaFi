@@ -114,8 +114,8 @@ input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px #dbeaf
 <div id="log">Ready.</div>
 
 <script type="module">
-// esptool-js pinned — do not float to latest without testing the flash API
-import { ESPLoader, Transport } from 'https://unpkg.com/esptool-js@0.4.3/bundle.js';
+// esptool-js via esm.sh — handles Node.js polyfills (Buffer etc.) for browser
+import { ESPLoader, Transport } from 'https://esm.sh/esptool-js@0.4.3';
 
 const REPO    = 'paulkilroy/EllaFi';
 
