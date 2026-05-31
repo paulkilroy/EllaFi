@@ -53,9 +53,8 @@ input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px #dbeaf
 <p class="subtitle">Flash &amp; configure an EllaFi node via USB · Chrome or Edge required</p>
 
 <div class="modes">
-  <button class="mode-btn active" onclick="setMode('fresh')">🆕 Fresh Install</button>
-  <button class="mode-btn"        onclick="setMode('update')">⬆️ Update Firmware</button>
-  <button class="mode-btn"        onclick="setMode('reprovision')">🔑 Re-provision</button>
+  <button class="mode-btn active" onclick="setMode('fresh')">Flash &amp; Provision</button>
+  <button class="mode-btn"        onclick="setMode('update')">Update Firmware Only</button>
 </div>
 
 <div id="config-section">
@@ -124,13 +123,11 @@ let currentMode = 'fresh';
 function setMode(m) {
   currentMode = m;
   document.querySelectorAll('.mode-btn').forEach((btn, i) => {
-    btn.classList.toggle('active', i === ['fresh','update','reprovision'].indexOf(m));
+    btn.classList.toggle('active', i === ['fresh','update'].indexOf(m));
   });
   document.getElementById('config-section').style.display = m === 'update' ? 'none' : '';
   document.getElementById('go-btn').textContent =
-    m === 'fresh'        ? 'Connect & Flash'      :
-    m === 'update'       ? 'Connect & Update'      :
-                           'Connect & Re-provision';
+    m === 'update' ? 'Connect & Update Firmware' : 'Connect & Flash';
 }
 
 // ── Logging ───────────────────────────────────────────────────────────────────
@@ -237,25 +234,23 @@ async function _run() {
   }
 
   let fileArray = [];
-  if (currentMode !== 'reprovision') {
-    if (currentMode === 'fresh') {
-      const [fw, bl, pt] = await Promise.all([
-        fetchBin('firmware.bin'),
-        fetchBin('bootloader.bin'),
-        fetchBin('partitions.bin'),
-      ]);
-      fileArray = [
-        { data: toBinaryString(bl),      address: OFFSETS.bootloader },
-        { data: toBinaryString(pt),      address: OFFSETS.partitions },
-        { data: toBinaryString(fw),      address: OFFSETS.firmware   },
-        // 8 KB of 0xFF at the LittleFS offset corrupts the superblock,
-        // forcing a reformat on boot so no stale config.json survives.
-        { data: '\xFF'.repeat(8192),     address: OFFSETS.littlefs   },
-      ];
-    } else {
-      const fw = await fetchBin('firmware.bin');
-      fileArray = [{ data: toBinaryString(fw), address: OFFSETS.firmware }];
-    }
+  if (currentMode === 'fresh') {
+    const [fw, bl, pt] = await Promise.all([
+      fetchBin('firmware.bin'),
+      fetchBin('bootloader.bin'),
+      fetchBin('partitions.bin'),
+    ]);
+    fileArray = [
+      { data: toBinaryString(bl),      address: OFFSETS.bootloader },
+      { data: toBinaryString(pt),      address: OFFSETS.partitions },
+      { data: toBinaryString(fw),      address: OFFSETS.firmware   },
+      // 8 KB of 0xFF corrupts the LittleFS superblock → forces reformat on boot
+      // so no stale config.json survives a reflash.
+      { data: '\xFF'.repeat(8192),     address: OFFSETS.littlefs   },
+    ];
+  } else {
+    const fw = await fetchBin('firmware.bin');
+    fileArray = [{ data: toBinaryString(fw), address: OFFSETS.firmware }];
   }
 
   // ── Connect ──────────────────────────────────────────────────────────────
@@ -265,7 +260,7 @@ async function _run() {
 
   // ── Flash ────────────────────────────────────────────────────────────────
 
-  if (currentMode !== 'reprovision') {
+  {
     logInfo('Connecting to ROM bootloader...');
     const transport = new Transport(port, false);
     const loader    = new ESPLoader({ transport, baudrate: 921600 });
@@ -303,16 +298,6 @@ async function _run() {
 
   logInfo('Opening serial port at 115200...');
   await port.open({ baudRate: 115200 });
-
-  if (currentMode === 'reprovision') {
-    // Device is already running — tell it to wipe config and restart
-    logInfo('Sending FACTORY_RESET...');
-    const w = port.writable.getWriter();
-    await w.write(new TextEncoder().encode('FACTORY_RESET\n'));
-    w.releaseLock();
-    // Device will restart; give it time then look for provisioning prompt
-    await delay(3000);
-  }
 
   logInfo('Waiting for PROVISIONING_READY (up to 20 s)...');
   await waitForLine(port, 'PROVISIONING_READY', 20000);
