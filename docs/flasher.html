@@ -278,12 +278,9 @@ async function _run() {
       fetchBin('partitions.bin'),
     ]);
     fileArray = [
-      { data: toBinaryString(bl),      address: OFFSETS.bootloader },
-      { data: toBinaryString(pt),      address: OFFSETS.partitions },
-      { data: toBinaryString(fw),      address: OFFSETS.firmware   },
-      // 8 KB of 0x00 corrupts the LittleFS superblock → forces reformat on boot.
-      // 0xFF would be a no-op (flash erases to 0xFF, esptool skips blank writes).
-      { data: '\x00'.repeat(8192),     address: OFFSETS.littlefs   },
+      { data: toBinaryString(bl), address: OFFSETS.bootloader },
+      { data: toBinaryString(pt), address: OFFSETS.partitions },
+      { data: toBinaryString(fw), address: OFFSETS.firmware   },
     ];
   } else {
     const fw = await fetchBin('firmware.bin');
@@ -310,7 +307,7 @@ async function _run() {
       flashSize: 'keep',
       flashMode: 'keep',
       flashFreq: 'keep',
-      eraseAll:  false,
+      eraseAll:  currentMode === 'fresh',  // wipe full chip on Fresh Install
       compress:  true,
       reportProgress: (fileIndex, written, total) => {
         logInfo(`  file ${fileIndex + 1}: ${written} / ${total} bytes`);
