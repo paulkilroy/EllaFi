@@ -1,0 +1,31 @@
+name: Build & Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-${{ hashFiles('platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware
+        run: pio run -e esp32-s3-devkitc-1-serial
+
+      - name: Create release with firmware artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            .pio/build/esp32-s3-devkitc-1-serial/firmware.bin
+            .pio/build/esp32-s3-devkitc-1-serial/bootloader.bin
+            .pio/build/esp32-s3-devkitc-1-serial/partitions.bin

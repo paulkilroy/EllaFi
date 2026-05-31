@@ -234,4 +234,5 @@ void loop() {
   }
 
   networkLoop();
+  checkSerialCommands();
 }

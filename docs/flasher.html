@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EllaFi Provisioner</title>
+<!-- esptool-js pinned — do not float to latest without testing the flash API -->
+<script src="https://unpkg.com/esptool-js@0.4.3/bundle.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, -apple-system, sans-serif; max-width: 620px; margin: 2rem auto; padding: 0 1.25rem; color: #1a1a1a; }
+h1 { font-size: 1.4rem; margin-bottom: 0.2rem; }
+.subtitle { color: #666; font-size: 0.875rem; margin-bottom: 1.75rem; }
+
+.modes { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+.mode-btn { flex: 1; padding: 0.6rem 0.5rem; border: 2px solid #d1d5db; background: white; cursor: pointer; border-radius: 6px; font-size: 0.875rem; transition: all 0.1s; }
+.mode-btn:hover { border-color: #93c5fd; }
+.mode-btn.active { border-color: #2563eb; color: #1d4ed8; background: #eff6ff; font-weight: 600; }
+
+fieldset { border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem 1rem 0.25rem; margin-bottom: 1rem; }
+legend { font-weight: 600; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #6b7280; padding: 0 0.4rem; }
+.field { margin-bottom: 0.875rem; }
+label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.3rem; }
+input[type=text], input[type=password], input[type=number] {
+  width: 100%; padding: 0.45rem 0.625rem; border: 1px solid #d1d5db;
+  border-radius: 5px; font-size: 0.9rem; color: #1a1a1a;
+}
+input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px #dbeafe; }
+.hint { font-size: 0.75rem; color: #9ca3af; margin-top: 0.25rem; line-height: 1.4; }
+
+.go-btn {
+  width: 100%; padding: 0.75rem; background: #2563eb; color: white;
+  border: none; border-radius: 6px; font-size: 1rem; font-weight: 600;
+  cursor: pointer; margin: 0.5rem 0 1rem; transition: background 0.1s;
+}
+.go-btn:hover:not(:disabled) { background: #1d4ed8; }
+.go-btn:disabled { background: #93c5fd; cursor: not-allowed; }
+
+#log {
+  background: #0f172a; color: #cbd5e1; padding: 0.875rem 1rem;
+  border-radius: 8px; font-size: 0.78rem; font-family: 'Menlo', 'Consolas', monospace;
+  height: 220px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5;
+}
+.ok   { color: #4ade80; }
+.err  { color: #f87171; }
+.info { color: #7dd3fc; }
+.rx   { color: #a3a3a3; }
+</style>
+</head>
+<body>
+
+<h1>EllaFi Provisioner</h1>
+<p class="subtitle">Flash &amp; configure an EllaFi node via USB · Chrome or Edge required</p>
+
+<div class="modes">
+  <button class="mode-btn active" onclick="setMode('fresh')">🆕 Fresh Install</button>
+  <button class="mode-btn"        onclick="setMode('update')">⬆️ Update Firmware</button>
+  <button class="mode-btn"        onclick="setMode('reprovision')">🔑 Re-provision</button>
+</div>
+
+<div id="config-section">
+  <fieldset>
+    <legend>WiFi</legend>
+    <div class="field">
+      <label for="wifi_ssid">Network Name (SSID)</label>
+      <input type="text" id="wifi_ssid" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="wifi_password">Password</label>
+      <input type="password" id="wifi_password" autocomplete="new-password">
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Node</legend>
+    <div class="field">
+      <label for="master_mac">Master Node MAC Address</label>
+      <input type="text" id="master_mac" placeholder="AA:BB:CC:DD:EE:FF" autocomplete="off" spellcheck="false">
+      <div class="hint">Same value goes on every node. The node whose MAC matches becomes master.</div>
+    </div>
+    <div class="field">
+      <label for="network_key">Network Key</label>
+      <input type="number" id="network_key" placeholder="any number 1 – 9007199254740991">
+      <div class="hint">Shared secret for inter-node UDP. Use the same value on all nodes.</div>
+    </div>
+    <div class="field">
+      <label for="minutes_per_coin">Minutes per Coin</label>
+      <input type="number" id="minutes_per_coin" value="24" min="1">
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Omada Controller</legend>
+    <div class="field">
+      <label for="omada_url">Controller URL</label>
+      <input type="text" id="omada_url" placeholder="https://use1-api-omada-essential-controller.tplinkcloud.com" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="omada_controller_id">Controller ID</label>
+      <input type="text" id="omada_controller_id" placeholder="visible in the browser URL path after login" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="field">
+      <label for="omada_username">Admin Username</label>
+      <input type="text" id="omada_username" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="omada_password">Admin Password</label>
+      <input type="password" id="omada_password" autocomplete="new-password">
+    </div>
+  </fieldset>
+</div>
+
+<button class="go-btn" id="go-btn" onclick="run()">Connect &amp; Flash</button>
+<div id="log">Ready.</div>
+
+<script>
+'use strict';
+
+const REPO    = 'paulkilroy/EllaFi';
+const OFFSETS = { bootloader: 0x00000, partitions: 0x08000, firmware: 0x10000, littlefs: 0x610000 };
+
+let currentMode = 'fresh';
+
+function setMode(m) {
+  currentMode = m;
+  document.querySelectorAll('.mode-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', i === ['fresh','update','reprovision'].indexOf(m));
+  });
+  document.getElementById('config-section').style.display = m === 'update' ? 'none' : '';
+  document.getElementById('go-btn').textContent =
+    m === 'fresh'        ? 'Connect & Flash'      :
+    m === 'update'       ? 'Connect & Update'      :
+                           'Connect & Re-provision';
+}
+
+// ── Logging ───────────────────────────────────────────────────────────────────
+
+const logEl = document.getElementById('log');
+function clearLog() { logEl.innerHTML = ''; }
+function appendLog(text, cls) {
+  const s = document.createElement('span');
+  if (cls) s.className = cls;
+  s.textContent = text + '\n';
+  logEl.appendChild(s);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+const logOk   = t => appendLog('✓ ' + t, 'ok');
+const logErr  = t => appendLog('✗ ' + t, 'err');
+const logInfo = t => appendLog('  ' + t, 'info');
+const logRx   = t => appendLog('← ' + t, 'rx');
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+// esptool-js requires data as a latin1 binary string
+function toBinaryString(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 1024) {
+    s += String.fromCharCode(...bytes.subarray(i, Math.min(i + 1024, bytes.length)));
+  }
+  return s;
+}
+
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function fetchBin(filename) {
+  const url = `https://github.com/${REPO}/releases/latest/download/${filename}`;
+  logInfo(`Fetching ${filename} from latest release...`);
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Fetch failed for ${filename}: HTTP ${r.status}`);
+  const buf = await r.arrayBuffer();
+  logOk(`${filename} — ${(buf.byteLength / 1024).toFixed(0)} KB`);
+  return buf;
+}
+
+function collectConfig() {
+  const required = ['wifi_ssid','wifi_password','omada_url','omada_controller_id','omada_username','omada_password','master_mac','network_key'];
+  const numeric  = ['network_key','minutes_per_coin'];
+  const cfg = {};
+  for (const id of [...required, 'minutes_per_coin']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const val = el.value.trim();
+    if (!val && required.includes(id)) throw new Error(`Required field missing: ${id.replace(/_/g,' ')}`);
+    if (val) cfg[id] = numeric.includes(id) ? Number(val) : val;
+  }
+  return cfg;
+}
+
+// ── Serial line reader ────────────────────────────────────────────────────────
+
+async function waitForLine(port, target, timeoutMs) {
+  const reader  = port.readable.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  const deadline = Date.now() + timeoutMs;
+  try {
+    while (Date.now() < deadline) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error('Serial port closed unexpectedly');
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        const t = line.trim();
+        if (t) logRx(t);
+        if (t === target) return;
+      }
+    }
+    throw new Error(`Timed out waiting for ${target}`);
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// ── Main flow ─────────────────────────────────────────────────────────────────
+
+async function run() {
+  clearLog();
+  const btn = document.getElementById('go-btn');
+  btn.disabled = true;
+  try {
+    await _run();
+  } catch (e) {
+    logErr(e.message || String(e));
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function _run() {
+  // Validate config and fetch binaries before touching serial (fail fast)
+  let cfg = null;
+  if (currentMode !== 'update') {
+    cfg = collectConfig();
+    logOk('Config validated');
+  }
+
+  let fileArray = [];
+  if (currentMode !== 'reprovision') {
+    if (currentMode === 'fresh') {
+      const [fw, bl, pt] = await Promise.all([
+        fetchBin('firmware.bin'),
+        fetchBin('bootloader.bin'),
+        fetchBin('partitions.bin'),
+      ]);
+      fileArray = [
+        { data: toBinaryString(bl),      address: OFFSETS.bootloader },
+        { data: toBinaryString(pt),      address: OFFSETS.partitions },
+        { data: toBinaryString(fw),      address: OFFSETS.firmware   },
+        // 8 KB of 0xFF at the LittleFS offset corrupts the superblock,
+        // forcing a reformat on boot so no stale config.json survives.
+        { data: '\xFF'.repeat(8192),     address: OFFSETS.littlefs   },
+      ];
+    } else {
+      const fw = await fetchBin('firmware.bin');
+      fileArray = [{ data: toBinaryString(fw), address: OFFSETS.firmware }];
+    }
+  }
+
+  // ── Connect ──────────────────────────────────────────────────────────────
+
+  logInfo('Select the ESP32 serial port when prompted...');
+  const port = await navigator.serial.requestPort();
+
+  // ── Flash ────────────────────────────────────────────────────────────────
+
+  if (currentMode !== 'reprovision') {
+    logInfo('Connecting to ROM bootloader...');
+    const transport = new Transport(port, false);
+    const loader    = new ESPLoader({ transport, baudrate: 921600 });
+    await loader.main();
+    logOk(`Connected — chip: ${loader.chip.CHIP_NAME}`);
+
+    logInfo('Writing flash...');
+    await loader.writeFlash({
+      fileArray,
+      flashSize: 'keep',
+      flashMode: 'keep',
+      flashFreq: 'keep',
+      eraseAll:  false,
+      compress:  true,
+      reportProgress: (fileIndex, written, total) => {
+        logInfo(`  file ${fileIndex + 1}: ${written} / ${total} bytes`);
+      },
+    });
+    logOk('Flash complete');
+
+    await loader.hardReset();
+    await transport.disconnect();
+
+    if (currentMode === 'update') {
+      logOk('Firmware updated — device is rebooting normally');
+      return;
+    }
+
+    // Wait for the device to boot before opening serial at 115200
+    logInfo('Waiting for device to boot...');
+    await delay(3000);
+  }
+
+  // ── Serial provisioning ───────────────────────────────────────────────────
+
+  logInfo('Opening serial port at 115200...');
+  await port.open({ baudRate: 115200 });
+
+  if (currentMode === 'reprovision') {
+    // Device is already running — tell it to wipe config and restart
+    logInfo('Sending FACTORY_RESET...');
+    const w = port.writable.getWriter();
+    await w.write(new TextEncoder().encode('FACTORY_RESET\n'));
+    w.releaseLock();
+    // Device will restart; give it time then look for provisioning prompt
+    await delay(3000);
+  }
+
+  logInfo('Waiting for PROVISIONING_READY (up to 20 s)...');
+  await waitForLine(port, 'PROVISIONING_READY', 20000);
+  logOk('Device is ready for provisioning');
+
+  logInfo('Sending config...');
+  const w = port.writable.getWriter();
+  await w.write(new TextEncoder().encode('CONFIG:' + JSON.stringify(cfg) + '\n'));
+  w.releaseLock();
+
+  logInfo('Waiting for CONFIG_OK...');
+  await waitForLine(port, 'CONFIG_OK', 10000);
+  logOk('Config written — device is rebooting');
+
+  await port.close();
+  logOk('Done! The node will connect to WiFi and be ready in ~15 seconds.');
+}
+</script>
+</body>
+</html>

@@ -21,12 +21,69 @@ bool setupFilesystem() {
   return true;
 }
 
+static void runProvisioningMode() {
+  ESP_LOGI(TAG, "No config.json — entering provisioning mode");
+  unsigned long lastPrint = 0;
+  String line;
+  for (;;) {
+    if (millis() - lastPrint >= 1000) {
+      lastPrint = millis();
+      Serial.println("PROVISIONING_READY");
+    }
+    while (Serial.available()) {
+      char c = (char)Serial.read();
+      if (c == '\r') continue;
+      if (c == '\n') {
+        line.trim();
+        if (line.startsWith("CONFIG:")) {
+          String json = line.substring(7);
+          File f = LittleFS.open("/config.json", FILE_WRITE);
+          if (!f) {
+            Serial.println("CONFIG_ERROR: cannot write file");
+          } else {
+            f.print(json);
+            f.close();
+            Serial.println("CONFIG_OK");
+            delay(200);
+            esp_restart();
+          }
+        }
+        line = "";
+      } else {
+        line += c;
+      }
+    }
+    delay(10);
+  }
+}
+
 bool setupConfig() {
   if (!loadConfig()) {
-    ESP_LOGE(TAG, "Failed to load config — halting");
-    halt();
+    runProvisioningMode();  // never returns — restarts after writing config
   }
   return true;
+}
+
+// Call from loop() — handles FACTORY_RESET command from the provisioner web page.
+// Deletes config.json and restarts into provisioning mode.
+void checkSerialCommands() {
+  static String line;
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+    if (c == '\n') {
+      line.trim();
+      if (line == "FACTORY_RESET") {
+        LittleFS.remove("/config.json");
+        Serial.println("FACTORY_RESET_OK");
+        delay(200);
+        esp_restart();
+      }
+      line = "";
+    } else {
+      line += c;
+    }
+  }
 }
 
 void setupLogs() {
