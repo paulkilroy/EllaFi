@@ -281,9 +281,9 @@ async function _run() {
       { data: toBinaryString(bl),      address: OFFSETS.bootloader },
       { data: toBinaryString(pt),      address: OFFSETS.partitions },
       { data: toBinaryString(fw),      address: OFFSETS.firmware   },
-      // 8 KB of 0xFF corrupts the LittleFS superblock → forces reformat on boot
-      // so no stale config.json survives a reflash.
-      { data: '\xFF'.repeat(8192),     address: OFFSETS.littlefs   },
+      // 8 KB of 0x00 corrupts the LittleFS superblock → forces reformat on boot.
+      // 0xFF would be a no-op (flash erases to 0xFF, esptool skips blank writes).
+      { data: '\x00'.repeat(8192),     address: OFFSETS.littlefs   },
     ];
   } else {
     const fw = await fetchBin('firmware.bin');
