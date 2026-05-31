@@ -79,8 +79,11 @@ input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px #dbeaf
     </div>
     <div class="field">
       <label for="network_key">Network Key</label>
-      <input type="number" id="network_key" placeholder="any number 1 – 9007199254740991">
-      <div class="hint">Shared secret for inter-node UDP. Use the same value on all nodes.</div>
+      <div style="display:flex;gap:0.5rem">
+        <input type="number" id="network_key" style="flex:1" oninput="localStorage.setItem('ellafi_network_key',this.value)">
+        <button type="button" onclick="resetNetworkKey()" style="padding:0.4rem 0.75rem;border:1px solid #d1d5db;border-radius:5px;background:white;cursor:pointer;font-size:0.85rem;white-space:nowrap">New key</button>
+      </div>
+      <div class="hint">Same value on every node in this deployment. Saved in your browser — pre-filled next time.</div>
     </div>
     <div class="field">
       <label for="minutes_per_coin">Minutes per Coin</label>
@@ -116,6 +119,26 @@ input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px #dbeaf
 'use strict';
 
 const REPO    = 'paulkilroy/EllaFi';
+
+function generateNetworkKey() {
+  const buf = new Uint32Array(2);
+  crypto.getRandomValues(buf);
+  return (buf[0] * 0x100000 + (buf[1] >>> 12)) || 1;
+}
+
+function resetNetworkKey() {
+  const key = generateNetworkKey();
+  document.getElementById('network_key').value = key;
+  localStorage.setItem('ellafi_network_key', key);
+}
+
+// Load saved key or generate a new one
+;(function initNetworkKey() {
+  const saved = localStorage.getItem('ellafi_network_key');
+  const key = saved ? Number(saved) : generateNetworkKey();
+  document.getElementById('network_key').value = key;
+  if (!saved) localStorage.setItem('ellafi_network_key', key);
+})();
 const OFFSETS = { bootloader: 0x00000, partitions: 0x08000, firmware: 0x10000, littlefs: 0x610000 };
 
 let currentMode = 'fresh';
