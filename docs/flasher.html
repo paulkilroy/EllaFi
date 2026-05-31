@@ -199,9 +199,24 @@ function toBinaryString(buffer) {
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Cached release asset map: filename → browser_download_url
+let _releaseAssets = null;
+async function getReleaseAssets() {
+  if (_releaseAssets) return _releaseAssets;
+  logInfo('Fetching latest release info...');
+  const r = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`);
+  if (!r.ok) throw new Error(`GitHub API error: HTTP ${r.status}`);
+  const release = await r.json();
+  logOk(`Latest release: ${release.tag_name}`);
+  _releaseAssets = Object.fromEntries(release.assets.map(a => [a.name, a.browser_download_url]));
+  return _releaseAssets;
+}
+
 async function fetchBin(filename) {
-  const url = `https://github.com/${REPO}/releases/latest/download/${filename}`;
-  logInfo(`Fetching ${filename} from latest release...`);
+  const assets = await getReleaseAssets();
+  const url = assets[filename];
+  if (!url) throw new Error(`${filename} not found in latest release`);
+  logInfo(`Fetching ${filename}...`);
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Fetch failed for ${filename}: HTTP ${r.status}`);
   const buf = await r.arrayBuffer();
