@@ -3,6 +3,7 @@
 #include "log_buffer.h"
 
 #include <LittleFS.h>
+#include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <map>
 #include <Update.h>
@@ -853,6 +854,67 @@ esp_err_t handleAdminReboot(PsychicRequest* request, PsychicResponse* response) 
   delay(200);
   esp_restart();
   return ESP_OK;
+}
+
+// ── Server setup ─────────────────────────────────────────────────────────────
+
+void setupWeb() {
+  if (MDNS.begin("ellafi")) {
+    ESP_LOGI(TAG, "mDNS started: ellafi.local");
+  } else {
+    ESP_LOGW(TAG, "mDNS failed to start");
+  }
+
+  server.config.stack_size       = 16384;
+  server.config.max_open_sockets = 12;
+  server.config.lru_purge_enable = true;
+
+  server.on("/", HTTP_GET, handleRoot);
+
+  wsHandler.onOpen(handleWsOpen);
+  wsHandler.onFrame(handleWsRequest);
+  wsHandler.onClose(handleWsClose);
+  server.on("/ws", &wsHandler);
+
+  server.on("/refunds",           HTTP_GET,  handleRefunds);
+  server.on("/errors",            HTTP_GET,  handleErrors);
+  server.on("/program",           HTTP_GET,  handleProgram);
+  server.on("/admin/nodes",       HTTP_GET,  handleAdminNodes);
+  server.on("/admin/log",         HTTP_GET,  handleAdminLog);
+  server.on("/admin/sellers",     HTTP_ANY,  handleAdminSellers);
+  server.on("/admin/vouchers",    HTTP_ANY,  handleAdminVouchers);
+  server.on("/admin/config",      HTTP_ANY,  handleAdminConfig);
+  server.on("/admin/reboot",      HTTP_POST, handleAdminReboot);
+  server.on("/admin",             HTTP_GET,  handleAdminPage);
+  server.on("/config.json", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+    return res->send(403, "text/plain", "Forbidden");
+  });
+  server.on("/status",     HTTP_GET, handleGetStatus);
+  server.on("/index.html", HTTP_GET, handleRoot);
+  setupOtaRoute();
+  setupFsOtaRoute();
+  server.on("/fw.bin", HTTP_GET, handleFwBin);
+
+  server.on("/assets/insertcoinbg.mp3", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+    res->addHeader("Cache-Control", "max-age=86400");
+    return res->send(200, "audio/mpeg", (const uint8_t*)web_assets_insertcoinbg_mp3_start, web_assets_insertcoinbg_mp3_end - web_assets_insertcoinbg_mp3_start);
+  });
+  server.on("/assets/coin-received.mp3", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+    res->addHeader("Cache-Control", "max-age=86400");
+    return res->send(200, "audio/mpeg", (const uint8_t*)web_assets_coin_received_mp3_start, web_assets_coin_received_mp3_end - web_assets_coin_received_mp3_start);
+  });
+  server.on("/EllaFi.webp", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+    res->addHeader("Cache-Control", "max-age=86400");
+    return res->send(200, "image/webp", (const uint8_t*)web_EllaFi_webp_start, web_EllaFi_webp_end - web_EllaFi_webp_start);
+  });
+  server.on("/favicon.ico", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+    res->addHeader("Cache-Control", "max-age=86400");
+    return res->send(200, "image/x-icon", (const uint8_t*)web_favicon_ico_start, web_favicon_ico_end - web_favicon_ico_start);
+  });
+
+  server.onNotFound(handleNotFound);
+  server.begin();
+  ESP_LOGI(TAG, "Web server started");
 }
 
 // ── FreeRTOS tasks ────────────────────────────────────────────────────────────

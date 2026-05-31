@@ -78,12 +78,15 @@
 #include "coin.h"
 #include "web.h"
 #include "log_buffer.h"
+#include "led.h"
+#include "network.h"
 
 #include <WiFi.h>
 #include <LittleFS.h>
-#include <ESPmDNS.h>
 #include <esp_log.h>
 #include "logger.h"
+
+#define RETRY_ON_FAIL(fn) do { while (!(fn)) { ledError(); vTaskDelay(pdMS_TO_TICKS(1000)); } } while(0)
 
 static const char* TAG = "EllaFi";
 
@@ -115,38 +118,20 @@ String AP_PASSWORD;
 
 // ── Arduino entry points ──────────────────────────────────────────────────────
 
-void setup() {
-  delay(1000);
-  Serial.begin(115200);
-  logBufferSetup();  // hook ESP_LOG before anything else logs
-  delay(5000);
-
-  pinMode(COINSLOT_POWER_PIN, OUTPUT);
-  digitalWrite(COINSLOT_POWER_PIN, LOW);  // coin slot off until session starts
-
-  if (!LittleFS.begin(true)) {
-    ESP_LOGE(TAG, "LittleFS Mount Failed");
-    halt();
-  }
-  ESP_LOGI(TAG, "LittleFS Mounted Successfully");
-  if (!loadConfig()) {
-    ESP_LOGE(TAG, "Failed to load config - halting");
-    halt();
-  }
-
+static bool setupPins() {
   pinMode(COINBUTTON_PIN, INPUT_PULLUP);
   pinMode(COINSLOT_PIN,   INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(COINBUTTON_PIN),    coinButtonPulse,     CHANGE);
-  attachInterrupt(digitalPinToInterrupt(COINSLOT_PIN), coinSlotPulse, CHANGE);
-
+  attachInterrupt(digitalPinToInterrupt(COINBUTTON_PIN), coinButtonPulse, CHANGE);
+  attachInterrupt(digitalPinToInterrupt(COINSLOT_PIN),   coinSlotPulse,   CHANGE);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(AP_SSID.c_str(), AP_PASSWORD.c_str());
-
   IS_MASTER = isMaster();
+  ledRoleKnown();
   ESP_LOGI(TAG, "Role: %s (MAC: %s)", IS_MASTER ? "MASTER" : "SLAVE", WiFi.macAddress().c_str());
-  ledSetup();
-  xTaskCreatePinnedToCore(ledTask, "LedTask", 2048, NULL, 2, &LED_TASK, 1);
+  return true;
+}
 
+static bool setupWifi() {
+  WiFi.begin(AP_SSID.c_str(), AP_PASSWORD.c_str());
   ESP_LOGI(TAG, "Connecting to WiFi: %s", AP_SSID.c_str());
   for (int i = 0; i < 5; i++) {
     delay(500);
@@ -154,129 +139,77 @@ void setup() {
     ESP_LOGW(TAG, "WiFi not connected — attempt %d/5", i + 1);
   }
   if (WiFi.status() != WL_CONNECTED) {
-    ESP_LOGE(TAG, "WiFi failed after 5 attempts (SSID: %s) — halting", AP_SSID.c_str());
-    halt();
+    ESP_LOGE(TAG, "WiFi failed (SSID: %s)", AP_SSID.c_str());
+    WiFi.disconnect(true);
+    return false;
   }
-  {
-    int rssi = WiFi.RSSI();
-    ESP_LOGI(TAG, "WiFi Connected — IP: %s  GW: %s  Mask: %s  RSSI: %d dBm",
-      WiFi.localIP().toString().c_str(),
-      WiFi.gatewayIP().toString().c_str(),
-      WiFi.subnetMask().toString().c_str(),
-      rssi);
-    if (rssi < -75) ESP_LOGW(TAG, "Weak signal (%d dBm) — check antenna", rssi);
-  }
+  int rssi = WiFi.RSSI();
+  ESP_LOGI(TAG, "WiFi connected — IP: %s  GW: %s  RSSI: %d dBm",
+    WiFi.localIP().toString().c_str(), WiFi.gatewayIP().toString().c_str(), rssi);
+  if (rssi < -75) ESP_LOGW(TAG, "Weak signal (%d dBm) — check antenna", rssi);
+  return true;
+}
 
-  networkSetup();
-
-  // Sync wall clock via NTP (required for comparing against Omada epoch timestamps)
+static bool setupNtp() {
   configTime(0, 0, "pool.ntp.org", "time.cloudflare.com", "time.google.com");
   ESP_LOGI(TAG, "Waiting for NTP time sync...");
-  {
-    time_t now = 0;
-    int retries = 0;
-    while (now < NTP_EPOCH_MIN && retries++ < NTP_SYNC_RETRIES) { delay(500); time(&now); }
-    if (now < NTP_EPOCH_MIN) {
-      ESP_LOGW(TAG, "NTP sync timed out — epoch timestamps may be incorrect");
-    } else {
-      ESP_LOGI(TAG, "NTP sync OK: epoch=%lld", (long long)now);
-    }
+  time_t now = 0;
+  int retries = 0;
+  while (now < NTP_EPOCH_MIN && retries++ < NTP_SYNC_RETRIES) { delay(500); time(&now); }
+  if (now < NTP_EPOCH_MIN) {
+    ESP_LOGE(TAG, "NTP sync timed out");
+    return false;
   }
+  ESP_LOGI(TAG, "NTP sync OK: epoch=%lld", (long long)now);
+  return true;
+}
 
-  purgeOldLogEntries("/errors.log");
-  purgeOldLogEntries("/refunds.log");
-
-  if (IS_MASTER) {
-    while (!omadaSetup()) {
-      ESP_LOGE(TAG, "omadaSetup failed — retrying in 10s");
-      ledError();
-      delay(10000);
-    }
-
-    if (MDNS.begin("ellafi")) {
-      ESP_LOGI(TAG, "mDNS started: ellafi.local");
-    } else {
-      ESP_LOGW(TAG, "mDNS failed to start");
-    }
-
-    server.config.stack_size       = 16384;  // Larger stack for SSL calls in WS handlers
-    server.config.max_open_sockets = 12;
-    server.config.lru_purge_enable = true;
-
-    server.on("/", HTTP_GET, handleRoot);
-
-    wsHandler.onOpen(handleWsOpen);
-    wsHandler.onFrame(handleWsRequest);
-    wsHandler.onClose(handleWsClose);
-    server.on("/ws", &wsHandler);
-
-    server.on("/refunds",      HTTP_GET, handleRefunds);
-    server.on("/errors",       HTTP_GET, handleErrors);
-    server.on("/program",      HTTP_GET, handleProgram);
-    server.on("/admin/nodes",    HTTP_GET,  handleAdminNodes);
-    server.on("/admin/log",      HTTP_GET,  handleAdminLog);
-    server.on("/admin/sellers",  HTTP_ANY,  handleAdminSellers);
-    server.on("/admin/vouchers", HTTP_ANY,  handleAdminVouchers);
-    server.on("/admin/config",   HTTP_ANY,  handleAdminConfig);
-    server.on("/admin/reboot",   HTTP_POST, handleAdminReboot);
-    server.on("/admin", HTTP_GET, handleAdminPage);
-    server.on("/config.json",  HTTP_GET, [](PsychicRequest* request, PsychicResponse* response) {
-      return response->send(403, "text/plain", "Forbidden");
-    });
-    server.on("/status",     HTTP_GET, handleGetStatus);
-    server.on("/index.html", HTTP_GET, handleRoot);  // no-cache: must re-run on every visit to store session
-    setupOtaRoute();
-    setupFsOtaRoute();
-    server.on("/fw.bin", HTTP_GET, handleFwBin);
-
-    // Embedded static assets — served directly from firmware flash
-    server.on("/assets/insertcoinbg.mp3",  HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
-      res->addHeader("Cache-Control", "max-age=86400");
-      return res->send(200, "audio/mpeg", (const uint8_t*)web_assets_insertcoinbg_mp3_start, web_assets_insertcoinbg_mp3_end - web_assets_insertcoinbg_mp3_start);
-    });
-    server.on("/assets/coin-received.mp3", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
-      res->addHeader("Cache-Control", "max-age=86400");
-      return res->send(200, "audio/mpeg", (const uint8_t*)web_assets_coin_received_mp3_start, web_assets_coin_received_mp3_end - web_assets_coin_received_mp3_start);
-    });
-    server.on("/EllaFi.webp", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
-      res->addHeader("Cache-Control", "max-age=86400");
-      return res->send(200, "image/webp", (const uint8_t*)web_EllaFi_webp_start, web_EllaFi_webp_end - web_EllaFi_webp_start);
-    });
-    server.on("/favicon.ico", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
-      res->addHeader("Cache-Control", "max-age=86400");
-      return res->send(200, "image/x-icon", (const uint8_t*)web_favicon_ico_start, web_favicon_ico_end - web_favicon_ico_start);
-    });
-
-    server.onNotFound(handleNotFound);
-
-    server.begin();
-    ESP_LOGI(TAG, "Server started");
-  }
-
+static void setupTasks() {
   COIN_STATE_MUTEX  = xSemaphoreCreateMutex();
   COIN_FINALIZE_SEM = xSemaphoreCreateBinary();
   if (IS_MASTER) {
     COIN_INSERT_TIMER = xTimerCreate("CoinTimer", pdMS_TO_TICKS(COIN_INSERT_TIMEOUT_MILLIS), pdFALSE, NULL, coinTimerCallback);
   }
-  WEBSOCKET_JOB_QUEUE = xQueueCreate(8,                    sizeof(WsJob));
-  COIN_PULSE_QUEUE    = xQueueCreate(COIN_PULSE_QUEUE_SIZE, sizeof(CoinPulse));
+  WEBSOCKET_JOB_QUEUE = xQueueCreate(8,                     sizeof(WsJob));
+  COIN_PULSE_QUEUE    = xQueueCreate(COIN_PULSE_QUEUE_SIZE,  sizeof(CoinPulse));
 
-  if (COIN_STATE_MUTEX == NULL ||
-      COIN_FINALIZE_SEM == NULL ||
-      COIN_PULSE_QUEUE == NULL ||
-      WEBSOCKET_JOB_QUEUE == NULL ||
+  if (COIN_STATE_MUTEX == NULL || COIN_FINALIZE_SEM == NULL ||
+      COIN_PULSE_QUEUE == NULL || WEBSOCKET_JOB_QUEUE == NULL ||
       (IS_MASTER && COIN_INSERT_TIMER == NULL)) {
-    ESP_LOGE(TAG, "Failed to create synchronization primitives - halting");
+    ESP_LOGE(TAG, "Failed to create synchronization primitives");
     ledHalt();
   }
 
-  xTaskCreatePinnedToCore(coinPulseTask,    "CoinPulseTask",    4096, NULL, 6, NULL,               1);
+  xTaskCreatePinnedToCore(coinPulseTask, "CoinPulseTask", 4096, NULL, 6, NULL, 1);
   if (IS_MASTER) {
-    xTaskCreatePinnedToCore(finalizeCoinTask, "FinalizeCoinTask", 8192, NULL, 5, NULL,              1);
-    xTaskCreatePinnedToCore(webSocketTask,    "WebSocketTask",    8192, NULL, 4, NULL,              0);
+    xTaskCreatePinnedToCore(finalizeCoinTask, "FinalizeCoinTask", 8192, NULL, 5, NULL,               1);
+    xTaskCreatePinnedToCore(webSocketTask,    "WebSocketTask",    8192, NULL, 4, NULL,               0);
     xTaskCreatePinnedToCore(updateClientTask, "UpdateClientTask", 4096, NULL, 3, &UPDATE_CLIENT_TASK, 1);
   }
+}
 
+void setup() {
+  delay(1000);
+  Serial.begin(115200);
+  logBufferSetup();
+  delay(5000);
+
+  pinMode(COINSLOT_POWER_PIN, OUTPUT);
+  digitalWrite(COINSLOT_POWER_PIN, LOW);
+
+  setupLed();
+  RETRY_ON_FAIL(setupFilesystem());
+  RETRY_ON_FAIL(setupConfig());
+  RETRY_ON_FAIL(setupPins());
+  RETRY_ON_FAIL(setupWifi());
+  setupNetwork();
+  RETRY_ON_FAIL(setupNtp());
+  setupLogs();
+  if (IS_MASTER) {
+    RETRY_ON_FAIL(setupOmada());
+    setupWeb();
+  }
+  setupTasks();
   ledReady();
 }
 

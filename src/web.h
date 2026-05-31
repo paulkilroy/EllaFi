@@ -5,8 +5,9 @@
 #include "files.h"
 #include "embedded_files.h"
 
-void      setupOtaRoute();
-void      setupFsOtaRoute();
+void setupWeb();
+void setupOtaRoute();
+void setupFsOtaRoute();
 esp_err_t handleFwBin(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleAdminPage(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response);

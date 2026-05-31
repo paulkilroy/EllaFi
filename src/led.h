@@ -7,11 +7,13 @@
 #define LED_NOTIFY_START 1  // begin coin-insert blink
 #define LED_NOTIFY_STOP  2  // end coin-insert blink → solid idle
 #define LED_NOTIFY_ERROR 3  // blink red until READY clears it
+#define LED_NOTIFY_ROLE  4  // role known — switch blink color to master/slave; keeps booting blink
 
-extern TaskHandle_t LED_TASK;  // notify with LED_NOTIFY_START to begin blinking, LED_NOTIFY_STOP to end
+extern TaskHandle_t LED_TASK;
 
-void ledSetup();      // initialize strip with dim init color; call after role is known
-void ledReady();      // switch to full idle color; call at end of setup()
-void ledError();      // begin red blink — cleared by ledReady() on recovery
-void ledTask(void*);  // FreeRTOS task — notify to start blinking, notify again to stop
-void ledHalt();       // fast red blink forever — safe before or after task starts; never returns
+void setupLed();       // initialize strip, start LED task
+void ledRoleKnown();   // switch boot blink to role color; call after IS_MASTER is set
+void ledReady();       // end boot blink → solid idle; call at end of setup()
+void ledError();       // begin red blink — cleared by ledReady() on recovery
+void ledTask(void*);
+void ledHalt();        // fast red blink forever — never returns

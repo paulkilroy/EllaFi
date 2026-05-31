@@ -34,7 +34,7 @@ extern uint64_t NET_PSK;
 bool isMaster();
 
 // Call after WiFi is connected.
-void networkSetup();
+void setupNetwork();
 
 // Call from loop() — polls UDP socket and dispatches callbacks.
 void networkLoop();

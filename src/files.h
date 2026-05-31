@@ -6,6 +6,10 @@
 bool fsExists(const char* path);  // stat()-based check — no vfs error on missing files
 bool loadConfig();
 
+bool setupFilesystem();  // mounts LittleFS; halts on failure
+bool setupConfig();      // loads config.json; halts on failure
+void setupLogs();        // purges old log entries
+
 String macToFilename(const String& mac);
 bool savePausedSessionFile(const String& mac, unsigned long remainingMillis);
 unsigned long loadPausedSessionFile(const String& mac);

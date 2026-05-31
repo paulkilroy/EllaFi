@@ -8,15 +8,38 @@
 #include <sys/stat.h>
 #include "logger.h"
 
+static const char* TAG = "files";
+
 // LittleFS.exists() opens the file in read mode internally, which triggers a
 // vfs_api error log if the file doesn't exist. Use stat() instead.
+bool setupFilesystem() {
+  if (!LittleFS.begin(true)) {
+    ESP_LOGE(TAG, "LittleFS mount failed");
+    halt();
+  }
+  ESP_LOGI(TAG, "LittleFS mounted");
+  return true;
+}
+
+bool setupConfig() {
+  if (!loadConfig()) {
+    ESP_LOGE(TAG, "Failed to load config — halting");
+    halt();
+  }
+  return true;
+}
+
+void setupLogs() {
+  purgeOldLogEntries("/errors.log");
+  purgeOldLogEntries("/refunds.log");
+}
+
 bool fsExists(const char* path) {
   struct stat st;
   String fullPath = String("/littlefs") + path;
   return stat(fullPath.c_str(), &st) == 0;
 }
 
-static const char* TAG = "EllaFi";
 
 bool loadConfig() {
   File f = LittleFS.open("/config.json", "r");

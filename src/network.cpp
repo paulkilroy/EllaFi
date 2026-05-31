@@ -71,7 +71,7 @@ bool isMaster() {
 
 // ── Setup ─────────────────────────────────────────────────────────────────────
 
-void networkSetup() {
+void setupNetwork() {
   nodeMapMutex = xSemaphoreCreateMutex();
   udp.begin(NET_PORT);
   ESP_LOGI(TAG, "UDP listening on port %d — role: %s (own MAC: %s) build=%u",

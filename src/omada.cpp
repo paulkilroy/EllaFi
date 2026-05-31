@@ -653,11 +653,11 @@ unsigned long getLastCacheRefreshMs() {
   return g_lastCacheRefreshMs > 0 ? millis() - g_lastCacheRefreshMs : 0;
 }
 
-bool omadaSetup() {
+bool setupOmada() {
   g_credsMutex = xSemaphoreCreateMutex();
   String error;
   if (!loadOmadaSites(error)) {
-    ESP_LOGE(TAG, "omadaSetup failed: %s", error.c_str());
+    ESP_LOGE(TAG, "setupOmada failed: %s", error.c_str());
     return false;
   }
   refreshHotspotSessionCache();

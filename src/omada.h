@@ -141,6 +141,6 @@ bool createVoucherGroup(const String& name, int durationMin, int totalCount,
                         String& groupId, String& errorDetail);
 JsonDocument getVoucherCodesJson(const String& groupId, int page);
 
-bool omadaSetup(); // Call from setup() after NTP sync — initialises mutex, loads sites, primes cache
+bool setupOmada(); // Call from setup() after NTP sync — initialises mutex, loads sites, primes cache
 
 extern volatile int VOUCHER_ACTIVE_COUNT;

@@ -16,14 +16,18 @@ TaskHandle_t LED_TASK = NULL;
 Adafruit_NeoPixel LED_STRIP(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
 #endif
 
-void ledSetup() {
+void setupLed() {
 #ifdef HAS_RGB_LED
   LED_STRIP.begin();
   LED_STRIP.setBrightness(80);
   LED_STRIP.clear();
   LED_STRIP.show();
 #endif
-  // COINSLOT_POWER_PIN and its initial state are set in setup() before ledSetup() is called
+  xTaskCreatePinnedToCore(ledTask, "LedTask", 2048, NULL, 2, &LED_TASK, 1);
+}
+
+void ledRoleKnown() {
+  if (LED_TASK) xTaskNotify(LED_TASK, LED_NOTIFY_ROLE, eSetValueWithOverwrite);
 }
 
 void ledReady() {
@@ -57,7 +61,7 @@ void ledHalt() {
 // Duplicate signals are naturally idempotent — value overwrites any pending notification.
 void ledTask(void*) {
 #ifdef HAS_RGB_LED
-  uint32_t idleColor = IS_MASTER ? LED_STRIP.Color(128, 0, 128) : LED_STRIP.Color(255, 80, 0);
+  uint32_t idleColor = LED_STRIP.Color(255, 255, 255);  // white until role known; updated on READY
   bool booting  = true;   // startup blink: idle ↔ off at 500ms
   bool blinking = false;  // coin-insert blink: green ↔ idle at 200ms
   bool error    = false;  // error blink: red ↔ off at 200ms; cleared by READY
@@ -66,7 +70,9 @@ void ledTask(void*) {
     uint32_t val = 0;
     TickType_t timeout = (booting || blinking || error) ? pdMS_TO_TICKS(booting ? 500 : 200) : portMAX_DELAY;
     if (xTaskNotifyWait(0, ULONG_MAX, &val, timeout) == pdTRUE) {
-      if (val == LED_NOTIFY_READY) {
+      if (val == LED_NOTIFY_ROLE) {
+        idleColor = IS_MASTER ? LED_STRIP.Color(128, 0, 128) : LED_STRIP.Color(255, 80, 0);
+      } else if (val == LED_NOTIFY_READY) {
         booting  = false;
         blinking = false;
         error    = false;
