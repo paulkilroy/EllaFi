@@ -25,10 +25,21 @@ jobs:
       - name: Build firmware
         run: pio run -e esp32-s3-devkitc-1-serial
 
-      - name: Create release with firmware artifacts
+      - name: Publish firmware to GitHub Pages
+        run: |
+          cp .pio/build/esp32-s3-devkitc-1-serial/firmware.bin   docs/firmware.bin
+          cp .pio/build/esp32-s3-devkitc-1-serial/bootloader.bin docs/bootloader.bin
+          cp .pio/build/esp32-s3-devkitc-1-serial/partitions.bin docs/partitions.bin
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -f docs/firmware.bin docs/bootloader.bin docs/partitions.bin
+          git commit -m "Update firmware binaries [skip ci]" || echo "No changes"
+          git push origin HEAD:master
+
+      - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            .pio/build/esp32-s3-devkitc-1-serial/firmware.bin
-            .pio/build/esp32-s3-devkitc-1-serial/bootloader.bin
-            .pio/build/esp32-s3-devkitc-1-serial/partitions.bin
+            docs/firmware.bin
+            docs/bootloader.bin
+            docs/partitions.bin
