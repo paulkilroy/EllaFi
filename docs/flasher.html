@@ -4,8 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EllaFi Provisioner</title>
-<!-- esptool-js pinned — do not float to latest without testing the flash API -->
-<script src="https://unpkg.com/esptool-js@0.4.3/bundle.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: system-ui, -apple-system, sans-serif; max-width: 620px; margin: 2rem auto; padding: 0 1.25rem; color: #1a1a1a; }
@@ -115,8 +113,9 @@ input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px #dbeaf
 <button class="go-btn" id="go-btn" onclick="run()">Connect &amp; Flash</button>
 <div id="log">Ready.</div>
 
-<script>
-'use strict';
+<script type="module">
+// esptool-js pinned — do not float to latest without testing the flash API
+import { ESPLoader, Transport } from 'https://unpkg.com/esptool-js@0.4.3/bundle.js';
 
 const REPO    = 'paulkilroy/EllaFi';
 
@@ -353,6 +352,11 @@ async function _run() {
   await port.close();
   logOk('Done! The node will connect to WiFi and be ready in ~15 seconds.');
 }
+
+// Expose to HTML onclick handlers (module scope is not global)
+window.setMode = setMode;
+window.run     = run;
+window.resetNetworkKey = resetNetworkKey;
 </script>
 </body>
 </html>
