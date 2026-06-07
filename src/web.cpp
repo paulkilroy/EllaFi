@@ -848,7 +848,7 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
 
   time_t now      = time(NULL);
   long   todayDay = (long)(now / 86400);
-  static const int DAYS = 30;
+  static const int DAYS = 90;
 
   // ── Vendo history ──────────────────────────────────────────────────────────
   int dayCoinTotals[DAYS] = {};
