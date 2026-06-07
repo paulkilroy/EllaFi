@@ -89,6 +89,8 @@ void checkSerialCommands() {
 void setupLogs() {
   purgeOldLogEntries("/errors.log");
   purgeOldLogEntries("/refunds.log");
+  purgeOldLogEntries("/vendo_history.json",   365 * 86400);
+  purgeOldLogEntries("/voucher_history.json", 365 * 86400);
 }
 
 bool fsExists(const char* path) {
@@ -120,6 +122,7 @@ bool loadConfig() {
   MASTER_MAC            = doc["master_mac"]               | "";
   NET_PSK               = doc["network_key"]              | 0ULL;
   MINUTES_PER_COIN      = doc["minutes_per_coin"]         | 24;
+  PRICE_PER_COIN        = doc["price_per_coin"]           | 5;
   if (AP_SSID.isEmpty())             { ESP_LOGE(TAG, "config.json missing: wifi_ssid");           return false; }
   if (AP_PASSWORD.isEmpty())         { ESP_LOGE(TAG, "config.json missing: wifi_password");       return false; }
   if (CONTROLLER_BASE_URL.isEmpty()) { ESP_LOGE(TAG, "config.json missing: omada_url");           return false; }
@@ -178,7 +181,7 @@ void deletePausedSessionFile(const String& mac) {
 
 // ── Logging ───────────────────────────────────────────────────────────────────
 
-void purgeOldLogEntries(const char* path) {
+void purgeOldLogEntries(const char* path, time_t maxAgeSeconds) {
   if (!fsExists(path)) return;
   const char* tmpPath = "/log_tmp.dat";
   File src = LittleFS.open(path, FILE_READ);
@@ -186,7 +189,7 @@ void purgeOldLogEntries(const char* path) {
   File dst = LittleFS.open(tmpPath, FILE_WRITE);
   if (!dst) { src.close(); return; }
 
-  time_t cutoff = time(NULL) - 86400;
+  time_t cutoff = time(NULL) - maxAgeSeconds;
   int kept = 0, removed = 0;
   while (src.available()) {
     String line = src.readStringUntil('\n');
@@ -262,6 +265,19 @@ void appendRefundLog(const String& mac, int coins, int minutes, const String& co
   doc["coins"]   = coins;
   doc["minutes"] = minutes;
   doc["code"]    = code;
+  serializeJson(doc, f);
+  f.print('\n');
+  f.close();
+}
+
+void appendSaleLog(int coins, int minutes, const String& nodeMac) {
+  File f = LittleFS.open("/vendo_history.json", FILE_APPEND);
+  if (!f) return;
+  JsonDocument doc;
+  doc["ts"]    = (long)time(NULL);
+  doc["coins"] = coins;
+  doc["min"]   = minutes;
+  if (!nodeMac.isEmpty()) doc["node"] = nodeMac;
   serializeJson(doc, f);
   f.print('\n');
   f.close();

@@ -19,10 +19,11 @@ void deletePausedSessionFile(const String& mac);
 
 // ── Logging ───────────────────────────────────────────────────────────────────
 
-void purgeOldLogEntries(const char* path);            // remove entries older than 24h; call at startup
+void purgeOldLogEntries(const char* path, time_t maxAgeSeconds = 86400);  // remove old entries; call at startup
 void appendErrorLog(const char* tag, const char* msg);
 void logAppend(char level, const char* tag, const char* fmt, ...);  // W/E → errors.log + slave forward; all levels → ring buffer
 void appendRefundLog(const String& mac, int coins, int minutes, const String& code);
+void appendSaleLog(int coins, int minutes, const String& nodeMac = "");
 String generateRefundCode();
 
 // Optional callback invoked by logAppend for W/E entries — used by network.cpp to forward slave logs to master.

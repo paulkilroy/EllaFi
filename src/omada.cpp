@@ -97,6 +97,7 @@ static OmadaCredentials getCredentials(String& errorDetail) {
   if (code <= 0) {
     errorDetail = "Login: " + h.errorToString(code);
     ESP_LOGE(TAG, "%s", errorDetail.c_str());
+    h.end();
     xSemaphoreGive(g_credsMutex);
     return {};
   }
@@ -191,10 +192,13 @@ bool loadOmadaSites(String& errorDetail) {
   if (code <= 0) {
     errorDetail = "Sites: " + h.errorToString(code);
     ESP_LOGE(TAG, "%s", errorDetail.c_str());
+    h.end();
     return false;
   }
 
   String body = h.getString();
+  h.end();
+
   JsonDocument doc;
   if (deserializeJson(doc, body)) {
     errorDetail = "Sites: JSON parse error";
@@ -259,10 +263,13 @@ bool authenticateOmadaClient(SessionParams& session, unsigned long long duration
   if (httpCode <= 0) {
     errorDetail = "Auth: " + h.errorToString(httpCode);
     ESP_LOGE(TAG, "%s", errorDetail.c_str());
+    h.end();
     return false;
   }
 
   String body = h.getString();
+  h.end();
+
   JsonDocument doc;
   if (deserializeJson(doc, body)) {
     errorDetail = "Auth: JSON parse error";
@@ -305,10 +312,13 @@ bool extendOmadaClient(SessionParams& session, unsigned long long durationMillis
   if (httpCode <= 0) {
     errorDetail = "Extend: " + h.errorToString(httpCode);
     ESP_LOGE(TAG, "%s", errorDetail.c_str());
+    h.end();
     return false;
   }
 
   String body = h.getString();
+  h.end();
+
   JsonDocument doc;
   if (deserializeJson(doc, body)) {
     errorDetail = "Extend: JSON parse error";
@@ -349,10 +359,13 @@ bool disconnectOmadaClient(SessionParams& session, String& errorDetail) {
   if (httpCode <= 0) {
     errorDetail = "Disconnect: " + h.errorToString(httpCode);
     ESP_LOGE(TAG, "%s", errorDetail.c_str());
+    h.end();
     return false;
   }
 
   String body = h.getString();
+  h.end();
+
   JsonDocument doc;
   if (deserializeJson(doc, body)) {
     errorDetail = "Disconnect: JSON parse error";
@@ -394,6 +407,7 @@ JsonDocument getHotspotClientsJson() {
   int code = h.GET();
   if (code <= 0) {
     ESP_LOGE(TAG, "getHotspotClientsJson: HTTP error: %s", h.errorToString(code).c_str());
+    h.end();
     return JsonDocument();
   }
   String body = h.getString();
@@ -433,6 +447,7 @@ JsonDocument getAllClientsJson() {
   int code = h.GET();
   if (code <= 0) {
     ESP_LOGW(TAG, "getAllClientsJson: HTTP error: %s", h.errorToString(code).c_str());
+    h.end();
     return JsonDocument();
   }
   String body = h.getString();
@@ -583,13 +598,36 @@ JsonDocument getVoucherGroupsJson() {
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/sites/" + SITE_ID + "/voucherGroups?currentPage=1&currentPageSize=100";
   h.begin(wc, url); applyCredentials(h, creds);
   int code = h.GET();
-  if (code <= 0) { ESP_LOGE(TAG, "getVoucherGroupsJson: %s", h.errorToString(code).c_str()); return JsonDocument(); }
+  if (code <= 0) { ESP_LOGE(TAG, "getVoucherGroupsJson: %s", h.errorToString(code).c_str()); h.end(); return JsonDocument(); }
   String body = h.getString(); h.end();
   if (code != 200 || body.isEmpty()) { ESP_LOGE(TAG, "getVoucherGroupsJson: HTTP %d: %.200s", code, body.c_str()); invalidateCredentials(); return JsonDocument(); }
   JsonDocument doc;
   if (deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0) ESP_LOGE(TAG, "getVoucherGroupsJson: API error: %.200s", body.c_str());
   return doc;
 }
+
+JsonDocument getVoucherHistoryJson(time_t startSec, time_t endSec) {
+  String errorDetail;
+  OmadaCredentials creds = getCredentials(errorDetail);
+  if (creds.loginMs == 0) { ESP_LOGW(TAG, "getVoucherHistoryJson: login failed: %s", errorDetail.c_str()); return JsonDocument(); }
+  WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+  String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/sites/" + SITE_ID +
+               "/vouchers/statistics/history?filters.timeStart=" + String((long)startSec) +
+               "&filters.timeEnd=" + String((long)endSec);
+  h.begin(wc, url); applyCredentials(h, creds);
+  int code = h.GET();
+  if (code <= 0) { ESP_LOGW(TAG, "getVoucherHistoryJson: %s", h.errorToString(code).c_str()); h.end(); return JsonDocument(); }
+  String body = h.getString(); h.end();
+  if (code != 200 || body.isEmpty()) { ESP_LOGW(TAG, "getVoucherHistoryJson: HTTP %d: %.200s", code, body.c_str()); return JsonDocument(); }
+  JsonDocument doc;
+  if (deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0) {
+    ESP_LOGW(TAG, "getVoucherHistoryJson: API error: %.200s", body.c_str());
+    return JsonDocument();
+  }
+  ESP_LOGI(TAG, "getVoucherHistoryJson: HTTP %d, %d bytes", code, body.length());
+  return doc;
+}
+
 
 bool createVoucherGroup(const String& name, int durationMin, int totalCount,
                         const String& description,
@@ -635,7 +673,7 @@ JsonDocument getVoucherCodesJson(const String& groupId, int page) {
                "/voucherGroups/" + groupId + "?currentPage=" + String(page) + "&currentPageSize=130";
   h.begin(wc, url); applyCredentials(h, creds);
   int code = h.GET();
-  if (code <= 0) return JsonDocument();
+  if (code <= 0) { h.end(); return JsonDocument(); }
   String body = h.getString(); h.end();
   JsonDocument doc;
   if (code != 200 || body.isEmpty() || deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0) return JsonDocument();

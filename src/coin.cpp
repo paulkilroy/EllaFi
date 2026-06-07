@@ -1,8 +1,14 @@
 #include "coin.h"
 #include "files.h"
 
+#include <WiFi.h>
+#include <map>
 #include <esp_log.h>
 #include "logger.h"
+
+// Coins contributed per node MAC in the current insertion session.
+// Keyed by uppercase MAC string. Guarded by COIN_STATE_MUTEX.
+static std::map<String, int> s_nodeCoinCounts;
 
 static const char* TAG = "EllaFi";
 
@@ -105,8 +111,11 @@ void restartCoinInsertTimer() {
 
 // ── Network event callbacks (wired by network.cpp) ───────────────────────────
 
-void masterRecvCoinInserted() {
-  CoinPulse pulse = { PULSE_NETWORK, 0, micros() };
+void masterRecvCoinInserted(const char* senderMac) {
+  CoinPulse pulse = {};
+  pulse.source         = PULSE_NETWORK;
+  pulse.timestampMicros = micros();
+  strncpy(pulse.mac, senderMac, sizeof(pulse.mac) - 1);
   xQueueSend(COIN_PULSE_QUEUE, &pulse, 0);
 }
 
@@ -134,7 +143,10 @@ static void reportFraud(int fraudCount, unsigned long& prevAcceptedTimestampMicr
     if (ws) ws->sendMessage("{\"type\":\"error\",\"subtype\":\"fraud\",\"message\":\"Session ended: repeated fraud detected\"}");
     xTimerStop(COIN_INSERT_TIMER, 0);  // close acceptance window immediately — SHOULD_ACCEPT_COINS goes false
     xTaskNotify(LED_TASK, LED_NOTIFY_STOP, eSetValueWithOverwrite);
+    xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
     COIN_COUNT = 0;
+    s_nodeCoinCounts.clear();
+    xSemaphoreGive(COIN_STATE_MUTEX);
     prevAcceptedTimestampMicros = 0;
     FRAUD_ENDED_SESSION = true;
     xSemaphoreGive(COIN_FINALIZE_SEM);
@@ -196,8 +208,14 @@ void coinPulseTask(void*) {
     ESP_LOGE(TAG, "Coin pulse accepted - %s src=%d", IS_MASTER ? "master" : "slave", pulse.source);
 
     if (IS_MASTER) {
+      // Determine which node the coin came from (empty mac = master's own slot)
+      String nodeMac = pulse.mac[0] ? String(pulse.mac) : WiFi.macAddress();
+      nodeMac.toUpperCase();
+      xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
       COIN_COUNT++;
-      ESP_LOGE(TAG, "count=%d", COIN_COUNT);
+      s_nodeCoinCounts[nodeMac]++;
+      xSemaphoreGive(COIN_STATE_MUTEX);
+      ESP_LOGE(TAG, "count=%d node=%s", COIN_COUNT, nodeMac.c_str());
       xTimerReset(COIN_INSERT_TIMER, 0);
       xTaskNotify(UPDATE_CLIENT_TASK, 1, eSetBits);
     } else {
@@ -221,9 +239,12 @@ void finalizeCoinInsert() {
 
   // Close the insertion window. COIN_INSERT_ACTIVE stays true so no new session can start
   // and COIN_SOCKET_FD/COIN_CLIENT_IP remain valid for WS reconnect tracking during HTTPS.
+  std::map<String, int> nodeCounts;
   xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
   int coinCount = COIN_COUNT;
   COIN_COUNT = 0;
+  nodeCounts = s_nodeCoinCounts;
+  s_nodeCoinCounts.clear();
   xTimerStop(COIN_INSERT_TIMER, 0);  // no-op if already stopped (fraud path or timer already fired)
   xSemaphoreGive(COIN_STATE_MUTEX);
   masterBroadcastSessionEnd();  // tell slaves to stop accepting coins immediately
@@ -248,6 +269,8 @@ void finalizeCoinInsert() {
 
       if (extendOmadaClient(*session, additionalMillis, errorDetail)) {
         success = true;
+        for (auto& kv : nodeCounts)
+          appendSaleLog(kv.second, kv.second * MINUTES_PER_COIN, kv.first);
       } else {
         ESP_LOGE(TAG, "Extend failed: %s", errorDetail.c_str());
         errorMsg = "Failed to extend session";
@@ -260,6 +283,8 @@ void finalizeCoinInsert() {
 
       if (authenticateOmadaClient(*session, additionalMillis, errorDetail)) {
         success = true;
+        for (auto& kv : nodeCounts)
+          appendSaleLog(kv.second, kv.second * MINUTES_PER_COIN, kv.first);
       } else {
         ESP_LOGE(TAG, "Auth failed: %s", errorDetail.c_str());
         errorMsg = "Failed to connect to controller";

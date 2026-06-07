@@ -106,6 +106,7 @@ TimerHandle_t     COIN_INSERT_TIMER   = NULL;
 bool IS_MASTER = false;
 
 int           MINUTES_PER_COIN      = 24;
+int           PRICE_PER_COIN        = 5;
 volatile bool COIN_INSERT_ACTIVE    = false;
 volatile bool         COINSLOT_PROGRAM_MODE  = false;
 unsigned long         COIN_SLOT_READY_MILLIS = 0;

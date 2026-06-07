@@ -6,6 +6,8 @@
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
 #include <map>
+#include <set>
+#include <vector>
 #include <Update.h>
 #include <Preferences.h>
 #include <esp_ota_ops.h>
@@ -758,13 +760,11 @@ esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response
       String rest   = name.substring(9);           // "5P2H KANO"
       int spaceIdx  = rest.indexOf(' ');
       String seller = spaceIdx >= 0 ? rest.substring(spaceIdx + 1) : "";
-      int price = 0, commission = 0;
+      int price = 0;
       {
         JsonDocument descDoc;
-        if (deserializeJson(descDoc, g["description"].as<String>()) == DeserializationError::Ok) {
-          price      = descDoc["price"].as<int>();
-          commission = descDoc["commission"].as<int>();
-        }
+        if (deserializeJson(descDoc, g["description"].as<String>()) == DeserializationError::Ok)
+          price = descDoc["price"].as<int>();
       }
       // totalCount: prefer top-level field, fall back to statisticsCount (structure varies between list and detail endpoints)
       int totalCount = g["totalCount"].as<int>();
@@ -776,7 +776,6 @@ esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response
       entry["pages"]       = max(1, (totalCount + 129) / 130);
       entry["duration"]    = g["duration"].as<int>();
       entry["price"]       = price;
-      entry["commission"]  = commission;
       entry["createdTime"] = g["createdTime"].as<uint64_t>();
       entry["unusedCount"] = g["unusedCount"].as<int>();
       entry["totalCount"]  = totalCount;
@@ -792,14 +791,13 @@ esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response
   int durationMin = req["duration_min"].as<int>();
   int price       = req["price"].as<int>();
   String seller   = req["seller"].as<String>();
-  int commission  = req["commission"].as<int>();
   if (pages < 1 || durationMin < 1 || price < 1 || seller.isEmpty())
     return response->send(400, "text/plain", "Missing required fields");
 
   int qty          = pages * 130;
   int durationHrs  = durationMin / 60;
   String name      = "AUTOGEN: " + String(price) + "P" + String(durationHrs) + "H " + seller;
-  String desc      = "{\"price\":" + String(price) + ",\"commission\":" + String(commission) + "}";
+  String desc      = "{\"price\":" + String(price) + "}";
 
   String groupId, errorDetail;
   if (!createVoucherGroup(name, durationMin, qty, desc, groupId, errorDetail))
@@ -813,6 +811,228 @@ esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response
   JsonArray codes = out["codes"].to<JsonArray>();
   if (!codesDoc.isNull())
     for (JsonObject v : codesDoc["result"]["data"].as<JsonArray>()) codes.add(v["code"].as<String>());
+  String json; serializeJson(out, json);
+  return response->send(200, "application/json", json.c_str());
+}
+
+// ── Voucher cache helpers ─────────────────────────────────────────────────────
+
+static JsonArray voucherBuckets(JsonDocument& doc) {
+  JsonArray arr = doc["result"]["usage"].as<JsonArray>();
+  if (arr.isNull()) arr = doc["result"]["data"].as<JsonArray>();
+  return arr;
+}
+
+static int voucherBucketRevenue(JsonObject b, int fallbackPrice) {
+  float amt = atof(b["amount"].as<const char*>() ?: "0");
+  if (amt == 0) amt = b["count"].as<int>() * fallbackPrice;
+  return (int)amt;
+}
+
+// ── Admin sales ───────────────────────────────────────────────────────────────
+
+esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
+  if (!checkAdminAuth(request, response)) return ESP_OK;
+  response->addHeader("Cache-Control", "no-store");
+
+  time_t now      = time(NULL);
+  long   todayDay = (long)(now / 86400);
+  static const int DAYS = 30;
+
+  // ── Vendo history ──────────────────────────────────────────────────────────
+  int dayCoinTotals[DAYS] = {};
+  int dayMinTotals[DAYS]  = {};
+  std::map<String, std::vector<int>> nodeCoins;
+
+  if (fsExists("/vendo_history.json")) {
+    File f = LittleFS.open("/vendo_history.json", FILE_READ);
+    if (f) {
+      while (f.available()) {
+        String line = f.readStringUntil('\n'); line.trim();
+        if (line.isEmpty()) continue;
+        JsonDocument doc;
+        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+        long day = (long)((doc["ts"] | 0L) / 86400);
+        int  idx = (int)(todayDay - day);
+        if (idx < 0 || idx >= DAYS) continue;
+        int coins = doc["coins"] | 0;
+        dayCoinTotals[DAYS - 1 - idx] += coins;
+        dayMinTotals [DAYS - 1 - idx] += doc["min"] | 0;
+        String node = doc["node"] | "";
+        if (!node.isEmpty()) {
+          if (nodeCoins.find(node) == nodeCoins.end()) nodeCoins[node].assign(DAYS, 0);
+          nodeCoins[node][DAYS - 1 - idx] += coins;
+        }
+      }
+      f.close();
+    }
+  }
+
+  // ── Voucher history cache ──────────────────────────────────────────────────
+  int dayVoucherTotals[DAYS] = {};
+  int dayVchrRevTotals[DAYS] = {};
+
+  std::map<long, std::pair<int,int>> vchrCache;  // day → {count, rev}
+  if (fsExists("/voucher_history.json")) {
+    File f = LittleFS.open("/voucher_history.json", FILE_READ);
+    if (f) {
+      while (f.available()) {
+        String line = f.readStringUntil('\n'); line.trim();
+        if (line.isEmpty()) continue;
+        JsonDocument doc;
+        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+        long day = (long)((doc["ts"] | 0L) / 86400);
+        if (day > 0) vchrCache[day] = {doc["count"] | 0, doc["revenue"] | 0};
+      }
+      f.close();
+    }
+  }
+
+  // Find all missing past days and fetch in one call
+  std::set<long> missingDays;
+  for (int i = 0; i < DAYS - 1; i++) {
+    long day = todayDay - (DAYS - 1) + i;
+    if (!vchrCache.count(day)) missingDays.insert(day);
+  }
+  if (!missingDays.empty()) {
+    time_t startSec = (time_t)(*missingDays.begin()       * 86400);
+    time_t endSec   = (time_t)((*missingDays.rbegin() + 1) * 86400);
+    JsonDocument histDoc = getVoucherHistoryJson(startSec, endSec);
+    if (!histDoc.isNull()) {
+      // Accumulate all sub-day buckets by day before caching
+      for (JsonObject b : voucherBuckets(histDoc)) {
+        long day = (long)(b["time"].as<long long>() / 1000 / 86400);
+        if (!missingDays.count(day)) continue;
+        vchrCache[day].first  += b["count"].as<int>();
+        vchrCache[day].second += voucherBucketRevenue(b, PRICE_PER_COIN);
+      }
+      // Write one entry per missing day (days with no API response get cached as 0)
+      File cacheFile = LittleFS.open("/voucher_history.json", FILE_APPEND);
+      if (cacheFile) {
+        for (long day : missingDays) {
+          auto& v = vchrCache[day];
+          JsonDocument e; e["ts"] = day * 86400; e["count"] = v.first; e["revenue"] = v.second;
+          serializeJson(e, cacheFile); cacheFile.print('\n');
+        }
+        cacheFile.close();
+      }
+    }
+  }
+
+  // Apply cached past days
+  for (int i = 0; i < DAYS - 1; i++) {
+    long day = todayDay - (DAYS - 1) + i;
+    auto it = vchrCache.find(day);
+    if (it != vchrCache.end()) {
+      dayVoucherTotals[i] += it->second.first;
+      dayVchrRevTotals[i] += it->second.second;
+    }
+  }
+
+  // Always fetch today live — incomplete day, never cache
+  {
+    JsonDocument todayDoc = getVoucherHistoryJson((time_t)(todayDay * 86400), now);
+    if (!todayDoc.isNull()) {
+      for (JsonObject b : voucherBuckets(todayDoc)) {
+        long day = (long)(b["time"].as<long long>() / 1000 / 86400);
+        if (day != todayDay) continue;
+        dayVoucherTotals[DAYS - 1] += b["count"].as<int>();
+        dayVchrRevTotals[DAYS - 1] += voucherBucketRevenue(b, PRICE_PER_COIN);
+      }
+    }
+  }
+
+  // ── Build response ─────────────────────────────────────────────────────────
+  JsonDocument out;
+  out["pricePerCoin"] = PRICE_PER_COIN;
+  JsonArray days = out["days"].to<JsonArray>();
+  for (int i = 0; i < DAYS; i++) {
+    time_t   dayTs = (time_t)((todayDay - (DAYS - 1 - i)) * 86400 + 43200);
+    struct tm* tm  = gmtime(&dayTs);
+    char dateBuf[24];
+    snprintf(dateBuf, sizeof(dateBuf), "%d/%d", tm->tm_mon + 1, tm->tm_mday);
+    JsonObject d = days.add<JsonObject>();
+    d["date"]       = dateBuf;
+    d["coins"]      = dayCoinTotals[i];
+    d["minutes"]    = dayMinTotals[i];
+    d["vouchers"]   = dayVoucherTotals[i];
+    d["voucherRev"] = dayVchrRevTotals[i];
+    if (!nodeCoins.empty()) {
+      JsonObject nodes = d["nodes"].to<JsonObject>();
+      for (auto& kv : nodeCoins) nodes[kv.first.c_str()] = kv.second[i];
+    }
+  }
+  String json; serializeJson(out, json);
+  return response->send(200, "application/json", json.c_str());
+}
+
+// ── Admin leaderboard ─────────────────────────────────────────────────────────
+
+esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* response) {
+  if (!checkAdminAuth(request, response)) return ESP_OK;
+  response->addHeader("Cache-Control", "no-store");
+
+  time_t now    = time(NULL);
+  int    nDays  = request->hasParam("days")
+                  ? (int)max(1L, min(request->getParam("days")->value().toInt(), 365L)) : 30;
+  time_t cutoff = now - (time_t)nDays * 86400;
+
+  // Load seller commission rates
+  std::map<String, int> commissions;
+  if (fsExists("/sellers.json")) {
+    File f = LittleFS.open("/sellers.json", "r");
+    if (f) {
+      JsonDocument doc;
+      if (deserializeJson(doc, f) == DeserializationError::Ok)
+        for (JsonObject s : doc["sellers"].as<JsonArray>()) {
+          String name = s["name"].as<String>();
+          if (!name.isEmpty()) commissions[name] = s["commission"].as<int>();
+        }
+      f.close();
+    }
+  }
+
+  // Aggregate usedCount per seller from AUTOGEN groups created within the period
+  std::map<String, std::pair<int,int>> totals;  // seller → {vouchers, revenue}
+  JsonDocument groupsDoc = getVoucherGroupsJson();
+  if (!groupsDoc.isNull()) {
+    for (JsonObject g : groupsDoc["result"]["data"].as<JsonArray>()) {
+      String name = g["name"].as<String>();
+      if (!name.startsWith("AUTOGEN: ")) continue;
+      long long createdMs = g["createdTime"].as<long long>();
+      if (createdMs > 0 && (time_t)(createdMs / 1000) < cutoff) continue;
+      String rest   = name.substring(9);
+      int    space  = rest.indexOf(' ');
+      String seller = space >= 0 ? rest.substring(space + 1) : rest;
+      int    price  = PRICE_PER_COIN;
+      JsonDocument descDoc;
+      if (deserializeJson(descDoc, g["description"].as<String>()) == DeserializationError::Ok)
+        price = descDoc["price"] | PRICE_PER_COIN;
+      int used = g["usedCount"].as<int>();
+      totals[seller].first  += used;
+      totals[seller].second += used * price;
+    }
+  }
+
+  // Sort by revenue descending
+  using SelEntry = std::pair<String, std::pair<int,int>>;
+  std::vector<SelEntry> sorted(totals.begin(), totals.end());
+  std::sort(sorted.begin(), sorted.end(),
+    [](const SelEntry& a, const SelEntry& b){ return a.second.second > b.second.second; });
+
+  JsonDocument out;
+  JsonArray arr = out.to<JsonArray>();
+  for (auto& kv : sorted) {
+    int  comm = commissions.count(kv.first) ? commissions[kv.first] : 20;
+    bool reg  = commissions.count(kv.first) > 0;
+    JsonObject s = arr.add<JsonObject>();
+    s["seller"]     = kv.first;
+    s["vouchers"]   = kv.second.first;
+    s["revenue"]    = kv.second.second;
+    s["commission"] = comm;
+    s["net"]        = kv.second.second - (kv.second.second * comm / 100);
+    s["registered"] = reg;
+  }
   String json; serializeJson(out, json);
   return response->send(200, "application/json", json.c_str());
 }
@@ -856,6 +1076,13 @@ esp_err_t handleAdminReboot(PsychicRequest* request, PsychicResponse* response) 
   return ESP_OK;
 }
 
+esp_err_t handleAdminClearVoucherCache(PsychicRequest* request, PsychicResponse* response) {
+  if (!checkAdminAuth(request, response)) return ESP_OK;
+  if (fsExists("/voucher_history.json")) LittleFS.remove("/voucher_history.json");
+  ESP_LOGI(TAG, "Voucher cache cleared by admin");
+  return response->send(200, "text/plain", "OK");
+}
+
 // ── Server setup ─────────────────────────────────────────────────────────────
 
 void setupWeb() {
@@ -881,10 +1108,13 @@ void setupWeb() {
   server.on("/program",           HTTP_GET,  handleProgram);
   server.on("/admin/nodes",       HTTP_GET,  handleAdminNodes);
   server.on("/admin/log",         HTTP_GET,  handleAdminLog);
+  server.on("/admin/sales",       HTTP_GET,  handleAdminSales);
+  server.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard);
   server.on("/admin/sellers",     HTTP_ANY,  handleAdminSellers);
   server.on("/admin/vouchers",    HTTP_ANY,  handleAdminVouchers);
   server.on("/admin/config",      HTTP_ANY,  handleAdminConfig);
-  server.on("/admin/reboot",      HTTP_POST, handleAdminReboot);
+  server.on("/admin/reboot",             HTTP_POST, handleAdminReboot);
+  server.on("/admin/clear-voucher-cache", HTTP_POST, handleAdminClearVoucherCache);
   server.on("/admin",             HTTP_GET,  handleAdminPage);
   server.on("/config.json", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
     return res->send(403, "text/plain", "Forbidden");

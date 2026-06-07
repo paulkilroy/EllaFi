@@ -136,6 +136,7 @@ unsigned long getOmadaSessionAgeMs();   // ms since last Omada login; 0 if never
 unsigned long getLastCacheRefreshMs();  // ms since last refreshHotspotSessionCache(); 0 if never run
 
 JsonDocument getVoucherGroupsJson();
+JsonDocument getVoucherHistoryJson(time_t startSec, time_t endSec);
 bool createVoucherGroup(const String& name, int durationMin, int totalCount,
                         const String& description,
                         String& groupId, String& errorDetail);

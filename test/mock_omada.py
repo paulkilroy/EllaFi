@@ -44,6 +44,7 @@ import argparse
 import base64
 import json
 import os
+import random
 import re
 import ssl
 import sys
@@ -287,6 +288,22 @@ def _forward_to_cloud(method, path, qs, body_bytes, controller_id, creds):
     return r.status_code, r.content
 
 
+def _fake_voucher_history(start_sec, end_sec, price=20):
+    """Fake daily voucher buckets (timeInterval=24) matching real API format."""
+    buckets = []
+    day = (start_sec // 86400 + 1) * 86400
+    while day <= end_sec:
+        count = random.randint(5, 40) if random.random() < 0.8 else 0
+        if count:
+            buckets.append({
+                "count": count, "timeInterval": 24,
+                "time": day * 1000,              # ms, midnight UTC
+                "amount": str(count * price), "currency": "PHP",
+            })
+        day += 86400
+    return buckets
+
+
 def _cloud_refresh_loop(config):
     """Background thread: refresh cloud session every 4 hours before it expires."""
     while True:
@@ -359,8 +376,21 @@ class OmadaHandler(BaseHTTPRequestHandler):
 
         if CLOUD_SESSION and api == "/api/v2/user/sites":
             self.handle_cloud_forward(ts, "GET", api, qs, None)
-        elif CLOUD_SESSION and re.match(r"^/api/v2/hotspot/sites/[^/]+/voucherGroups", api):
-            self.handle_cloud_forward(ts, "GET", api, qs, None)
+        elif re.match(r"^/api/v2/hotspot/sites/[^/]+/voucherGroups", api):
+            if CLOUD_SESSION:
+                self.handle_cloud_forward(ts, "GET", api, qs, None)
+            else:
+                self.send_json(200, {"errorCode": 0, "result": {"totalRows": 0, "data": []}})
+        elif re.match(r"^/api/v2/hotspot/sites/[^/]+/vouchers/statistics/history$", api):
+            if CLOUD_SESSION:
+                self.handle_cloud_forward(ts, "GET", api, qs, None)
+            else:
+                self.handle_voucher_history(ts, qs)
+        elif re.match(r"^/api/v2/hotspot/sites/[^/]+/vouchers/statistics/history/groups/[^/]+$", api):
+            if CLOUD_SESSION:
+                self.handle_cloud_forward(ts, "GET", api, qs, None)
+            else:
+                self.handle_voucher_history(ts, qs)
         elif api == "/api/v2/user/sites":
             self.handle_sites(ts)
         elif re.match(r"^/api/v2/sites/[^/]+/clients$", api):
@@ -533,6 +563,48 @@ class OmadaHandler(BaseHTTPRequestHandler):
                 "data": active
             }
         })
+
+    def handle_cloud_group_history(self, ts, api, qs):
+        """Forward per-group history to the real openapi/v1 path through the connector."""
+        m = re.match(r"^/api/v2/hotspot/sites/([^/]+)/vouchers/statistics/history/groups/([^/]+)$", api)
+        site_id  = m.group(1)
+        group_id = m.group(2)
+        with _cloud_lock:
+            creds = dict(CLOUD_SESSION)
+        controller_id = self._controller_id()
+        url = (f"{creds['u']}/omadac/{creds['d']}/openapi/v1/{controller_id}"
+               f"/sites/{site_id}/hotspot/vouchers/statistics/history/voucher-groups/{group_id}")
+        if qs:
+            url += "?" + qs
+        print(f"  {ts}  {CYAN}→ cloud group history{RESET}  {group_id[:8]}...")
+        try:
+            import requests as _req
+            s = _req.Session()
+            s.cookies.set("TPEC_SID",  creds["s"])
+            s.cookies.set("csrfToken", creds["c"])
+            headers = {**_CLOUD_FWD_HEADERS, "csrf-token": creds["c"]}
+            r = s.get(url, headers=headers, verify=False, timeout=30)
+            status, body = r.status_code, r.content
+        except Exception as e:
+            print(f"  {ts}  {RED}cloud group history error: {e}{RESET}")
+            self.send_json(502, {"errorCode": -1, "msg": str(e)})
+            return
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def handle_voucher_history(self, ts, qs):
+        time.sleep(DELAYS["query"])
+        params    = parse_qs(qs)
+        start_sec = int(params.get("filters.timeStart", ["0"])[0])
+        end_sec   = int(params.get("filters.timeEnd",   [str(int(time.time()))])[0])
+        buckets   = _fake_voucher_history(start_sec, end_sec)
+        n_days    = max(1, (end_sec - start_sec) // 86400)
+        total     = sum(b["count"] for b in buckets)
+        print(f"  {ts}  {BLUE}GET voucher history{RESET}  {n_days}d → {len(buckets)} buckets  total={total}")
+        self.send_json(200, {"errorCode": 0, "result": {"usage": buckets}})
 
     def handle_all_clients(self, ts):
         time.sleep(DELAYS["query"])

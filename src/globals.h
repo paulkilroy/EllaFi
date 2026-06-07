@@ -11,6 +11,7 @@ struct CoinPulse {
   CoinPulseSource source;
   unsigned long   widthMicros;      // coin slot only — µs the signal stayed LOW; 0 for button/network
   unsigned long   timestampMicros;  // micros() at falling edge (ISR time) — used for gap/fraud calculation
+  char            mac[18];          // sender MAC for PULSE_NETWORK; empty = master's own slot
 };
 
 // ── WS job queue ──────────────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ constexpr int           COINSLOT_PIN                  = 4;
 constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — LOW-side switch (IRF540N gate): HIGH enables coin acceptor by connecting its GND to system GND via MOSFET
 constexpr unsigned long COIN_INSERT_TIMEOUT_MILLIS    = 10000;
 extern int              MINUTES_PER_COIN;              // minutes of access per coin — loaded from config
+extern int              PRICE_PER_COIN;                // pesos per coin (physical coin denomination) — loaded from config, default 5
 constexpr unsigned long COIN_DEBOUNCE_MILLIS              = 300;
 constexpr unsigned long COINSLOT_MIN_PULSE_INTERVAL_MILLIS = 100; // PSK got 116ms in testing .. lets use 100mb us a baseline 120;  // fast mode: 20ms pulse + 100ms gap
 constexpr unsigned long COINSLOT_MIN_PULSE_WIDTH_MICROS    = 3000; // piezo spike ~100µs, real coin 20,000µs — reject anything shorter than 3ms (seen 3828µs on real coins)

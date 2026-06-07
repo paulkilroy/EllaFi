@@ -46,6 +46,7 @@
     .btn-warning { background: #c99a0c; color: #fff; }
     .btn-warning:hover { background: #b8890a; }
     .btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    #panel-vouchers button:disabled { background: #3a3a3a; color: #666; cursor: not-allowed; }
 
     input, select { background: #162030; border: 1px solid #2e3f58; color: #dde3ee; padding: 7px 10px; border-radius: 4px; font-size: 13px; }
     input[type=password] { font-family: monospace; }
@@ -76,6 +77,9 @@
     .tag-vchr { background: #27ae6022; color: #2ecc71; }
     progress { width: 100%; height: 8px; border-radius: 4px; margin-top: 8px; }
     .msg { font-size: 13px; color: #8a9ab0; margin-top: 8px; min-height: 20px; }
+    .loading-bar { height: 3px; background: #2e3f58; border-radius: 2px; overflow: hidden; margin-bottom: 12px; }
+    .loading-bar::after { content: ''; display: block; height: 100%; width: 40%; background: #5dade2; border-radius: 2px; animation: loadslide 1.2s ease-in-out infinite; }
+    @keyframes loadslide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
 
     /* Responsive tables */
     .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -182,8 +186,9 @@
 
 <!-- ── SALES ─────────────────────────────────────────────────────── -->
 <div class="panel" id="panel-sales">
+  <div id="sales-loading" style="display:none"><div class="loading-bar"></div></div>
   <div class="section">
-    <div class="section-title">This Week — Nodes &amp; Sellers <span class="todo">(⚠ needs /admin/sales + /admin/nodes)</span></div>
+    <div class="section-title">This Week — Nodes &amp; Sellers</div>
     <div class="tbl-wrap">
       <table>
         <thead><tr><th>Name</th><th>Type</th><th>Activity</th><th>Revenue</th><th>Commission</th><th>Net</th><th>vs Last Week</th></tr></thead>
@@ -192,10 +197,7 @@
     </div>
   </div>
   <div class="section">
-    <div class="section-title">
-      Revenue by Day — Last 30 Days
-      <span class="todo">(⚠ demo data — needs /admin/sales)</span>
-    </div>
+    <div class="section-title">Revenue by Day — Last 30 Days</div>
     <div class="chart-wrap" id="chart-sales"></div>
     <div class="chart-legend">
       <span><span class="legend-dot" style="background:#5dade2"></span>Vendo (₱)</span>
@@ -203,7 +205,7 @@
     </div>
   </div>
   <div class="section">
-    <div class="section-title">Transactions <span class="todo">(⚠ demo data — needs /admin/sales)</span></div>
+    <div class="section-title">Transactions</div>
     <div class="tbl-wrap">
       <table>
         <thead>
@@ -218,6 +220,7 @@
 
 <!-- ── VOUCHERS ────────────────────────────────────────────────────── -->
 <div class="panel" id="panel-vouchers">
+  <div id="voucher-loading" style="display:none"><div class="loading-bar"></div></div>
   <div class="section">
     <div class="section-title">Generate Vouchers</div>
     <div class="form-row">
@@ -240,20 +243,10 @@
         <input type="number" id="v-price" value="5" min="1" style="width:70px">
       </div>
       <div class="form-group">
-        <label>Seller</label>
-        <select id="v-seller" onchange="onSellerChange()" style="width:160px">
+        <label>Seller <a href="#" onclick="goToSettings();return false;" style="font-size:11px;color:#5dade2;font-weight:normal;margin-left:6px">Manage →</a></label>
+        <select id="v-seller" style="width:160px">
           <!-- populated by renderSellerDropdown() -->
         </select>
-      </div>
-      <div id="v-new-seller-wrap" style="display:none;gap:10px;align-items:flex-end;flex-wrap:wrap">
-        <div class="form-group">
-          <label>New seller name</label>
-          <input type="text" id="v-new-seller" placeholder="e.g. Aling Maria" style="width:150px">
-        </div>
-        <div class="form-group">
-          <label>Commission (%)</label>
-          <input type="number" id="v-new-seller-cut" value="20" min="0" max="100" style="width:70px">
-        </div>
       </div>
       <div class="form-group">
         <label>&nbsp;</label>
@@ -334,9 +327,40 @@
 <!-- ── SETTINGS ───────────────────────────────────────────────────── -->
 <div class="panel" id="panel-settings">
   <div class="section">
+    <div class="section-title">People &amp; Commissions</div>
+
+    <div style="font-size:11px;font-weight:bold;color:#6a7a90;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Vendo Nodes</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Role</th><th>MAC</th><th>Nickname</th><th>Commission %</th></tr></thead>
+        <tbody id="people-nodes-tbody"></tbody>
+      </table>
+    </div>
+
+    <div style="font-size:11px;font-weight:bold;color:#6a7a90;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;margin-top:20px">Voucher Sellers</div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Name</th><th>Commission %</th><th></th></tr></thead>
+        <tbody id="people-sellers-tbody"></tbody>
+      </table>
+    </div>
+    <div style="display:flex;gap:8px;align-items:flex-end;margin-top:12px;flex-wrap:wrap">
+      <div class="form-group">
+        <label>New seller name</label>
+        <input type="text" id="people-new-name" placeholder="e.g. Aling Maria" style="width:160px">
+      </div>
+      <div class="form-group">
+        <label>Commission %</label>
+        <input type="number" id="people-new-comm" value="20" min="0" max="100" style="width:70px">
+      </div>
+      <button class="btn btn-sm btn-success" onclick="addSellerFromPeople()">Add Seller</button>
+    </div>
+    <div class="msg" id="people-msg"></div>
+  </div>
+
+  <div class="section">
     <div class="section-title">
       Configuration
-      <span class="todo">(⚠ needs /admin/config GET + POST)</span>
       <span style="margin-left:auto;display:flex;gap:8px">
         <button class="btn btn-sm btn-primary" onclick="loadConfig()">Load from Device</button>
         <button class="btn btn-sm btn-success" onclick="saveConfig()">Save &amp; Restart</button>
@@ -385,6 +409,10 @@
         <label>Minutes per Coin</label>
         <input type="number" id="cfg-minutes_per_coin" placeholder="24" min="1">
       </div>
+      <div class="form-group">
+        <label>Price per Coin (₱)</label>
+        <input type="number" id="cfg-price_per_coin" placeholder="5" min="1">
+      </div>
 
     </div>
     <div class="msg" id="cfg-msg"></div>
@@ -418,6 +446,7 @@
     <div class="btn-row">
       <button class="btn btn-warning" onclick="doReboot()">Reboot ESP32</button>
       <button class="btn btn-primary" onclick="doProgramMode()">Coin Slot Program Mode</button>
+      <button class="btn" onclick="clearVoucherCache()">Clear Voucher Cache</button>
     </div>
     <div class="msg" id="sys-msg"></div>
   </div>
@@ -429,6 +458,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Tab routing
 // ─────────────────────────────────────────────────────────────────────────────
+function goToSettings() {
+  const btn = [...document.querySelectorAll('nav button')].find(b => b.textContent.trim() === 'Settings');
+  if (btn) showTab('settings', btn);
+}
+
 function showTab(name, btn) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
@@ -439,7 +473,7 @@ function showTab(name, btn) {
   if (name === 'vouchers')  { loadSellers(); }
   if (name === 'logs')      { startDevLog(); loadErrors(); loadRefunds(); }
   else                      { stopDevLog(); }
-  if (name === 'settings')  loadConfig();
+  if (name === 'settings')  { loadConfig(); loadSellers().then(renderPeopleSection); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -449,9 +483,9 @@ function showTab(name, btn) {
 // Live node list populated by loadDashboard() from /admin/nodes
 let liveNodes = [];
 
-// Nickname map: MAC → display name, editable in the node health table
+// Nickname map: MAC → display name (editable in Settings → People & Commissions)
 let nodeNicknames = {};
-// Commission map: MAC → commission %, editable in the node health table
+// Commission map: MAC → commission % (editable in Settings → People & Commissions)
 let nodeCommissions = {};
 
 function rssiColor(r) {
@@ -485,20 +519,19 @@ function renderNodeHealth(nodes) {
   });
   document.getElementById('nodes-tbody').innerHTML = liveNodes.map(n => {
     const statusClass = n.online ? 'online' : 'offline';
-    const dot  = `<span class="node-dot ${statusClass}"></span>`;
-    const role = `<span class="tag ${n.role === 'master' ? 'tag-coin' : 'tag-vchr'}">${n.role.toUpperCase()}</span>`;
-    const rssi = n.rssi ? `<span style="color:${rssiColor(n.rssi)}">${n.rssi} dBm</span>` : '<span class="muted">—</span>';
-    const ver  = n.version ? `<span class="mono" style="font-size:11px;letter-spacing:1px">${n.version}</span><span class="muted" style="font-size:11px"> (${n.build ?? '?'})</span>` : '<span class="muted">—</span>';
-    const mac  = n.mac;
+    const dot      = `<span class="node-dot ${statusClass}"></span>`;
+    const role     = `<span class="tag ${n.role === 'master' ? 'tag-coin' : 'tag-vchr'}">${n.role.toUpperCase()}</span>`;
+    const rssi     = n.rssi ? `<span style="color:${rssiColor(n.rssi)}">${n.rssi} dBm</span>` : '<span class="muted">—</span>';
+    const ver      = n.version ? `<span class="mono" style="font-size:11px;letter-spacing:1px">${n.version}</span><span class="muted" style="font-size:11px"> (${n.build ?? '?'})</span>` : '<span class="muted">—</span>';
+    const nickname = nodeNicknames[n.mac]
+      ? nodeNicknames[n.mac]
+      : `<a href="#" onclick="goToSettings();return false;" style="color:#5dade2;font-size:12px">Add nickname →</a>`;
+    const comm = nodeCommissions[n.mac] != null ? nodeCommissions[n.mac] + '%' : '<span class="muted">—</span>';
     return `<tr>
       <td style="width:16px">${dot}</td>
       <td>${role}</td>
-      <td><input type="text" value="${nodeNicknames[mac] || ''}" placeholder="Add nickname…"
-            style="background:transparent;border:none;border-bottom:1px solid #2e3f58;color:#dde3ee;font-size:13px;width:130px;padding:2px 0"
-            onchange="nodeNicknames['${mac}']=this.value.trim();saveNodeField('${mac}','nickname',this.value.trim());renderPerformance()"></td>
-      <td><input type="number" value="${nodeCommissions[mac] ?? 20}" min="0" max="100"
-            style="background:transparent;border:none;border-bottom:1px solid #2e3f58;color:#dde3ee;font-size:13px;width:55px;padding:2px 0;text-align:right"
-            onchange="nodeCommissions['${mac}']=+this.value;saveNodeField('${mac}','commission',+this.value);renderPerformance()">%</td>
+      <td>${nickname}</td>
+      <td>${comm}</td>
       <td class="col-ip" style="font-family:monospace;font-size:12px">${n.ip || '—'}</td>
       <td class="col-uptime muted">${fmtUptime(n.uptimeSec)}</td>
       <td>${ver}</td>
@@ -507,25 +540,32 @@ function renderNodeHealth(nodes) {
   }).join('');
 }
 
-function renderPerformance(salesData) {
+function renderPerformance(salesData, leaderboard, nodeRevMap) {
+  leaderboard = leaderboard || [];
+  nodeRevMap  = nodeRevMap  || {};
+  const nodeCoinTotals = {};
+  for (const d of salesData) {
+    for (const [mac, coins] of Object.entries(d.nodes || {}))
+      nodeCoinTotals[mac] = (nodeCoinTotals[mac] || 0) + coins;
+  }
   const rows = [
     ...liveNodes.map(n => ({
       name:       nodeName(n),
       typeCls:    'tag-coin',
       typeLabel:  'Vendo',
-      activity:   '<span class="muted">—</span>',
-      revenue:    0,
+      activity:   (nodeCoinTotals[n.mac] || 0) > 0 ? nodeCoinTotals[n.mac] + ' coins' : '<span class="muted">—</span>',
+      revenue:    nodeRevMap[n.mac] || 0,
       commPct:    nodeCommissions[n.mac] || 0,
       delta:      0
     })),
-    ...sellers.map(s => ({
-      name:       s.name,
+    ...leaderboard.map(s => ({
+      name:       s.seller + (s.registered ? '' : ' <span class="muted" style="font-size:10px">(new)</span>'),
       typeCls:    'tag-vchr',
       typeLabel:  'Voucher',
-      activity:   s.sold > 0 ? s.sold + ' vouchers' : '<span class="muted">—</span>',
+      activity:   s.vouchers > 0 ? s.vouchers + ' vouchers' : '<span class="muted">—</span>',
       revenue:    s.revenue || 0,
       commPct:    s.commission || 0,
-      delta:      s.delta || 0
+      delta:      0
     }))
   ];
 
@@ -616,7 +656,7 @@ function renderStackedChart(containerId, data) {
   const W = el.clientWidth || 600, H = 160;
   const pL = 40, pB = 26, pT = 10, pR = 8;
   const cW = W - pL - pR, cH = H - pB - pT;
-  const max = Math.max(...data.map(d => d.coinRev + d.vchrRev), 1);
+  const max = Math.max(...data.map(d => d.coinRev + d.voucherRev), 1);
   const slotW = cW / data.length;
   const barW  = Math.max(4, slotW * 0.55);
   let svg = '';
@@ -630,7 +670,7 @@ function renderStackedChart(containerId, data) {
   data.forEach((d, i) => {
     const x     = pL + slotW * i + (slotW - barW) / 2;
     const coinH = (d.coinRev / max) * cH;
-    const vchrH = (d.vchrRev / max) * cH;
+    const vchrH = (d.voucherRev / max) * cH;
     const coinY = pT + cH - coinH;
     if (coinH > 0) svg += `<rect x="${x.toFixed(1)}" y="${coinY.toFixed(1)}" width="${barW.toFixed(1)}" height="${coinH.toFixed(1)}" fill="#5dade2" rx="2"/>`;
     if (vchrH > 0) svg += `<rect x="${x.toFixed(1)}" y="${(coinY-vchrH).toFixed(1)}" width="${barW.toFixed(1)}" height="${vchrH.toFixed(1)}" fill="#2ecc71" rx="2"/>`;
@@ -651,7 +691,7 @@ function mockSales(days) {
   return Array.from({length: days}, (_, i) => {
     const d = new Date(now); d.setDate(d.getDate() - (days - 1 - i));
     const coins = SEED[i % SEED.length], vouchers = VSEED[i % VSEED.length];
-    return { date: (d.getMonth()+1)+'/'+d.getDate(), coins, coinRev: coins*5, vouchers, vchrRev: vouchers*5 };
+    return { date: (d.getMonth()+1)+'/'+d.getDate(), coins, coinRev: coins*5, vouchers, voucherRev: vouchers*5 };
   });
 }
 
@@ -659,10 +699,38 @@ function mockSales(days) {
 // Sales
 // ─────────────────────────────────────────────────────────────────────────────
 async function loadSales() {
-  // TODO: replace mockSales with GET /admin/sales → daily_sales.jsonl (30 days)
-  // Real data includes by_node{} and vouchers[] per day for leader + this-week computation
-  const data = mockSales(30);
-  renderPerformance(data);
+  const loadingEl = document.getElementById('sales-loading');
+  loadingEl.style.display = 'block';
+  let data = [];
+  let pricePerCoin = 5;
+  let leaderboard  = [];
+  try {
+    const [salesR, lbR] = await Promise.all([fetch('/admin/sales'), fetch('/admin/leaderboard')]);
+    if (salesR.ok) {
+      const resp = await salesR.json();
+      pricePerCoin = resp.pricePerCoin || 5;
+      data = resp.days.map(d => ({
+        date:       d.date,
+        coins:      d.coins,
+        minutes:    d.minutes,
+        coinRev:    d.coins * pricePerCoin,
+        vouchers:   d.vouchers || 0,
+        voucherRev: d.voucherRev || 0,
+        nodes:      d.nodes || {}
+      }));
+    }
+    if (lbR.ok) leaderboard = await lbR.json();
+  } catch {}
+  loadingEl.style.display = 'none';
+  if (!data.length) data = mockSales(30);
+
+  const nodeRevMap = {};
+  for (const d of data) {
+    for (const [mac, coins] of Object.entries(d.nodes || {}))
+      nodeRevMap[mac] = (nodeRevMap[mac] || 0) + coins * pricePerCoin;
+  }
+
+  renderPerformance(data, leaderboard, nodeRevMap);
   renderStackedChart('chart-sales', data);
 
   document.getElementById('hdr-status').textContent = 'Online · ' + new Date().toLocaleTimeString();
@@ -671,19 +739,17 @@ async function loadSales() {
   const tfoot = document.getElementById('sales-tfoot');
   let tc = 0, tv = 0, tm = 0, tr = 0, tcomm = 0;
 
-  // Blended commission rates from live node and seller data (used with mock data that lacks per-entity breakdown)
   const nodeCommVals = Object.values(nodeCommissions).filter(v => v > 0);
   const vchrCommVals = sellers.filter(s => s.commission > 0).map(s => s.commission);
   const avgNodeComm  = nodeCommVals.length ? nodeCommVals.reduce((a,b)=>a+b,0)/nodeCommVals.length : 0;
-  const avgVchrComm  = vchrCommVals.length ? vchrCommVals.reduce((a,b)=>a+b,0)/vchrCommVals.length : 0;
+  const avgVchrComm  = vchrCommVals.length ? vchrCommVals.reduce((a,b)=>a+b,0)/vchrCommVals.length : 20;
 
   tbody.innerHTML = data.slice().reverse().map(d => {
-    const dayMin  = d.coins * 24 + d.vouchers * 720;
-    const dayRev  = d.coinRev + d.vchrRev;
-    const dayComm = Math.round(d.coinRev * avgNodeComm / 100) + Math.round(d.vchrRev * avgVchrComm / 100);
+    const dayMin  = d.minutes !== undefined ? d.minutes : (d.coins * 24 + d.vouchers * 720);
+    const dayRev  = d.coinRev + d.voucherRev;
+    const dayComm = Math.round(d.coinRev * avgNodeComm / 100) + Math.round(d.voucherRev * avgVchrComm / 100);
     const dayNet  = dayRev - dayComm;
     tc += d.coins; tv += d.vouchers; tm += dayMin; tr += dayRev; tcomm += dayComm;
-    const leader = d.leader || '<span class="muted">—</span>';
     return `<tr>
       <td>${d.date}</td>
       <td>${d.coins    || '<span class="muted">—</span>'}</td>
@@ -692,7 +758,7 @@ async function loadSales() {
       <td>${dayRev  ? '₱' + dayRev  : '<span class="muted">—</span>'}</td>
       <td>${dayComm ? '₱' + dayComm : '<span class="muted">—</span>'}</td>
       <td>${dayNet  ? '₱' + dayNet  : '<span class="muted">—</span>'}</td>
-      <td class="muted">${leader}</td>
+      <td></td>
     </tr>`;
   }).join('');
 
@@ -724,62 +790,53 @@ function randCode() {
   return Array.from({length: 8}, () => c[Math.floor(Math.random() * c.length)]).join('');
 }
 
-function onSellerChange() {
-  const isNew = document.getElementById('v-seller').value === '__new__';
-  document.getElementById('v-new-seller-wrap').style.display = isNew ? 'flex' : 'none';
-}
-
 function renderSellerDropdown() {
   const sel = document.getElementById('v-seller');
   const cur = sel.value;
-  sel.innerHTML = sellers.map(s => `<option value="${s.name}">${s.name}</option>`).join('')
-    + '<option value="__new__">＋ New seller...</option>';
-  if (cur && sel.querySelector(`[value="${CSS.escape(cur)}"]`)) sel.value = cur;
-  onSellerChange();
+  if (sellers.length) {
+    sel.innerHTML = sellers.map(s => `<option value="${s.name}">${s.name}</option>`).join('');
+    if (cur && sel.querySelector(`[value="${CSS.escape(cur)}"]`)) sel.value = cur;
+    sel.disabled = false;
+  } else {
+    sel.innerHTML = '<option value="">No sellers — add in Settings</option>';
+    sel.disabled = true;
+  }
+}
+
+let voucherBusy = false;
+
+function setVoucherBusy(busy) {
+  voucherBusy = busy;
+  document.getElementById('voucher-loading').style.display = busy ? 'block' : 'none';
+  document.querySelectorAll('#panel-vouchers button').forEach(b => b.disabled = busy);
 }
 
 async function generateVouchers() {
+  if (voucherBusy) return;
   const pages    = Math.max(1, parseInt(document.getElementById('v-pages').value) || 5);
   const duration = getVoucherMinutes();
   const price    = parseInt(document.getElementById('v-price').value) || 5;
   const selVal   = document.getElementById('v-seller').value;
   const msg      = document.getElementById('v-msg');
-  let sellerName = selVal;
-  let commission = 0;
+  if (!selVal) { msg.textContent = 'Add a seller in Settings first.'; return; }
+  const sellerName = selVal;
 
-  if (selVal === '__new__') {
-    const newName = document.getElementById('v-new-seller').value.trim();
-    const cut     = parseInt(document.getElementById('v-new-seller-cut').value) || 30;
-    if (!newName) { msg.textContent = 'Enter a name for the new seller.'; return; }
-    if (!sellers.find(s => s.name === newName)) {
-      sellers.push({ name: newName, commission: cut });
-      await saveSellers();
-      renderSellerDropdown();
-    }
-    document.getElementById('v-seller').value = newName;
-    document.getElementById('v-new-seller').value = '';
-    document.getElementById('v-new-seller-wrap').style.display = 'none';
-    sellerName = newName;
-    commission = cut;
-  } else {
-    const s = sellers.find(s => s.name === sellerName);
-    commission = s ? s.commission : 0;
-  }
-
+  setVoucherBusy(true);
   msg.textContent = `Creating ${pages} page${pages !== 1 ? 's' : ''} (${pages * 130} vouchers)…`;
   try {
     const r = await fetch('/admin/vouchers', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pages, duration_min: duration, price, seller: sellerName, commission })
+      body: JSON.stringify({ pages, duration_min: duration, price, seller: sellerName })
     });
     if (!r.ok) { msg.textContent = '✗ ' + await r.text(); return; }
     const data = await r.json();
     voucherGroups.unshift({ id: data.id, seller: sellerName, pages: data.pages, duration, price,
-                            commission, createdTime: Date.now(), codes: data.codes || null, checked: false });
+                            createdTime: Date.now(), codes: data.pages === 1 ? (data.codes || null) : null, checked: false });
     renderVoucherTable();
     msg.textContent = `✓ ${pages} page${pages !== 1 ? 's' : ''} generated for ${sellerName} — ready to print`;
   } catch (e) { msg.textContent = '✗ ' + e.message; }
+  finally { setVoucherBusy(false); }
 }
 
 function renderVoucherTable() {
@@ -793,23 +850,27 @@ function renderVoucherTable() {
   const sel = voucherGroups.filter(g => g.checked).length;
   const totalPages = voucherGroups.reduce((s, g) => s + (g.pages || Math.round(g.qty / CARDS_PER_PAGE)), 0);
   count.textContent = `${voucherGroups.length} batch${voucherGroups.length !== 1 ? 'es' : ''} · ${totalPages} pages` + (sel ? ` · ${sel} selected` : '');
-  tbody.innerHTML = voucherGroups.map((g, i) =>
-    `<tr>
+  tbody.innerHTML = voucherGroups.map((g, i) => {
+    const sellerObj  = sellers.find(s => s.name === g.seller) ?? { commission: 20 };
+    const commLabel  = sellerObj.commission > 0 ? ` <span class="muted">(${sellerObj.commission}%)</span>` : '';
+    return `<tr>
       <td><input type="checkbox" ${g.checked?'checked':''} onchange="voucherGroups[${i}].checked=this.checked;renderVoucherTable()"></td>
       <td class="muted">${g.createdTime ? new Date(g.createdTime).toLocaleDateString('en-PH') : '—'}</td>
-      <td>${g.seller}</td>
+      <td>${g.seller}${commLabel}</td>
       <td>${(g.pages || Math.round(g.qty / CARDS_PER_PAGE)).toLocaleString()}</td>
       <td>${durLabelShort(g.duration)}</td>
       <td>₱${g.price}</td>
       <td><button class="btn btn-sm btn-warning" onclick="printGroup(${i})">🖨 Print</button></td>
-    </tr>`
-  ).join('');
+    </tr>`;
+  }).join('');
 }
 
 function toggleAll(cb) { voucherGroups.forEach(g => g.checked = cb.checked); renderVoucherTable(); }
 
 async function loadVouchers() {
+  if (voucherBusy) return;
   const tbody = document.getElementById('v-tbody');
+  setVoucherBusy(true);
   tbody.innerHTML = '<tr><td colspan="7" class="muted">Loading…</td></tr>';
   try {
     const r = await fetch('/admin/vouchers');
@@ -818,6 +879,7 @@ async function loadVouchers() {
     voucherGroups = groups.map(g => ({ ...g, codes: null, checked: false }));
     renderVoucherTable();
   } catch (e) { tbody.innerHTML = `<tr><td colspan="7" style="color:#e74c3c">${e.message}</td></tr>`; }
+  finally { setVoucherBusy(false); }
 }
 
 async function fetchAllCodes(g) {
@@ -864,26 +926,32 @@ function doPrint(html) {
 }
 
 async function printGroup(i) {
+  if (voucherBusy) return;
   const g = voucherGroups[i];
   const msg = document.getElementById('v-msg');
+  setVoucherBusy(true);
   msg.textContent = 'Loading codes…';
   try {
     await fetchAllCodes(g);
     msg.textContent = '';
     doPrint(voucherCards(g));
   } catch (e) { msg.textContent = '✗ ' + e.message; }
+  finally { setVoucherBusy(false); }
 }
 
 async function printSelected() {
+  if (voucherBusy) return;
   const sel = voucherGroups.filter(g => g.checked);
   if (!sel.length) { alert('Select batches to print first.'); return; }
   const msg = document.getElementById('v-msg');
+  setVoucherBusy(true);
   msg.textContent = `Loading codes for ${sel.length} batch${sel.length > 1 ? 'es' : ''}…`;
   try {
     await Promise.all(sel.map(fetchAllCodes));
     msg.textContent = '';
     doPrint(sel.map(voucherCards).join(''));
   } catch (e) { msg.textContent = '✗ ' + e.message; }
+  finally { setVoucherBusy(false); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -925,7 +993,6 @@ async function saveNodeField(mac, field, value) {
 }
 
 async function saveSellers() {
-  // Preserve existing nodes[] when writing sellers
   let nodes = [];
   try { const r = await fetch('/admin/sellers'); if (r.ok) nodes = (await r.json()).nodes || []; } catch {}
   await fetch('/admin/sellers', {
@@ -936,22 +1003,100 @@ async function saveSellers() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// People & Commissions (Settings tab)
+// ─────────────────────────────────────────────────────────────────────────────
+function renderPeopleSection() {
+  // Nodes
+  const nodesTbody = document.getElementById('people-nodes-tbody');
+  if (liveNodes.length) {
+    nodesTbody.innerHTML = liveNodes.map(n => {
+      const role = `<span class="tag ${n.role === 'master' ? 'tag-coin' : 'tag-vchr'}">${n.role.toUpperCase()}</span>`;
+      const mac  = n.mac;
+      return `<tr>
+        <td>${role}</td>
+        <td class="muted" style="font-family:monospace;font-size:12px">${mac}</td>
+        <td><input type="text" value="${nodeNicknames[mac] || ''}" placeholder="Add nickname…"
+              style="background:transparent;border:none;border-bottom:1px solid #2e3f58;color:#dde3ee;font-size:13px;width:150px;padding:2px 0"
+              onchange="nodeNicknames['${mac}']=this.value.trim();saveNodeField('${mac}','nickname',this.value.trim())"></td>
+        <td><input type="number" value="${nodeCommissions[mac] ?? 20}" min="0" max="100"
+              style="background:transparent;border:none;border-bottom:1px solid #2e3f58;color:#dde3ee;font-size:13px;width:55px;padding:2px 0;text-align:right"
+              onchange="nodeCommissions['${mac}']=+this.value;saveNodeField('${mac}','commission',+this.value)">%</td>
+      </tr>`;
+    }).join('');
+  } else {
+    nodesTbody.innerHTML = '<tr><td colspan="4" class="muted">No nodes seen yet — check Dashboard.</td></tr>';
+  }
+
+  // Sellers
+  const sellersTbody = document.getElementById('people-sellers-tbody');
+  if (sellers.length) {
+    sellersTbody.innerHTML = sellers.map((s, i) =>
+      `<tr>
+        <td><input type="text" value="${s.name}"
+              style="background:transparent;border:none;border-bottom:1px solid #2e3f58;color:#dde3ee;font-size:13px;width:160px;padding:2px 0"
+              onchange="renameSeller(${i}, this.value.trim())"></td>
+        <td><input type="number" value="${s.commission}" min="0" max="100"
+              style="background:transparent;border:none;border-bottom:1px solid #2e3f58;color:#dde3ee;font-size:13px;width:55px;padding:2px 0;text-align:right"
+              onchange="sellers[${i}].commission=+this.value;saveSellers()">%</td>
+        <td><button class="btn btn-sm btn-danger" onclick="deleteSeller(${i})">✕</button></td>
+      </tr>`
+    ).join('');
+  } else {
+    sellersTbody.innerHTML = '<tr><td colspan="3" class="muted">No sellers yet.</td></tr>';
+  }
+}
+
+async function renameSeller(idx, newName) {
+  if (!newName || sellers.find((s, i) => i !== idx && s.name === newName)) {
+    document.getElementById('people-msg').textContent = 'Name is empty or already in use.';
+    setTimeout(() => { document.getElementById('people-msg').textContent = ''; }, 3000);
+    renderPeopleSection();
+    return;
+  }
+  sellers[idx].name = newName;
+  await saveSellers();
+  renderSellerDropdown();
+}
+
+async function deleteSeller(idx) {
+  if (!confirm(`Remove seller "${sellers[idx].name}"?`)) return;
+  sellers.splice(idx, 1);
+  await saveSellers();
+  renderSellerDropdown();
+  renderPeopleSection();
+}
+
+async function addSellerFromPeople() {
+  const name  = document.getElementById('people-new-name').value.trim();
+  const comm  = parseInt(document.getElementById('people-new-comm').value) || 0;
+  const msg   = document.getElementById('people-msg');
+  if (!name) { msg.textContent = 'Enter a name.'; return; }
+  if (sellers.find(s => s.name === name)) { msg.textContent = 'Seller already exists.'; return; }
+  sellers.push({ name, commission: comm });
+  await saveSellers();
+  renderSellerDropdown();
+  renderPeopleSection();
+  document.getElementById('people-new-name').value = '';
+  msg.textContent = `✓ ${name} added.`;
+  setTimeout(() => { msg.textContent = ''; }, 3000);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Settings
 // ─────────────────────────────────────────────────────────────────────────────
 const CFG_FIELDS = [
   'wifi_ssid','wifi_password',
   'omada_url','omada_controller_id',
   'omada_username','omada_password',
-  'master_mac','network_key','minutes_per_coin'
+  'master_mac','network_key','minutes_per_coin','price_per_coin'
 ];
 
 async function loadConfig() {
   const msg = document.getElementById('cfg-msg');
   msg.textContent = 'Loading...';
   try {
-    // TODO: GET /admin/config → returns config.json (passwords masked server-side)
     const r = await fetch('/admin/config');
-    if (!r.ok) { msg.textContent = 'Could not load config from device (endpoint not yet implemented).'; return; }
+    if (!r.ok) { msg.textContent = 'Could not load config from device.'; return; }
     const cfg = await r.json();
     CFG_FIELDS.forEach(k => {
       const el = document.getElementById('cfg-' + k);
@@ -971,7 +1116,6 @@ async function saveConfig() {
   });
   msg.textContent = 'Saving...';
   try {
-    // TODO: POST /admin/config → writes config.json and calls esp_restart()
     const r = await fetch('/admin/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1095,6 +1239,15 @@ async function doReboot() {
   msg.textContent = 'Sending reboot command...';
   try { await fetch('/admin/reboot', { method: 'POST' }); } catch {}
   msg.textContent = 'Reboot sent — device will be back in ~10 seconds.';
+}
+
+async function clearVoucherCache() {
+  if (!confirm('Delete voucher_history.json? Past voucher counts will be re-fetched from Omada on next Sales load.')) return;
+  const msg = document.getElementById('sys-msg');
+  try {
+    const r = await fetch('/admin/clear-voucher-cache', { method: 'POST' });
+    msg.textContent = r.ok ? '✓ Voucher cache cleared.' : '✗ ' + await r.text();
+  } catch (e) { msg.textContent = '✗ ' + e.message; }
 }
 
 async function doProgramMode() {

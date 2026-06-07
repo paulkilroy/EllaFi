@@ -14,6 +14,7 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleAdminLog(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleAdminSellers(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleAdminConfig(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleAdminReboot(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response);

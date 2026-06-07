@@ -9,7 +9,7 @@ void IRAM_ATTR coinSlotPulse();  // no debounce — real coin acceptor
 void coinTimerCallback(TimerHandle_t xTimer);
 void restartCoinInsertTimer();
 
-void masterRecvCoinInserted();
+void masterRecvCoinInserted(const char* senderMac);
 void slaveRecvCoinInsertStart();
 void slaveRecvCoinInsertEnd();
 

@@ -45,6 +45,11 @@ struct __attribute__((packed)) OtaCmdBody {
   char targetMac[18];  // null-terminated — slave only acts if this matches its own MAC
 };
 
+// Coin-inserted body after the 10-byte [type][psk] header.
+struct __attribute__((packed)) CoinInsertedBody {
+  char mac[18];  // null-terminated sender MAC, e.g. "AA:BB:CC:DD:EE:FF"
+};
+
 // Log-entry body after the 10-byte [type][psk] header.
 struct __attribute__((packed)) LogEntryBody {
   char level;    // 'W' or 'E'
@@ -231,7 +236,18 @@ static void netSend(NetMsgType type) {
 
 void masterBroadcastSessionStart() { netSend(NET_MSG_SESSION_START); ESP_LOGI(TAG, "UDP broadcast session_start"); }
 void masterBroadcastSessionEnd()   { netSend(NET_MSG_SESSION_END);   ESP_LOGI(TAG, "UDP broadcast session_end"); }
-void slaveSendCoinInserted()       { netSend(NET_MSG_COIN_INSERTED); ESP_LOGI(TAG, "UDP coin_inserted sent"); }
+
+void slaveSendCoinInserted() {
+  CoinInsertedBody body = {};
+  WiFi.macAddress().toCharArray(body.mac, sizeof(body.mac));
+  NetMsgType type = NET_MSG_COIN_INSERTED;
+  udp.beginPacket(IPAddress(255, 255, 255, 255), NET_PORT);
+  udp.write((const uint8_t*)&type,    sizeof(type));
+  udp.write((const uint8_t*)&NET_PSK, sizeof(NET_PSK));
+  udp.write((const uint8_t*)&body,    sizeof(body));
+  udp.endPacket();
+  ESP_LOGI(TAG, "UDP coin_inserted sent from %s", body.mac);
+}
 
 
 // ── Main receive loop ─────────────────────────────────────────────────────────
@@ -383,8 +399,13 @@ void networkLoop() {
 
   } else if (isMaster()) {
     if (type == NET_MSG_COIN_INSERTED) {
-      ESP_LOGI(TAG, "UDP coin_inserted from %s", udp.remoteIP().toString().c_str());
-      masterRecvCoinInserted();
+      CoinInsertedBody body = {};
+      int bodySize = size - sizeof(NetMsgType) - sizeof(uint64_t);
+      if (bodySize >= (int)sizeof(CoinInsertedBody))
+        udp.read((uint8_t*)&body, sizeof(body));
+      body.mac[sizeof(body.mac) - 1] = '\0';
+      ESP_LOGI(TAG, "UDP coin_inserted from %s (mac=%s)", udp.remoteIP().toString().c_str(), body.mac);
+      masterRecvCoinInserted(body.mac);
     }
   } else {
     if (type == NET_MSG_SESSION_START) {
