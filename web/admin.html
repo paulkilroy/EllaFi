@@ -197,11 +197,12 @@
     </div>
   </div>
   <div class="section">
-    <div class="section-title">Revenue by Day — Last 30 Days</div>
+    <div class="section-title">Revenue by Day — Last 90 Days</div>
     <div class="chart-wrap" id="chart-sales"></div>
     <div class="chart-legend">
       <span><span class="legend-dot" style="background:#5dade2"></span>Vendo (₱)</span>
       <span><span class="legend-dot" style="background:#2ecc71"></span>Vouchers (₱)</span>
+      <span><span class="legend-dot" style="background:#f39c12"></span>7-day avg</span>
     </div>
   </div>
   <div class="section">
@@ -667,6 +668,7 @@ function renderStackedChart(containerId, data) {
     svg += `<text x="${pL-4}" y="${y+4}" text-anchor="end" font-size="10">₱${Math.round(max*i/4)}</text>`;
   }
 
+  const labelStep = data.length > 45 ? 7 : data.length > 20 ? 3 : 1;
   data.forEach((d, i) => {
     const x     = pL + slotW * i + (slotW - barW) / 2;
     const coinH = (d.coinRev / max) * cH;
@@ -674,25 +676,24 @@ function renderStackedChart(containerId, data) {
     const coinY = pT + cH - coinH;
     if (coinH > 0) svg += `<rect x="${x.toFixed(1)}" y="${coinY.toFixed(1)}" width="${barW.toFixed(1)}" height="${coinH.toFixed(1)}" fill="#5dade2" rx="2"/>`;
     if (vchrH > 0) svg += `<rect x="${x.toFixed(1)}" y="${(coinY-vchrH).toFixed(1)}" width="${barW.toFixed(1)}" height="${vchrH.toFixed(1)}" fill="#2ecc71" rx="2"/>`;
-    svg += `<text x="${(x+barW/2).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10">${d.date}</text>`;
+    if (i % labelStep === 0) svg += `<text x="${(x+barW/2).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10">${d.date}</text>`;
+  });
+
+  // 7-day trailing rolling average line
+  const avgPts = data.map((_, i) => {
+    const win = data.slice(Math.max(0, i - 6), i + 1);
+    const avg = win.reduce((s, d) => s + d.coinRev + d.voucherRev, 0) / win.length;
+    const cx = pL + slotW * i + slotW / 2;
+    const cy = pT + cH - (avg / max) * cH;
+    return `${cx.toFixed(1)},${cy.toFixed(1)}`;
+  });
+  svg += `<polyline points="${avgPts.join(' ')}" fill="none" stroke="#f39c12" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+  avgPts.forEach(pt => {
+    const [cx, cy] = pt.split(',');
+    svg += `<circle cx="${cx}" cy="${cy}" r="2" fill="#f39c12" opacity="0.9"/>`;
   });
 
   el.innerHTML = `<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}">${svg}</svg>`;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Mock sales data (replace with GET /admin/sales)
-// ─────────────────────────────────────────────────────────────────────────────
-const SEED  = [18,7,25,12,30,5,22,14,8,19,11,28,6,17,24,9,21,13,3,16,26,10,20,15,4,23,8,18,12,29];
-const VSEED = [0,3,0,8,5,0,2,12,0,4,0,6,10,0,3,7,0,5,0,8,2,0,9,4,0,6,3,0,5,7];
-
-function mockSales(days) {
-  const now = new Date();
-  return Array.from({length: days}, (_, i) => {
-    const d = new Date(now); d.setDate(d.getDate() - (days - 1 - i));
-    const coins = SEED[i % SEED.length], vouchers = VSEED[i % VSEED.length];
-    return { date: (d.getMonth()+1)+'/'+d.getDate(), coins, coinRev: coins*5, vouchers, voucherRev: vouchers*5 };
-  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -722,7 +723,10 @@ async function loadSales() {
     if (lbR.ok) leaderboard = await lbR.json();
   } catch {}
   loadingEl.style.display = 'none';
-  if (!data.length) data = mockSales(30);
+  if (!data.length) {
+    document.getElementById('chart-sales').innerHTML = '<p style="color:#e74c3c;padding:1rem">Failed to load sales data</p>';
+    return;
+  }
 
   const nodeRevMap = {};
   for (const d of data) {
