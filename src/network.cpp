@@ -263,12 +263,17 @@ void networkLoop() {
     }
   }
 
-  // Periodic WiFi health — reveals "connected but UDP deaf" after OTA reboot
+  // Periodic WiFi health — reconnects if the driver stalls after AUTH_LEAVE/ASSOC_LEAVE
   static unsigned long lastWifiDiag = 0;
   if (millis() - lastWifiDiag > 30000) {
     lastWifiDiag = millis();
+    wl_status_t wifiStatus = WiFi.status();
     ESP_LOGD(TAG, "wifi [self]: status=%d ip=%s rssi=%d",
-        (int)WiFi.status(), WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
+        (int)wifiStatus, WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
+    if (wifiStatus != WL_CONNECTED) {
+      ESP_LOGW(TAG, "WiFi not connected (status=%d) — calling reconnect", (int)wifiStatus);
+      WiFi.reconnect();
+    }
   }
 
   int size = udp.parsePacket();

@@ -268,7 +268,7 @@
         <thead>
           <tr>
             <th><input type="checkbox" id="v-all" onchange="toggleAll(this)"></th>
-            <th>Generated</th><th>Seller</th><th>Pages</th><th>Duration</th><th>Price</th><th></th>
+            <th>Generated</th><th>Seller</th><th>Vouchers</th><th>Duration</th><th>Price</th><th></th>
           </tr>
         </thead>
         <tbody id="v-tbody"></tbody>
@@ -857,10 +857,13 @@ function renderVoucherTable() {
       <td><input type="checkbox" ${g.checked?'checked':''} onchange="voucherGroups[${i}].checked=this.checked;renderVoucherTable()"></td>
       <td class="muted">${g.createdTime ? new Date(g.createdTime).toLocaleDateString('en-PH') : '—'}</td>
       <td>${g.seller}${commLabel}</td>
-      <td>${(g.pages || Math.round(g.qty / CARDS_PER_PAGE)).toLocaleString()}</td>
+      <td>${g.usedCount != null ? `<span style="color:#5dade2">${g.usedCount}</span> / ${g.totalCount}` : (g.pages || '—') + ' pages'}</td>
       <td>${durLabelShort(g.duration)}</td>
       <td>₱${g.price}</td>
-      <td><button class="btn btn-sm btn-warning" onclick="printGroup(${i})">🖨 Print</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-sm btn-warning" onclick="printGroup(${i})">🖨 Print</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteVoucherGroup(${i})">✕</button>
+      </td>
     </tr>`;
   }).join('');
 }
@@ -950,6 +953,24 @@ async function printSelected() {
     await Promise.all(sel.map(fetchAllCodes));
     msg.textContent = '';
     doPrint(sel.map(voucherCards).join(''));
+  } catch (e) { msg.textContent = '✗ ' + e.message; }
+  finally { setVoucherBusy(false); }
+}
+
+async function deleteVoucherGroup(i) {
+  if (voucherBusy) return;
+  const g = voucherGroups[i];
+  const label = `${g.seller} — ${g.totalCount} vouchers (${new Date(g.createdTime).toLocaleDateString('en-PH')})`;
+  if (!confirm(`Delete batch?\n\n${label}\n\nThis cannot be undone.`)) return;
+  const msg = document.getElementById('v-msg');
+  setVoucherBusy(true);
+  msg.textContent = 'Deleting…';
+  try {
+    const r = await fetch(`/admin/vouchers?id=${encodeURIComponent(g.id)}`, { method: 'DELETE' });
+    if (!r.ok) { msg.textContent = '✗ ' + await r.text(); return; }
+    voucherGroups.splice(i, 1);
+    renderVoucherTable();
+    msg.textContent = '✓ Batch deleted.';
   } catch (e) { msg.textContent = '✗ ' + e.message; }
   finally { setVoucherBusy(false); }
 }

@@ -680,6 +680,26 @@ JsonDocument getVoucherCodesJson(const String& groupId, int page) {
   return doc;
 }
 
+bool deleteVoucherGroup(const String& groupId, String& errorDetail) {
+  OmadaCredentials creds = getCredentials(errorDetail);
+  if (creds.loginMs == 0) return false;
+  WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+  String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/sites/" + SITE_ID +
+               "/voucherGroups/" + groupId;
+  h.begin(wc, url); applyCredentials(h, creds);
+  int code = h.sendRequest("DELETE");
+  if (code <= 0) { errorDetail = h.errorToString(code); h.end(); return false; }
+  String body = h.getString(); h.end();
+  JsonDocument doc;
+  if (code != 200 || deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0) {
+    errorDetail = doc["msg"].isNull() ? ("HTTP " + String(code)) : doc["msg"].as<String>();
+    ESP_LOGE(TAG, "deleteVoucherGroup: %s", errorDetail.c_str());
+    return false;
+  }
+  ESP_LOGI(TAG, "deleteVoucherGroup: deleted %s", groupId.c_str());
+  return true;
+}
+
 unsigned long getOmadaSessionAgeMs() {
   xSemaphoreTake(g_credsMutex, portMAX_DELAY);
   unsigned long age = g_creds.loginMs > 0 ? millis() - g_creds.loginMs : 0;

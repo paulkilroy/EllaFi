@@ -778,10 +778,21 @@ esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response
       entry["price"]       = price;
       entry["createdTime"] = g["createdTime"].as<uint64_t>();
       entry["unusedCount"] = g["unusedCount"].as<int>();
+      entry["usedCount"]   = g["usedCount"].as<int>();
       entry["totalCount"]  = totalCount;
     }
     String json; serializeJson(out, json);
     return response->send(200, "application/json", json.c_str());
+  }
+
+  // DELETE — remove a voucher group
+  if (request->method() == HTTP_DELETE) {
+    String groupId = request->hasParam("id") ? request->getParam("id")->value() : "";
+    if (groupId.isEmpty()) return response->send(400, "text/plain", "Missing id");
+    String errorDetail;
+    if (!deleteVoucherGroup(groupId, errorDetail))
+      return response->send(502, "text/plain", ("Controller error: " + errorDetail).c_str());
+    return response->send(200, "application/json", "{\"ok\":true}");
   }
 
   // POST — create new voucher group
@@ -1111,7 +1122,7 @@ void setupWeb() {
   server.on("/admin/sales",       HTTP_GET,  handleAdminSales);
   server.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard);
   server.on("/admin/sellers",     HTTP_ANY,  handleAdminSellers);
-  server.on("/admin/vouchers",    HTTP_ANY,  handleAdminVouchers);
+  server.on("/admin/vouchers",    HTTP_ANY,   handleAdminVouchers);
   server.on("/admin/config",      HTTP_ANY,  handleAdminConfig);
   server.on("/admin/reboot",             HTTP_POST, handleAdminReboot);
   server.on("/admin/clear-voucher-cache", HTTP_POST, handleAdminClearVoucherCache);
