@@ -82,7 +82,7 @@ esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response) {
   // Guard: if clientMac is missing, look up by IP — do NOT upsert yet (would create a phantom entry)
   if (clientMac.isEmpty()) {
     if (!existing || existing->clientMac.isEmpty()) {
-      ESP_LOGW(TAG, "No MAC for IP %s — rejecting portal request", clientIp.c_str());
+      ESP_LOGI(TAG, "No MAC for IP %s — rejecting portal request", clientIp.c_str());
       return response->send(200, "text/html",
         (const uint8_t*)web_unidentified_html_start,
         web_unidentified_html_end - web_unidentified_html_start);
@@ -124,7 +124,7 @@ esp_err_t handleNotFound(PsychicRequest* request, PsychicResponse* response) {
   String host = request->host();
   String url  = request->url();  // full path + query string
   if (host != "ellafi.local" && host != WiFi.localIP().toString())
-    ESP_LOGW(TAG, "404 unexpected host: %s %s", host.c_str(), url.c_str());
+    ESP_LOGI(TAG, "404 unexpected host: %s %s", host.c_str(), url.c_str());  // captive-portal probes — expected, not an error
   else
     ESP_LOGI(TAG, "404: %s", url.c_str());
   return response->send(404, "text/plain", "Not found");
@@ -200,7 +200,7 @@ void handleWsOpen(PsychicWebSocketClient* client) {
     session->socketFd = socketFd;
     ESP_LOGI(TAG, "WS client has session: socket #%d -> MAC %s", socketFd, session->clientMac.c_str());
   } else {
-    ESP_LOGW(TAG, "WS socket #%d from %s: no cached session for this IP", socketFd, clientIp.c_str());
+    ESP_LOGI(TAG, "WS socket #%d from %s: no cached session for this IP", socketFd, clientIp.c_str());
   }
 
   if (coinSessionUpdateSocket(clientIp, socketFd))
@@ -1345,7 +1345,7 @@ void webSocketTask(void*) {
 
 void processPause(const String& mac) {
   SessionParams* session = HOTSPOT_SESSION_CACHE.findByMac(mac);
-  if (!session) { ESP_LOGW(TAG, "processPause: no session for MAC=%s", mac.c_str()); return; }
+  if (!session) { ESP_LOGI(TAG, "processPause: no session for MAC=%s", mac.c_str()); return; }
 
   PsychicWebSocketClient* ws = WEBSOCKET_HANDLER.getClient(session->socketFd);  // may be null if WS disconnected
   uint64_t nowMillis = nowEpochMillis();
@@ -1379,7 +1379,7 @@ void processPause(const String& mac) {
 
 void processResume(const String& mac) {
   SessionParams* session = HOTSPOT_SESSION_CACHE.findByMac(mac);
-  if (!session) { ESP_LOGW(TAG, "processResume: no session for MAC=%s", mac.c_str()); return; }
+  if (!session) { ESP_LOGI(TAG, "processResume: no session for MAC=%s", mac.c_str()); return; }
 
   PsychicWebSocketClient* ws = WEBSOCKET_HANDLER.getClient(session->socketFd);  // may be null if WS disconnected
   unsigned long pausedRemainingMillis = session->pausedRemainingMillis;

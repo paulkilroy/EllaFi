@@ -4,6 +4,20 @@ Tracked ideas. Newest at top.
 
 ---
 
+## Sign the GitHub OTA firmware (security — before this is load-bearing)
+
+The one-tap "Update from GitHub" (v1.3.1, `/admin/update-github`) fetches `firmware.bin` over
+HTTPS with `setInsecure()` — no cert check, so a MITM on the path to GitHub could serve
+malicious firmware to a field node that auto-flashes it. This is audit finding **S2**.
+
+**Fix:** sign the firmware image at build/release time and verify the signature on-device
+against an embedded public key **before `Update.end()`** (reject if it doesn't match). Options:
+ESP-IDF Secure Boot / signed app images, or a detached signature published next to `firmware.bin`
+(e.g. `firmware.bin.sig`) that the device checks. Same applies to the slave OTA pull from master.
+Until then the auto-update is convenient but not authenticated.
+
+---
+
 ## ✅ SHIPPED — Flasher: "Read device MAC" button (with a master-confirmation guard)
 
 Implemented in `docs/flasher.html` (read-MAC button next to Master Node MAC + confirm

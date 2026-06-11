@@ -147,12 +147,12 @@ void coinPulseTask(void*) {
 
     // Boot pulse suppression — ignore pulses during acceptor startup window
     if (millis() < COIN_SLOT_READY_MILLIS) {
-      ESP_LOGE(TAG, "Coin pulse suppressed - acceptor still booting");
+      ESP_LOGI(TAG, "Coin pulse suppressed - acceptor still booting");
       continue;
     }
 
     unsigned long intervalSinceLast = prevAcceptedTimestampMicros > 0 ? pulse.timestampMicros - prevAcceptedTimestampMicros : 0;
-    ESP_LOGE(TAG, "coin pulse: src=%d width=%luus interval=%luus", pulse.source, pulse.widthMicros, intervalSinceLast);
+    ESP_LOGI(TAG, "coin pulse: src=%d width=%luus interval=%luus", pulse.source, pulse.widthMicros, intervalSinceLast);
 
     // Width filter — rejects piezo spikes at source on all nodes (PULSE_COINSLOT and PULSE_BUTTON)
     if (pulse.source == PULSE_COINSLOT || pulse.source == PULSE_BUTTON) {
@@ -178,7 +178,7 @@ void coinPulseTask(void*) {
     }
 
     prevAcceptedTimestampMicros = pulse.timestampMicros;
-    ESP_LOGE(TAG, "Coin pulse accepted - %s src=%d", IS_MASTER ? "master" : "slave", pulse.source);
+    ESP_LOGI(TAG, "Coin pulse accepted - %s src=%d", IS_MASTER ? "master" : "slave", pulse.source);
 
     if (IS_MASTER) {
       // Determine which node the coin came from (empty mac = master's own slot)
@@ -373,7 +373,7 @@ static void finalizeSession(bool fraudEnded, const std::map<String, int>& nodeCo
     }
     ws->close();
   } else {
-    ESP_LOGW(TAG, "Auth result not delivered — client already disconnected");
+    ESP_LOGI(TAG, "Auth result not delivered — client already disconnected (auth still succeeded)");
   }
 
   COIN_SESSION_SLOT.store(CoinSessionSlot{0, -1});

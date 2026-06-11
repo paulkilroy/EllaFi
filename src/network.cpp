@@ -289,8 +289,7 @@ void networkLoop() {
   UDP_SOCKET.read((uint8_t*)&psk,  sizeof(psk));
 
   if (psk != NET_PSK) {
-    ESP_LOGW(TAG, "UDP packet from %s rejected: bad PSK", UDP_SOCKET.remoteIP().toString().c_str());
-    ESP_LOGW(TAG, "UDP bad PSK from %s", UDP_SOCKET.remoteIP().toString().c_str());
+    ESP_LOGI(TAG, "UDP packet from %s rejected: bad PSK", UDP_SOCKET.remoteIP().toString().c_str());  // foreign packet on our port — not our error
     return;
   }
 
@@ -334,7 +333,7 @@ void networkLoop() {
     prefs.end();
     ESP_LOGD(TAG, "HB from %s build=%u [mine=%u] fw=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD, (unsigned)fw_size);
     if (mac != ownMac && body.buildNumber < FIRMWARE_BUILD && fw_size > 0) {
-      ESP_LOGW(TAG, "OTA trigger: %s build=%u < mine=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD);
+      ESP_LOGI(TAG, "OTA trigger: %s build=%u < mine=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD);
       masterSendOtaToNode(mac, senderIp);
       if (xSemaphoreTake(NODE_MAP_MUTEX, pdMS_TO_TICKS(10)) == pdTRUE) {
         NODE_MAP[mac].otaSentCount++;
@@ -342,7 +341,7 @@ void networkLoop() {
         xSemaphoreGive(NODE_MAP_MUTEX);
       }
     } else if (mac != ownMac && body.buildNumber < FIRMWARE_BUILD && fw_size == 0) {
-      ESP_LOGW(TAG, "Slave %s needs update but fw_size=0 in Preferences — deploy firmware first", mac.c_str());
+      ESP_LOGI(TAG, "Slave %s needs update but fw_size=0 in Preferences — deploy firmware first", mac.c_str());
     }
 
   } else if (type == NET_MSG_OTA_AVAILABLE) {

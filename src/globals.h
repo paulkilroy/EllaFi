@@ -113,8 +113,8 @@ constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
 
 // ── Firmware version ─────────────────────────────────────────────────────────
 
-#define FIRMWARE_VERSION "1.3.1"
-#define FIRMWARE_BUILD   40       // increment on every release; used for slave version comparison
+#define FIRMWARE_VERSION "1.3.2"
+#define FIRMWARE_BUILD   41       // increment on every release; used for slave version comparison
 
 // ── Hardware pins ─────────────────────────────────────────────────────────────
 
