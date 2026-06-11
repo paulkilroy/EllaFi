@@ -10,6 +10,8 @@
 #include <vector>
 #include <Update.h>
 #include <Preferences.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <PsychicUploadHandler.h>
@@ -412,6 +414,15 @@ esp_err_t handleFwBin(PsychicRequest* request, PsychicResponse* response) {
   heap_caps_free(buf);
   ESP_LOGI(TAG, "/fw.bin sent to %s (err=%d)", request->client()->remoteIP().toString().c_str(), err);
   return err;
+}
+
+// Serve the jsPDF library (embedded in firmware, so it ships with every flash — no separate
+// FS step). Used by the admin page to generate voucher PDFs. Cached hard in the browser.
+esp_err_t handleJsPdf(PsychicRequest* request, PsychicResponse* response) {
+  response->addHeader("Cache-Control", "max-age=31536000, immutable");
+  return response->send(200, "application/javascript",
+    (const uint8_t*)web_jspdf_umd_min_js_start,
+    web_jspdf_umd_min_js_end - web_jspdf_umd_min_js_start);
 }
 
 
@@ -1141,6 +1152,104 @@ esp_err_t handleAdminClearVoucherCache(PsychicRequest* request, PsychicResponse*
   return response->send(200, "text/plain", "OK");
 }
 
+// ── GitHub OTA (pull the latest published build over HTTPS) ───────────────────
+// jsPDF and the web UI are embedded in firmware.bin, so an update only needs the firmware
+// (the filesystem holds device-local data we never ship). CI publishes firmware.bin +
+// version.json to GitHub Pages; the master pulls firmware.bin and flashes itself, then
+// slaves auto-follow via the existing heartbeat/OTA-available mechanism.
+// NOTE: fetched with setInsecure() (no cert check) — MITM risk, audit S2; real fix is a
+// signed firmware image. Acceptable for a hardcoded github.io URL as a first cut.
+static const char* GITHUB_BASE = "https://paulkilroy.github.io/EllaFi";
+
+// Streams firmware.bin from a URL into the OTA partition. Returns true on success.
+static bool flashFirmwareFromUrl(const String& url, size_t& written, String& err) {
+  WiFiClientSecure wc;
+  wc.setInsecure();
+  wc.setTimeout(20000);
+  HTTPClient http;
+  http.setTimeout(60000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  if (!http.begin(wc, url)) { err = "connect failed"; return false; }
+  int code = http.GET();
+  if (code != 200) { err = "HTTP " + String(code); http.end(); return false; }
+  int total = http.getSize();
+  if (total <= 0) { err = "unknown content length"; http.end(); return false; }
+  if (!Update.begin(total, U_FLASH)) { err = Update.errorString(); http.end(); return false; }
+  WiFiClient* stream = http.getStreamPtr();
+  uint8_t buf[1024];
+  int remaining = total;
+  unsigned long lastData = millis();
+  while (http.connected() && remaining > 0) {
+    int avail = stream->available();
+    if (avail > 0) {
+      int n = stream->readBytes(buf, min(avail, (int)sizeof(buf)));
+      if (n > 0) { Update.write(buf, n); remaining -= n; lastData = millis(); }
+    } else if (millis() - lastData > 10000) {
+      err = "download stalled"; http.end(); Update.abort(); return false;
+    } else {
+      delay(1);
+    }
+  }
+  http.end();
+  if (remaining > 0) { err = "incomplete (" + String(total - remaining) + "/" + String(total) + ")"; Update.abort(); return false; }
+  if (!Update.end(true)) { err = Update.errorString(); return false; }
+  written = total;
+  return true;
+}
+
+static void githubOtaTask(void*) {
+  ESP_LOGI(TAG, "GitHub OTA: downloading firmware...");
+  size_t written = 0;
+  String err;
+  if (flashFirmwareFromUrl(String(GITHUB_BASE) + "/firmware.bin", written, err)) {
+    Preferences prefs; prefs.begin("ellafi", false);
+    prefs.putUInt("fw_size", (uint32_t)written); prefs.end();  // so slaves can pull /fw.bin from us
+    ESP_LOGI(TAG, "GitHub OTA: flashed %u bytes — rebooting (slaves follow via heartbeat)", (unsigned)written);
+    delay(1500);
+    esp_restart();
+  } else {
+    ESP_LOGE(TAG, "GitHub OTA failed: %s", err.c_str());
+  }
+  vTaskDelete(NULL);
+}
+
+// GET /admin/github-check → compare our build to GitHub's version.json (device fetches it,
+// avoiding the browser CORS block on github.io).
+esp_err_t handleGithubCheck(PsychicRequest* request, PsychicResponse* response) {
+  if (!checkAdminAuth(request, response)) return ESP_OK;
+  WiFiClientSecure wc; wc.setInsecure(); wc.setTimeout(10000);
+  HTTPClient http; http.setTimeout(10000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  int latest = 0; String version, err;
+  if (http.begin(wc, String(GITHUB_BASE) + "/version.json")) {
+    int code = http.GET();
+    if (code == 200) {
+      JsonDocument d;
+      if (deserializeJson(d, http.getString())) err = "parse error";
+      else { latest = d["build"] | 0; version = d["version"] | ""; }
+    } else err = "HTTP " + String(code);
+    http.end();
+  } else err = "connect failed";
+
+  JsonDocument out;
+  out["current"]         = (uint32_t)FIRMWARE_BUILD;
+  out["latest"]          = latest;
+  out["version"]         = version;
+  out["updateAvailable"] = latest > (int)FIRMWARE_BUILD;
+  if (err.length()) out["error"] = err;
+  String s; serializeJson(out, s);
+  response->addHeader("Cache-Control", "no-store");
+  return response->send(200, "application/json", s.c_str());
+}
+
+// POST /admin/update-github → kick off the pull-and-flash in a background task.
+esp_err_t handleGithubUpdate(PsychicRequest* request, PsychicResponse* response) {
+  if (!checkAdminAuth(request, response)) return ESP_OK;
+  if (xTaskCreate(githubOtaTask, "GithubOTA", 16384, NULL, 5, NULL) != pdPASS)
+    return response->send(500, "text/plain", "Could not start update");
+  return response->send(200, "application/json", "{\"ok\":true}");
+}
+
 // ── Server setup ─────────────────────────────────────────────────────────────
 
 void setupWeb() {
@@ -1173,6 +1282,8 @@ void setupWeb() {
   HTTP_SERVER.on("/admin/config",      HTTP_ANY,  handleAdminConfig);
   HTTP_SERVER.on("/admin/reboot",             HTTP_POST, handleAdminReboot);
   HTTP_SERVER.on("/admin/clear-voucher-cache", HTTP_POST, handleAdminClearVoucherCache);
+  HTTP_SERVER.on("/admin/github-check",        HTTP_GET,  handleGithubCheck);
+  HTTP_SERVER.on("/admin/update-github",       HTTP_POST, handleGithubUpdate);
   HTTP_SERVER.on("/admin",             HTTP_GET,  handleAdminPage);
   HTTP_SERVER.on("/config.json", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
     return res->send(403, "text/plain", "Forbidden");
@@ -1182,6 +1293,7 @@ void setupWeb() {
   setupOtaRoute();
   setupFsOtaRoute();
   HTTP_SERVER.on("/fw.bin", HTTP_GET, handleFwBin);
+  HTTP_SERVER.on("/jspdf.umd.min.js", HTTP_GET, handleJsPdf);
 
   HTTP_SERVER.on("/assets/insertcoinbg.mp3", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
     res->addHeader("Cache-Control", "max-age=86400");

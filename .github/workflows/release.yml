@@ -39,7 +39,11 @@ jobs:
           cp .pio/build/esp32-s3-devkitc-1-serial/firmware.bin   docs/firmware.bin
           cp .pio/build/esp32-s3-devkitc-1-serial/bootloader.bin docs/bootloader.bin
           cp .pio/build/esp32-s3-devkitc-1-serial/partitions.bin docs/partitions.bin
-          git add -f docs/firmware.bin docs/bootloader.bin docs/partitions.bin
+          # version.json drives the device's "update from GitHub" check
+          BUILD=$(grep -oP 'FIRMWARE_BUILD\s+\K[0-9]+' src/globals.h)
+          VERSION=$(grep -oP 'FIRMWARE_VERSION\s+"\K[^"]+' src/globals.h)
+          printf '{"build":%s,"version":"%s","tag":"%s"}\n' "$BUILD" "$VERSION" "$GITHUB_REF_NAME" > docs/version.json
+          git add -f docs/firmware.bin docs/bootloader.bin docs/partitions.bin docs/version.json
           git commit -m "Update firmware binaries [skip ci]" || echo "No changes"
           git push origin master
 
