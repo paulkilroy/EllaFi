@@ -98,6 +98,7 @@ QueueHandle_t     COIN_SESSION_QUEUE  = NULL;
 TaskHandle_t      UPDATE_CLIENT_TASK  = NULL;
 
 bool IS_MASTER = false;
+uint32_t RUNNING_IMAGE_SIZE = 0;
 
 int                         MINUTES_PER_COIN      = 24;
 int                         PRICE_PER_COIN        = 5;
@@ -194,6 +195,9 @@ void setup() {
   RETRY_ON_FAIL(setupConfig());
   RETRY_ON_FAIL(setupPins());
   RETRY_ON_FAIL(setupWifi());
+  RUNNING_IMAGE_SIZE = ESP.getSketchSize();  // our true image size, for serving slave OTA
+  ESP_LOGI(TAG, "Running firmware: build %d (%s), image %u bytes",
+           FIRMWARE_BUILD, FIRMWARE_VERSION, (unsigned)RUNNING_IMAGE_SIZE);
   setupNetwork();
   RETRY_ON_FAIL(setupNtp());
   setupLogs();

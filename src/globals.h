@@ -113,8 +113,13 @@ constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
 
 // ── Firmware version ─────────────────────────────────────────────────────────
 
-#define FIRMWARE_VERSION "1.3.3"
-#define FIRMWARE_BUILD   42       // increment on every release; used for slave version comparison
+#define FIRMWARE_VERSION "1.3.4"
+#define FIRMWARE_BUILD   43       // increment on every release; used for slave version comparison
+
+// True byte size of the running firmware image, computed once at boot (ESP.getSketchSize()).
+// This is what the master serves to slaves for OTA — derived from the running partition, so it's
+// correct no matter how we were flashed (a stale NVS value once truncated serial-flashed builds).
+extern uint32_t RUNNING_IMAGE_SIZE;
 
 // ── Hardware pins ─────────────────────────────────────────────────────────────
 

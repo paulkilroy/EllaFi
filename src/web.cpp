@@ -346,11 +346,6 @@ void setupOtaRoute() {
         return ESP_FAIL;
       }
       ESP_LOGI("ota", "fw Update.end OK — partition committed");
-      Preferences prefs;
-      prefs.begin("ellafi", false);
-      prefs.putUInt("fw_size", (uint32_t)(index + len));
-      prefs.end();
-      ESP_LOGI("ota", "fw fw_size=%llu saved to NVS", index + len);
     }
     return ESP_OK;
   });
@@ -373,17 +368,14 @@ void setupOtaRoute() {
 // ── Firmware serve (for slave OTA) ───────────────────────────────────────────
 
 esp_err_t handleFwBin(PsychicRequest* request, PsychicResponse* response) {
-  Preferences prefs;
-  prefs.begin("ellafi", false);
-  uint32_t fw_size = prefs.getUInt("fw_size", 0);
-  prefs.end();
+  uint32_t fw_size = RUNNING_IMAGE_SIZE;  // true running-image size — never a stale stored value
 
   if (fw_size == 0) {
-    ESP_LOGW(TAG, "/fw.bin requested by %s but fw_size=0", request->client()->remoteIP().toString().c_str());
+    ESP_LOGW(TAG, "/fw.bin requested by %s but running image size is 0", request->client()->remoteIP().toString().c_str());
     return response->send(404, "text/plain", "Not found");
   }
 
-  ESP_LOGI(TAG, "/fw.bin requested by %s — serving %u bytes from OTA partition",
+  ESP_LOGI(TAG, "/fw.bin requested by %s — serving %u bytes from running partition",
            request->client()->remoteIP().toString().c_str(), (unsigned)fw_size);
 
   const esp_partition_t* partition = esp_ota_get_running_partition();
@@ -662,10 +654,7 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
     sys["littleFsUsed"]       = LittleFS.usedBytes();
     sys["littleFsTotal"]      = LittleFS.totalBytes();
     sys["ntpSynced"]          = (time(NULL) > NTP_EPOCH_MIN);
-    Preferences prefs;
-    prefs.begin("ellafi", false);
-    sys["fwSize"] = prefs.getUInt("fw_size", 0);
-    prefs.end();
+    sys["fwSize"] = RUNNING_IMAGE_SIZE;
     sys["firmwareBuild"] = (uint32_t)FIRMWARE_BUILD;
   }
 
@@ -1242,8 +1231,6 @@ static void githubOtaTask(void*) {
   size_t written = 0;
   String err;
   if (flashFirmwareFromUrl(rel.url, written, err)) {
-    Preferences prefs; prefs.begin("ellafi", false);
-    prefs.putUInt("fw_size", (uint32_t)written); prefs.end();  // so slaves can pull /fw.bin from us
     ESP_LOGI(TAG, "GitHub OTA: flashed %u bytes — rebooting (slaves follow via heartbeat)", (unsigned)written);
     delay(1500);
     esp_restart();

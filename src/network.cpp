@@ -60,9 +60,7 @@ struct __attribute__((packed)) LogEntryBody {
 
 // ── Slave OTA state ───────────────────────────────────────────────────────────
 
-static volatile bool     OTA_IN_PROGRESS    = false;
-static volatile uint32_t OTA_START_MILLIS       = 0;
-static constexpr uint32_t OTA_TIMEOUT_MILLIS    = 120000;  // 2 min max for fetch+flash
+static volatile bool OTA_IN_PROGRESS = false;  // exactly one slaveOtaTask at a time; the worker clears it on exit
 
 // ── Role ──────────────────────────────────────────────────────────────────────
 
@@ -172,13 +170,22 @@ static bool slaveFlashFromUrl(const String& url, int updateType) {
     return false;
   }
   WiFiClient* stream = http.getStreamPtr();
-  uint8_t buf[512];
+  // 8 KB reads (vs 512 B) drain the TCP receive window far faster — the small buffer was
+  // throttling throughput to a crawl. Heap, not stack, to keep the task stack small.
+  const size_t BUF_SIZE = 8192;
+  uint8_t* buf = (uint8_t*)malloc(BUF_SIZE);
+  if (!buf) {
+    ESP_LOGE(TAG, "Slave OTA: %u-byte buffer alloc failed", (unsigned)BUF_SIZE);
+    Update.abort();
+    http.end();
+    return false;
+  }
   int remaining = totalLen;
   unsigned long lastProgress = millis();
   while (http.connected() && remaining > 0) {
     int avail = stream->available();
     if (avail > 0) {
-      int n = stream->readBytes(buf, min(avail, (int)sizeof(buf)));
+      int n = stream->readBytes(buf, min(avail, (int)BUF_SIZE));
       if (n > 0) { Update.write(buf, n); remaining -= n; }
       lastProgress = millis();
     } else {
@@ -189,9 +196,11 @@ static bool slaveFlashFromUrl(const String& url, int updateType) {
       delay(1);
     }
   }
+  free(buf);
   http.end();
   if (remaining > 0) {
     ESP_LOGE(TAG, "Slave OTA: incomplete — %d of %d bytes written", totalLen - remaining, totalLen);
+    Update.abort();  // release the Update session, or the next retry's Update.begin() fails
     return false;
   }
   if (!Update.end(true)) {
@@ -326,13 +335,10 @@ void networkLoop() {
       xSemaphoreGive(NODE_MAP_MUTEX);
     }
 
-    // Trigger OTA if slave is on an older build and we have firmware ready
-    Preferences prefs;
-    prefs.begin("ellafi", false);
-    uint32_t fw_size = prefs.getUInt("fw_size", 0);
-    prefs.end();
-    ESP_LOGD(TAG, "HB from %s build=%u [mine=%u] fw=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD, (unsigned)fw_size);
-    if (mac != ownMac && body.buildNumber < FIRMWARE_BUILD && fw_size > 0) {
+    // Trigger OTA if the slave is on an older build. We serve our own running image, whose true
+    // size we captured at boot — so this works regardless of how we were flashed.
+    ESP_LOGD(TAG, "HB from %s build=%u [mine=%u] fw=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD, (unsigned)RUNNING_IMAGE_SIZE);
+    if (mac != ownMac && body.buildNumber < FIRMWARE_BUILD) {
       ESP_LOGI(TAG, "OTA trigger: %s build=%u < mine=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD);
       masterSendOtaToNode(mac, senderIp);
       if (xSemaphoreTake(NODE_MAP_MUTEX, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -340,8 +346,6 @@ void networkLoop() {
         NODE_MAP[mac].lastOtaSentMs = millis();
         xSemaphoreGive(NODE_MAP_MUTEX);
       }
-    } else if (mac != ownMac && body.buildNumber < FIRMWARE_BUILD && fw_size == 0) {
-      ESP_LOGI(TAG, "Slave %s needs update but fw_size=0 in Preferences — deploy firmware first", mac.c_str());
     }
 
   } else if (type == NET_MSG_OTA_AVAILABLE) {
@@ -353,13 +357,14 @@ void networkLoop() {
 
     if (isMaster()) return;
     ESP_LOGI(TAG, "OTA_AVAILABLE packet received from %s", UDP_SOCKET.remoteIP().toString().c_str());
+    // Exactly one OTA worker at a time. Spawning a second slaveOtaTask alongside a live one
+    // would run a concurrent Update on the same partition — guaranteed corruption (and the
+    // reason a slow transfer used to loop forever). slaveFlashFromUrl self-bounds (HTTP
+    // timeout + stall guard) and clears OTA_IN_PROGRESS on exit, so a failed attempt retries
+    // cleanly on the next heartbeat without a respawn timer.
     if (OTA_IN_PROGRESS) {
-      if (millis() - OTA_START_MILLIS < OTA_TIMEOUT_MILLIS) {
-        ESP_LOGI(TAG, "OTA already in progress — ignoring");
-        return;
-      }
-      ESP_LOGW(TAG, "OTA timed out after %us — retrying", OTA_TIMEOUT_MILLIS / 1000);
-      OTA_IN_PROGRESS = false;
+      ESP_LOGI(TAG, "OTA already in progress — ignoring");
+      return;
     }
     body.targetMac[sizeof(body.targetMac) - 1] = '\0';
 
@@ -379,7 +384,6 @@ void networkLoop() {
     ipBytes[2] = masterIp[2]; ipBytes[3] = masterIp[3];
 
     OTA_IN_PROGRESS = true;
-    OTA_START_MILLIS    = millis();
     ESP_LOGI(TAG, "OTA_AVAILABLE for us — fetching from %s", masterIp.toString().c_str());
     if (xTaskCreate(slaveOtaTask, "SlaveOTA", 16384, ipBytes, 5, NULL) != pdPASS) {
       ESP_LOGE(TAG, "OTA: xTaskCreate failed — will retry");
