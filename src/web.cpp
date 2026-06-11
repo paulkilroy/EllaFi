@@ -1153,13 +1153,48 @@ esp_err_t handleAdminClearVoucherCache(PsychicRequest* request, PsychicResponse*
 }
 
 // ── GitHub OTA (pull the latest published build over HTTPS) ───────────────────
-// jsPDF and the web UI are embedded in firmware.bin, so an update only needs the firmware
-// (the filesystem holds device-local data we never ship). CI publishes firmware.bin +
-// version.json to GitHub Pages; the master pulls firmware.bin and flashes itself, then
-// slaves auto-follow via the existing heartbeat/OTA-available mechanism.
-// NOTE: fetched with setInsecure() (no cert check) — MITM risk, audit S2; real fix is a
-// signed firmware image. Acceptable for a hardcoded github.io URL as a first cut.
-static const char* GITHUB_BASE = "https://paulkilroy.github.io/EllaFi";
+// Source of truth is the GitHub *Release*: the firmware asset is named firmware-<BUILD>.bin,
+// so the build number lives in the artifact itself — no sidecar version.json to drift, and the
+// API answers "what's latest" in real time (no Pages CDN lag). jsPDF + the web UI are embedded
+// in firmware.bin, so the update is firmware-only; slaves auto-follow via heartbeat afterward.
+// NOTE: fetched with setInsecure() (no cert check) — MITM risk, audit S2; real fix is a signed
+// firmware image. GitHub's API requires a User-Agent header or it returns 403.
+static const char* GITHUB_RELEASES_API = "https://api.github.com/repos/paulkilroy/EllaFi/releases/latest";
+
+struct LatestRelease { int build = 0; String tag; String url; String err; };
+
+// Query the GitHub Releases API for the latest release; parse the firmware-<BUILD>.bin asset.
+static LatestRelease fetchLatestRelease() {
+  LatestRelease r;
+  WiFiClientSecure wc; wc.setInsecure(); wc.setTimeout(12000);
+  HTTPClient http; http.setTimeout(12000);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  if (!http.begin(wc, GITHUB_RELEASES_API)) { r.err = "connect failed"; return r; }
+  http.addHeader("User-Agent", "EllaFi-OTA");          // required by the GitHub API
+  http.addHeader("Accept", "application/vnd.github+json");
+  int code = http.GET();
+  if (code != 200) { r.err = "HTTP " + String(code); http.end(); return r; }
+  String body = http.getString();
+  http.end();
+  // Filter the (large) response down to just what we need.
+  JsonDocument filter;
+  filter["tag_name"] = true;
+  filter["assets"][0]["name"] = true;
+  filter["assets"][0]["browser_download_url"] = true;
+  JsonDocument doc;
+  if (deserializeJson(doc, body, DeserializationOption::Filter(filter))) { r.err = "parse error"; return r; }
+  r.tag = doc["tag_name"].as<String>();
+  for (JsonObject a : doc["assets"].as<JsonArray>()) {
+    String name = a["name"].as<String>();
+    if (name.startsWith("firmware-") && name.endsWith(".bin")) {   // firmware-<BUILD>.bin
+      r.build = name.substring(9, name.length() - 4).toInt();
+      r.url   = a["browser_download_url"].as<String>();
+      break;
+    }
+  }
+  if (r.build == 0 && r.err.isEmpty()) r.err = "no firmware asset in latest release";
+  return r;
+}
 
 // Streams firmware.bin from a URL into the OTA partition. Returns true on success.
 static bool flashFirmwareFromUrl(const String& url, size_t& written, String& err) {
@@ -1198,10 +1233,15 @@ static bool flashFirmwareFromUrl(const String& url, size_t& written, String& err
 }
 
 static void githubOtaTask(void*) {
-  ESP_LOGI(TAG, "GitHub OTA: downloading firmware...");
+  LatestRelease rel = fetchLatestRelease();
+  if (rel.url.isEmpty()) {
+    ESP_LOGE(TAG, "GitHub OTA: %s", rel.err.length() ? rel.err.c_str() : "no asset URL");
+    vTaskDelete(NULL); return;
+  }
+  ESP_LOGI(TAG, "GitHub OTA: downloading build %d from %s", rel.build, rel.url.c_str());
   size_t written = 0;
   String err;
-  if (flashFirmwareFromUrl(String(GITHUB_BASE) + "/firmware.bin", written, err)) {
+  if (flashFirmwareFromUrl(rel.url, written, err)) {
     Preferences prefs; prefs.begin("ellafi", false);
     prefs.putUInt("fw_size", (uint32_t)written); prefs.end();  // so slaves can pull /fw.bin from us
     ESP_LOGI(TAG, "GitHub OTA: flashed %u bytes — rebooting (slaves follow via heartbeat)", (unsigned)written);
@@ -1213,30 +1253,17 @@ static void githubOtaTask(void*) {
   vTaskDelete(NULL);
 }
 
-// GET /admin/github-check → compare our build to GitHub's version.json (device fetches it,
-// avoiding the browser CORS block on github.io).
+// GET /admin/github-check → device queries the GitHub Releases API (server-side, avoiding the
+// browser CORS block) and compares the latest release's firmware-<BUILD>.bin to its own build.
 esp_err_t handleGithubCheck(PsychicRequest* request, PsychicResponse* response) {
   if (!checkAdminAuth(request, response)) return ESP_OK;
-  WiFiClientSecure wc; wc.setInsecure(); wc.setTimeout(10000);
-  HTTPClient http; http.setTimeout(10000);
-  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-  int latest = 0; String version, err;
-  if (http.begin(wc, String(GITHUB_BASE) + "/version.json")) {
-    int code = http.GET();
-    if (code == 200) {
-      JsonDocument d;
-      if (deserializeJson(d, http.getString())) err = "parse error";
-      else { latest = d["build"] | 0; version = d["version"] | ""; }
-    } else err = "HTTP " + String(code);
-    http.end();
-  } else err = "connect failed";
-
+  LatestRelease rel = fetchLatestRelease();
   JsonDocument out;
   out["current"]         = (uint32_t)FIRMWARE_BUILD;
-  out["latest"]          = latest;
-  out["version"]         = version;
-  out["updateAvailable"] = latest > (int)FIRMWARE_BUILD;
-  if (err.length()) out["error"] = err;
+  out["latest"]          = rel.build;
+  out["version"]         = rel.tag;
+  out["updateAvailable"] = rel.build > (int)FIRMWARE_BUILD;
+  if (rel.err.length()) out["error"] = rel.err;
   String s; serializeJson(out, s);
   response->addHeader("Cache-Control", "no-store");
   return response->send(200, "application/json", s.c_str());

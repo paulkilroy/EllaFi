@@ -27,25 +27,29 @@ jobs:
       - name: Build firmware
         run: pio run -e esp32-s3-devkitc-1-serial
 
-      - name: Publish firmware to GitHub Pages
+      - name: Name the release asset with the build number
+        id: ver
+        run: |
+          # Read from the TAGGED source (this step runs on the tag, before the master switch).
+          BUILD=$(grep -oP 'FIRMWARE_BUILD\s+\K[0-9]+' src/globals.h)
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          # The device finds the latest release's firmware-<BUILD>.bin and parses the build from
+          # the name — the build lives in the artifact, so there's no sidecar version file to drift.
+          cp .pio/build/esp32-s3-devkitc-1-serial/firmware.bin "firmware-$BUILD.bin"
+
+      - name: Publish firmware to GitHub Pages (for the web flasher)
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Read version from the TAGGED source FIRST — master may lag the tag (a source
-          # push can land after the tag), and the switch below would otherwise read the
-          # wrong globals.h (this exact bug shipped a stale version.json once).
-          BUILD=$(grep -oP 'FIRMWARE_BUILD\s+\K[0-9]+' src/globals.h)
-          VERSION=$(grep -oP 'FIRMWARE_VERSION\s+"\K[^"]+' src/globals.h)
           # The build ran on the tag (detached HEAD), which may be behind master.
-          # Move onto the latest master before committing the binaries so the push
-          # can't be rejected by intervening commits (the previous CI failure).
+          # Move onto the latest master before committing so the push can't be rejected.
           git fetch origin master
           git switch -C master origin/master
           cp .pio/build/esp32-s3-devkitc-1-serial/firmware.bin   docs/firmware.bin
           cp .pio/build/esp32-s3-devkitc-1-serial/bootloader.bin docs/bootloader.bin
           cp .pio/build/esp32-s3-devkitc-1-serial/partitions.bin docs/partitions.bin
-          printf '{"build":%s,"version":"%s","tag":"%s"}\n' "$BUILD" "$VERSION" "$GITHUB_REF_NAME" > docs/version.json
-          git add -f docs/firmware.bin docs/bootloader.bin docs/partitions.bin docs/version.json
+          git rm -f --ignore-unmatch docs/version.json   # superseded by the release-asset filename
+          git add -f docs/firmware.bin docs/bootloader.bin docs/partitions.bin
           git commit -m "Update firmware binaries [skip ci]" || echo "No changes"
           git push origin master
 
@@ -53,6 +57,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            docs/firmware.bin
+            firmware-${{ steps.ver.outputs.build }}.bin
             docs/bootloader.bin
             docs/partitions.bin

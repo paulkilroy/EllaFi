@@ -1394,20 +1394,23 @@ function doFsOTA() {
 }
 
 // ── Update from GitHub ────────────────────────────────────────────────────────
+let _latestBuild = null;  // target build from the last check, used by the update poll
+
 async function checkGithub() {
   const el = document.getElementById('gh-status');
   const btn = document.getElementById('gh-update-btn');
   el.textContent = 'Checking GitHub…'; btn.style.display = 'none';
   try {
     const d = await (await fetch('/admin/github-check', { cache: 'no-store' })).json();
+    _latestBuild = d.latest || null;
     if (d.error) {
       el.innerHTML = `Running build <b>${d.current}</b>. <span style="color:#e74c3c">Couldn't reach GitHub: ${d.error}</span>`;
     } else if (d.updateAvailable) {
-      el.innerHTML = `Running build <b>${d.current}</b> · latest <b>${d.latest}</b>${d.version ? ` (v${d.version})` : ''} — <span style="color:#f39c12">update available</span>`;
+      el.innerHTML = `Running build <b>${d.current}</b> · latest <b>${d.latest}</b>${d.version ? ` (${d.version})` : ''} — <span style="color:#f39c12">update available</span>`;
       btn.textContent = `Update to build ${d.latest}`;
       btn.style.display = '';
     } else {
-      el.innerHTML = `<span style="color:#2ecc71">Up to date</span> — build ${d.current}${d.version ? ` (v${d.version})` : ''}`;
+      el.innerHTML = `<span style="color:#2ecc71">Up to date</span> — build ${d.current}${d.version ? ` (${d.version})` : ''}`;
     }
   } catch (e) { el.textContent = 'Could not check for updates: ' + e.message; }
 }
@@ -1425,7 +1428,8 @@ async function updateFromGithub() {
   } catch (e) { el.textContent = 'Update error: ' + e.message; btn.disabled = false; }
 }
 
-// Poll github-check until the node reboots into the new build (updateAvailable → false).
+// Watch the device's OWN build (via /admin/nodes) until it reaches the target — no GitHub
+// API calls during the poll (those are rate-limited), and it tolerates the reboot dropout.
 function pollForGithubUpdate(start) {
   setTimeout(async () => {
     if (Date.now() - start > 240000) {
@@ -1434,9 +1438,10 @@ function pollForGithubUpdate(start) {
       return;
     }
     try {
-      const d = await (await fetch('/admin/github-check', { cache: 'no-store' })).json();
-      if (!d.error && !d.updateAvailable) {
-        document.getElementById('gh-status').innerHTML = `<span style="color:#2ecc71">✓ Updated to build ${d.current}</span>`;
+      const d = await (await fetch('/admin/nodes', { cache: 'no-store' })).json();
+      const master = (d.nodes || []).find(n => n.role === 'master');
+      if (master && _latestBuild && master.build >= _latestBuild) {
+        document.getElementById('gh-status').innerHTML = `<span style="color:#2ecc71">✓ Updated to build ${master.build}</span>`;
         const btn = document.getElementById('gh-update-btn'); btn.style.display = 'none'; btn.disabled = false;
         return;
       }
