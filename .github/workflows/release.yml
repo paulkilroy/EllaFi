@@ -31,6 +31,11 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Read version from the TAGGED source FIRST — master may lag the tag (a source
+          # push can land after the tag), and the switch below would otherwise read the
+          # wrong globals.h (this exact bug shipped a stale version.json once).
+          BUILD=$(grep -oP 'FIRMWARE_BUILD\s+\K[0-9]+' src/globals.h)
+          VERSION=$(grep -oP 'FIRMWARE_VERSION\s+"\K[^"]+' src/globals.h)
           # The build ran on the tag (detached HEAD), which may be behind master.
           # Move onto the latest master before committing the binaries so the push
           # can't be rejected by intervening commits (the previous CI failure).
@@ -39,9 +44,6 @@ jobs:
           cp .pio/build/esp32-s3-devkitc-1-serial/firmware.bin   docs/firmware.bin
           cp .pio/build/esp32-s3-devkitc-1-serial/bootloader.bin docs/bootloader.bin
           cp .pio/build/esp32-s3-devkitc-1-serial/partitions.bin docs/partitions.bin
-          # version.json drives the device's "update from GitHub" check
-          BUILD=$(grep -oP 'FIRMWARE_BUILD\s+\K[0-9]+' src/globals.h)
-          VERSION=$(grep -oP 'FIRMWARE_VERSION\s+"\K[^"]+' src/globals.h)
           printf '{"build":%s,"version":"%s","tag":"%s"}\n' "$BUILD" "$VERSION" "$GITHUB_REF_NAME" > docs/version.json
           git add -f docs/firmware.bin docs/bootloader.bin docs/partitions.bin docs/version.json
           git commit -m "Update firmware binaries [skip ci]" || echo "No changes"
