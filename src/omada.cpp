@@ -549,7 +549,7 @@ void refreshHotspotSessionCache() {
     if (!ipSession && macSession) {
       session = macSession;
     } else if (!macSession && ipSession) {
-      ESP_LOGW(TAG, "Replacing stale cache entry at IP=%s with MAC=%s", ip.c_str(), mac.c_str());
+      ESP_LOGI(TAG, "Replacing stale cache entry at IP=%s with MAC=%s", ip.c_str(), mac.c_str());
       HOTSPOT_SESSION_CACHE.removeByIp(ip);
       session = &HOTSPOT_SESSION_CACHE.upsert(ip, mac);
       isNew = true;
