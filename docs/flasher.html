@@ -43,6 +43,13 @@ input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px #dbeaf
 .err  { color: #f87171; }
 .info { color: #7dd3fc; }
 .rx   { color: #a3a3a3; }
+
+details.help { margin-bottom: 1rem; font-size: 0.85rem; color: #374151; border: 1px solid #e5e7eb; border-radius: 8px; padding: 0.6rem 0.9rem; }
+details.help summary { cursor: pointer; color: #2563eb; font-weight: 500; }
+details.help[open] summary { margin-bottom: 0.5rem; }
+details.help p { margin: 0.5rem 0; line-height: 1.5; }
+details.help pre { background: #0f172a; color: #cbd5e1; padding: 0.55rem 0.75rem; border-radius: 5px; font-size: 0.78rem; overflow-x: auto; margin: 0.4rem 0; white-space: pre-wrap; font-family: 'Menlo','Consolas',monospace; }
+details.help code { background: #eef2ff; color: #3730a3; padding: 0.05rem 0.3rem; border-radius: 3px; font-size: 0.85em; }
 </style>
 </head>
 <body>
@@ -72,8 +79,11 @@ input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px #dbeaf
     <legend>Node</legend>
     <div class="field">
       <label for="master_mac">Master Node MAC Address</label>
-      <input type="text" id="master_mac" placeholder="AA:BB:CC:DD:EE:FF" autocomplete="off" spellcheck="false">
-      <div class="hint">Same value goes on every node. The node whose MAC matches becomes master.</div>
+      <div style="display:flex;gap:0.5rem">
+        <input type="text" id="master_mac" style="flex:1" placeholder="AA:BB:CC:DD:EE:FF" autocomplete="off" spellcheck="false">
+        <button type="button" id="read-mac-btn" onclick="readDeviceMac()" style="padding:0.4rem 0.75rem;border:1px solid #d1d5db;border-radius:5px;background:white;cursor:pointer;font-size:0.85rem;white-space:nowrap">Read from device</button>
+      </div>
+      <div class="hint">Same value goes on every node — the node whose MAC matches becomes master. <b>Read from device</b> reads the plugged-in board's MAC; only confirm it as master for the <i>one</i> master node.</div>
     </div>
     <div class="field">
       <label for="network_key">Network Key</label>
@@ -111,6 +121,22 @@ input:focus { outline: none; border-color: #2563eb; box-shadow: 0 0 0 3px #dbeaf
 </div>
 
 <button class="go-btn" id="go-btn" onclick="run()">Connect &amp; Flash</button>
+
+<details class="help">
+  <summary>Linux: can't find the port, or "failed to open serial port"?</summary>
+
+  <p><b>Which port is the ESP32?</b> It's <code>/dev/ttyUSB0</code> or <code>/dev/ttyACM0</code> — <b>never</b> <code>/dev/ttyS*</code> (those are inactive motherboard ports; ignore them all). To confirm which one, open a terminal (<code>Ctrl</code>+<code>Alt</code>+<code>T</code>) and run:</p>
+  <pre>ls -l /dev/serial/by-id/</pre>
+  <p>That lists only real USB serial adapters by name, each pointing to its <code>ttyUSB</code>/<code>ttyACM</code>. In the browser's port picker, choose that one — not a <code>ttyS</code> entry.</p>
+
+  <p><b>"Failed to open serial port"?</b> Another program grabbed it — usually ModemManager or brltty on <code>ttyACM</code>, or a permissions issue. Paste this, then try again (replace <code>ttyACM0</code> with your port):</p>
+  <pre>sudo systemctl stop ModemManager brltty 2>/dev/null
+sudo chmod a+rw /dev/ttyACM0</pre>
+  <p>Permanent permission fix (so you don't need <code>chmod</code> each time):</p>
+  <pre>sudo usermod -aG dialout $USER</pre>
+  <p>…then log out and back in. Also make sure nothing else has the port open (Arduino IDE serial monitor, another browser tab, <code>screen</code>/<code>minicom</code>). To see what's holding it: <code>sudo fuser -v /dev/ttyACM0</code></p>
+</details>
+
 <div id="log">Ready.</div>
 
 <script type="module">
@@ -350,10 +376,52 @@ async function _run() {
   logOk('Done! The node will connect to WiFi and be ready in ~15 seconds.');
 }
 
+// ── Read device MAC (for setting master_mac) ──────────────────────────────────
+// Reads the connected board's MAC over USB. DANGER: master_mac goes on every node
+// and only the master's MAC belongs there — so filling it requires explicit
+// confirmation that THIS board is the intended master.
+async function readDeviceMac() {
+  const btn = document.getElementById('read-mac-btn');
+  btn.disabled = true;
+  appendLog('— Reading device MAC —', 'info');
+  let transport = null;
+  try {
+    logInfo('Select the ESP32 serial port when prompted...');
+    const port = await navigator.serial.requestPort();
+    transport = new Transport(port, false);
+    const loader = new ESPLoader({ transport, baudrate: 115200 });
+    await loader.main();
+    const mac = (await loader.chip.readMac(loader)).toUpperCase();  // colon-separated, matches WiFi.macAddress()
+    logOk(`This device's MAC: ${mac} (chip: ${loader.chip.CHIP_NAME})`);
+    await loader.hardReset();
+    await transport.disconnect();
+    transport = null;
+
+    const ok = confirm(
+      `This device's MAC is:\n\n    ${mac}\n\n` +
+      `Set it as the MASTER node?\n\n` +
+      `This MAC is written to "master_mac" on EVERY node you flash, and only the node ` +
+      `whose own MAC matches becomes the master. Only confirm for the ONE master device.`
+    );
+    if (ok) {
+      document.getElementById('master_mac').value = mac;
+      logOk(`master_mac set to ${mac} — this device will be the master.`);
+    } else {
+      logInfo(`Left master_mac unchanged. (Device MAC was ${mac}.)`);
+    }
+  } catch (e) {
+    logErr(e.message || String(e));
+  } finally {
+    try { await transport?.disconnect(); } catch {}
+    btn.disabled = false;
+  }
+}
+
 // Expose to HTML onclick handlers (module scope is not global)
 window.setMode = setMode;
 window.run     = run;
 window.resetNetworkKey = resetNetworkKey;
+window.readDeviceMac   = readDeviceMac;
 </script>
 </body>
 </html>
