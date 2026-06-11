@@ -471,7 +471,7 @@ function showTab(name, btn) {
   btn.classList.add('active');
   if (name === 'dashboard') loadDashboard();
   if (name === 'sales')     loadSales();
-  if (name === 'vouchers')  { loadSellers(); }
+  if (name === 'vouchers')  { loadSellers(); loadVouchers(); }
   if (name === 'logs')      { startDevLog(); loadErrors(); loadRefunds(); }
   else                      { stopDevLog(); }
   if (name === 'settings')  { loadConfig(); loadSellers().then(renderPeopleSection); }
@@ -599,10 +599,10 @@ async function loadDashboard() {
       document.getElementById('d-sessions-vendo').textContent   = data.vendoActive  ?? '—';
       document.getElementById('d-sessions-voucher').textContent = data.voucherActive ?? '—';
       renderNodeHealth(data.nodes || []);
-      renderSystemHealth(data.sys);
+      renderSystemHealth(data.sys, data.controller);
     } else {
       renderNodeHealth([]);
-      renderSystemHealth(null);
+      renderSystemHealth(null, null);
     }
   } catch {
     document.getElementById('d-sessions-vendo').textContent   = '—';
@@ -634,16 +634,39 @@ function fmtDuration(ms) {
   return Math.round(s / 3600) + ' hr ago';
 }
 
-function renderSystemHealth(sys) {
-  const rows = sys ? [
-    { metric: 'Free Heap',            value: fmtHeap(sys.freeHeap) },
-    { metric: 'Min Free Heap (boot)', value: fmtHeap(sys.minFreeHeap) },
-    { metric: 'Active Sockets',       value: `${sys.activeSockets} / ${sys.maxSockets}` },
-    { metric: 'Omada Session Age',    value: sys.omadaSessionAgeMs ? fmtDuration(sys.omadaSessionAgeMs) : 'Not logged in' },
-    { metric: 'Last Cache Refresh',   value: sys.lastCacheRefreshMs ? fmtDuration(sys.lastCacheRefreshMs) : 'Never' },
-    { metric: 'LittleFS',            value: `${Math.round(sys.littleFsUsed / 1024)} KB / ${Math.round(sys.littleFsTotal / 1024)} KB used` },
-    { metric: 'NTP',                  value: sys.ntpSynced ? '<span style="color:#2ecc71">Synced</span>' : '<span style="color:#e74c3c">Not synced</span>' },
-  ] : [{ metric: 'Status', value: '<span class="muted">unavailable</span>' }];
+function fmtUptime(ms) {
+  if (!ms) return '—';
+  const s = Math.round(ms / 1000);
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return `${d}d ${h}h`;
+  if (h) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function renderSystemHealth(sys, ctrl) {
+  const rows = [];
+  if (ctrl) {
+    rows.push({ metric: 'Controller', value: ctrl.reachable
+      ? '<span style="color:#2ecc71">Online</span>' + (ctrl.model ? ` · ${ctrl.model} v${ctrl.version}` : '')
+      : '<span style="color:#e74c3c">Offline</span>' });
+    if (ctrl.reachable) {
+      rows.push({ metric: 'Controller Uptime', value: fmtUptime(ctrl.uptimeMs) });
+      const skew = Math.abs(ctrl.clockSkewSec ?? 0);
+      const skewVal = skew < 5 ? '<span style="color:#2ecc71">In sync</span>'
+        : `<span style="color:${skew < 60 ? '#f39c12' : '#e74c3c'}">Skew ${skew < 60 ? skew + 's' : Math.round(skew / 60) + 'm'}</span>`;
+      rows.push({ metric: 'Controller Clock', value: skewVal });
+    }
+  }
+  if (sys) {
+    rows.push({ metric: 'Free Heap',            value: fmtHeap(sys.freeHeap) });
+    rows.push({ metric: 'Min Free Heap (boot)', value: fmtHeap(sys.minFreeHeap) });
+    rows.push({ metric: 'Active Sockets',       value: `${sys.activeSockets} / ${sys.maxSockets}` });
+    rows.push({ metric: 'Omada Session Age',    value: sys.omadaSessionAgeMs ? fmtDuration(sys.omadaSessionAgeMs) : 'Not logged in' });
+    rows.push({ metric: 'Last Cache Refresh',   value: sys.lastCacheRefreshMs ? fmtDuration(sys.lastCacheRefreshMs) : 'Never' });
+    rows.push({ metric: 'LittleFS',             value: `${Math.round(sys.littleFsUsed / 1024)} KB / ${Math.round(sys.littleFsTotal / 1024)} KB used` });
+    rows.push({ metric: 'NTP',                  value: sys.ntpSynced ? '<span style="color:#2ecc71">Synced</span>' : '<span style="color:#e74c3c">Not synced</span>' });
+  }
+  if (!rows.length) rows.push({ metric: 'Status', value: '<span class="muted">unavailable</span>' });
   document.getElementById('sys-health-tbody').innerHTML = rows.map(r =>
     `<tr><td class="muted">${r.metric}</td><td>${r.value}</td></tr>`
   ).join('');
@@ -996,7 +1019,6 @@ async function loadSellers() {
     }
   } catch {}
   renderSellerDropdown();
-  loadVouchers();
 }
 
 async function saveNodeField(mac, field, value) {
@@ -1125,9 +1147,11 @@ async function loadConfig() {
     const cfg = await r.json();
     CFG_FIELDS.forEach(k => {
       const el = document.getElementById('cfg-' + k);
-      if (el && cfg[k] !== undefined) el.value = cfg[k];
+      // Leave password fields blank — the GET returns masked values, and posting those
+      // back would overwrite the real secrets. Blank = "keep existing" on save.
+      if (el && cfg[k] !== undefined && el.type !== 'password') el.value = cfg[k];
     });
-    msg.textContent = 'Loaded from device.';
+    msg.textContent = 'Loaded from device. (Passwords blank = unchanged on save.)';
   } catch { msg.textContent = 'Could not reach device.'; }
 }
 

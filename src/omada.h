@@ -119,6 +119,21 @@ extern String SITE_NAME;
 extern String ADMIN_USERNAME;
 extern String ADMIN_PASSWORD;
 
+// Cached controller status (GET settings/system/status) for the admin dashboard.
+// Identity strings (model/version/timeZone) are set ONCE on first successful fetch and never
+// rewritten → safe to read concurrently. Counters/flags refresh at boot and on each
+// refreshHotspotSessionCache as plain 32-bit writes (hardware-atomic on ESP32). Display-only.
+struct ControllerStatus {
+  String        model;
+  String        version;
+  String        timeZone;
+  bool          reachable     = false;
+  unsigned long uptimeMillis  = 0;   // controller uptime (ms)
+  unsigned long fetchedMillis = 0;   // millis() at last successful fetch
+  int           clockSkewSec  = 0;   // controller systemTime − device NTP, seconds (valid when reachable)
+};
+extern ControllerStatus CONTROLLER_STATUS;
+
 // ---- Omada API functions ----
 // Credential management is internal — callers pass no session state.
 // Concurrent calls from different tasks are safe: each call gets a credential

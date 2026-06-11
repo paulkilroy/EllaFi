@@ -15,6 +15,7 @@ Implements all API endpoints the firmware calls:
     POST /{cid}/api/v2/login
     GET  /{cid}/api/v2/user/sites
     GET  /{cid}/api/v2/sites/{siteId}/clients
+    GET  /{cid}/api/v2/settings/system/status   (timeZone etc.; forwarded to cloud in --cloud)
 
   Voucher management (admin session, forwarded to real cloud if --cloud):
     GET  /{cid}/api/v2/hotspot/sites/{siteId}/voucherGroups
@@ -55,6 +56,15 @@ import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, unquote, urlparse
+
+# Silence urllib3's InsecureRequestWarning — cloud forwarding uses verify=False by design
+# (same as the firmware's setInsecure for the Omada cloud connector). urllib3 is only present
+# when requests is installed (--cloud mode), so guard the import.
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except ImportError:
+    pass
 
 BOLD   = "\033[1m"
 GREEN  = "\033[92m"
@@ -397,6 +407,12 @@ class OmadaHandler(BaseHTTPRequestHandler):
             self.handle_all_clients(ts)
         elif re.match(r"^/api/v2/hotspot/sites/[^/]+/clients$", api):
             self.handle_hotspot_clients(ts)
+        elif api == "/api/v2/settings/system/status":
+            if CLOUD_SESSION:
+                self.handle_cloud_forward(ts, "GET", api, qs, None)   # pass through the real controller's status
+            else:
+                # offline mock: no real controller — firmware only reads timeZone
+                self.send_json(200, {"errorCode": 0, "result": {"timeZone": "Asia/Manila"}})
         else:
             print(f"  {ts}  {RED}UNKNOWN GET{RESET}  {self.path}")
             self.send_json(404, {"errorCode": -1, "msg": "Not found"})

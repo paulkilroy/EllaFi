@@ -18,26 +18,27 @@
  *  Espressif reserves Core 0 for WiFi/BT stack. Tasks here must not starve the radio.
  *    WiFi/lwIP stack          [Espressif system, always here]
  *    PsychicHTTP task(s)      [one per connection, handles HTTP + WS frames]
- *    FreeRTOS Timer Task      [runs FreeRTOS timer callbacks — coin.coinTimerCallback]
  *    WebSocketTask            [web.webSocketTask — PAUSE/RESUME/REFRESH queue, HTTPS ~3-4s per job]
  *
  *  Core 1 — Application
  *  Arduino loop() runs here by default.
  *    main.loop()              [lean — network.networkLoop() + daily reboot check only]
- *    FinalizeCoinTask         [coin.finalizeCoinTask — woken by COIN_FINALIZE_SEM when timer fires]
- *                               - runs coin.finalizeCoinInsert() using shared credential store (omada.cpp)
+ *    CoinSessionTask          [coin.coinSessionTask — sole owner of coin-session state (master only)]
+ *                               - drains COIN_SESSION_QUEUE (START / COIN / FRAUD_END events)
+ *                               - timed receive (COIN_INSERT_TIMEOUT_MILLIS) IS the insert timer
+ *                               - runs finalizeSession() (Omada HTTPS) when the window closes
  *    CoinPulseTask            [coin.coinPulseTask — drains COIN_PULSE_QUEUE]
  *                               - given by coin.coinButtonPulse() ISR or coin.coinSlotPulse() ISR or coin.masterRecvCoinInserted()
- *                               - master: increments COIN_COUNT, resets timer, notifies UpdateClientTask
+ *                               - master: validates pulse, posts COIN_SESSION_COIN to COIN_SESSION_QUEUE
  *                               - slave: forwards pulse to master via network.slaveSendCoinInserted
  *                               - highest priority (6) among app tasks
  *    UpdateClientTask         [web.updateClientTask — pushes WS status on coin or every 500ms]
- *                               - woken by CoinPulseTask via task notification
+ *                               - woken by CoinSessionTask via task notification
  *                               - also wakes on 500ms timeout during active session
  *    LedTask                  [led.ledTask — blinks LED during coin insert window]
- *                               - started by xTaskNotify from web.handleWsRequest("startCoinInsert")
+ *                               - started by xTaskNotify from coin.coinSessionTask
  *                                 and coin.slaveRecvCoinInsertStart
- *                               - stopped by xTaskNotify from coin.finalizeCoinInsert
+ *                               - stopped by xTaskNotify from coin.coinSessionTask (window close)
  *                                 and coin.slaveRecvCoinInsertEnd
  *
  *  ISR (no core, interrupt level)
@@ -48,27 +49,22 @@
  * 
  * Customer clicks "Insert Coin" on captive portal
  *  1. Browser sends WS {"action":"startCoinInsert"} to the server and shows coin insert screen
- *  2. web.handleWsRequest receives startCoinInsert:
- *      sets COIN_COUNT = 0, COIN_INSERT_ACTIVE=true
- *      remembers the socket and IP of the client to ensure only that client owns this transaction
- *      starts COIN_INSERT_TIMER (10s) via coin.restartCoinInsertTimer
- *      signals LedTask to begin blinking via xTaskNotify
- *      broadcasts session start to slaves via network.masterBroadcastSessionStart
+ *  2. web.handleWsRequest claims the slot (CAS on COIN_INSERT_ACTIVE) and posts
+ *     COIN_SESSION_START{socketFd, clientIp} to COIN_SESSION_QUEUE
+ *  3. coin.coinSessionTask receives COIN_SESSION_START:
+ *      resets count, records slot, opens 10s window, signals LED, broadcasts to slaves
  *
  * Customer inserts coins
  *  1. coin.coinButtonPulse() or coin.coinSlotPulse() ISR -> sends CoinPulse to COIN_PULSE_QUEUE
  *      or coin.masterRecvCoinInserted() -> sends CoinPulse to COIN_PULSE_QUEUE from UDP msg
- *  2. coin.coinPulseTask drains COIN_PULSE_QUEUE -> increments COIN_COUNT,
- *      resets COIN_INSERT_TIMER back to 10s via xTimerReset
- *      notifies UpdateClientTask to push update to client
- *  3. web.updateClientTask pushes coin count + timing to client immediately (and every 500ms)
+ *  2. coin.coinPulseTask validates pulse, posts COIN_SESSION_COIN{mac} to COIN_SESSION_QUEUE
+ *  3. coin.coinSessionTask increments COIN_COUNT, restarts 10s deadline, notifies UpdateClientTask
+ *  4. web.updateClientTask pushes coin count + timing to client immediately (and every 500ms)
  *
  * Customer finishes inserting coins after 10s of inactivity (no coins inserted)
  *  1. UI transitions to "pending" screen while waiting for server confirmation
- *  2. coin.coinTimerCallback fires when COIN_INSERT_TIMER expires -> gives COIN_FINALIZE_SEM
- *  3. coin.finalizeCoinTask wakes on COIN_FINALIZE_SEM -> calls coin.finalizeCoinInsert()
- *      sets COIN_INSERT_ACTIVE=false
- *      notifies LedTask to stop
+ *  2. coin.coinSessionTask's timed receive returns empty after 10s -> finalizeSession()
+ *      sets COIN_INSERT_ACTIVE=false, notifies LedTask to stop
  *      calls omada.authenticateOmadaClient or omada.extendOmadaClient
  *      pushes "authenticated" result via WS
  */
@@ -93,26 +89,24 @@ static const char* TAG = "EllaFi";
 // ── Global definitions ────────────────────────────────────────────────────────
 
 SessionCache            HOTSPOT_SESSION_CACHE;
-PsychicHttpServer       server;
-PsychicWebSocketHandler wsHandler;
+PsychicHttpServer       HTTP_SERVER;
+PsychicWebSocketHandler WEBSOCKET_HANDLER;
 
 QueueHandle_t     WEBSOCKET_JOB_QUEUE = NULL;
 QueueHandle_t     COIN_PULSE_QUEUE    = NULL;
-SemaphoreHandle_t COIN_FINALIZE_SEM   = NULL;
-SemaphoreHandle_t COIN_STATE_MUTEX    = NULL;
+QueueHandle_t     COIN_SESSION_QUEUE  = NULL;
 TaskHandle_t      UPDATE_CLIENT_TASK  = NULL;
-TimerHandle_t     COIN_INSERT_TIMER   = NULL;
 
 bool IS_MASTER = false;
 
-int           MINUTES_PER_COIN      = 24;
-int           PRICE_PER_COIN        = 5;
-volatile bool COIN_INSERT_ACTIVE    = false;
-volatile bool         COINSLOT_PROGRAM_MODE  = false;
-unsigned long         COIN_SLOT_READY_MILLIS = 0;
-volatile int  COIN_COUNT         = 0;
-int           COIN_SOCKET_FD     = -1;
-String        COIN_CLIENT_IP     = "";
+int                         MINUTES_PER_COIN      = 24;
+int                         PRICE_PER_COIN        = 5;
+std::atomic<bool>           COIN_INSERT_ACTIVE{false};
+volatile bool               COINSLOT_PROGRAM_MODE  = false;
+unsigned long               COIN_SLOT_READY_MILLIS = 0;
+std::atomic<int>            COIN_COUNT{0};
+std::atomic<CoinSessionSlot> COIN_SESSION_SLOT{ CoinSessionSlot{0, -1} };
+std::atomic<unsigned long>  COIN_DEADLINE_MILLIS{0};
 
 String AP_SSID;
 String AP_PASSWORD;
@@ -166,24 +160,21 @@ static bool setupNtp() {
 }
 
 static void setupTasks() {
-  COIN_STATE_MUTEX  = xSemaphoreCreateMutex();
-  COIN_FINALIZE_SEM = xSemaphoreCreateBinary();
-  if (IS_MASTER) {
-    COIN_INSERT_TIMER = xTimerCreate("CoinTimer", pdMS_TO_TICKS(COIN_INSERT_TIMEOUT_MILLIS), pdFALSE, NULL, coinTimerCallback);
-  }
   WEBSOCKET_JOB_QUEUE = xQueueCreate(8,                     sizeof(WsJob));
   COIN_PULSE_QUEUE    = xQueueCreate(COIN_PULSE_QUEUE_SIZE,  sizeof(CoinPulse));
+  if (IS_MASTER) {
+    COIN_SESSION_QUEUE = xQueueCreate(16, sizeof(CoinSessionEvent));
+  }
 
-  if (COIN_STATE_MUTEX == NULL || COIN_FINALIZE_SEM == NULL ||
-      COIN_PULSE_QUEUE == NULL || WEBSOCKET_JOB_QUEUE == NULL ||
-      (IS_MASTER && COIN_INSERT_TIMER == NULL)) {
+  if (COIN_PULSE_QUEUE == NULL || WEBSOCKET_JOB_QUEUE == NULL ||
+      (IS_MASTER && COIN_SESSION_QUEUE == NULL)) {
     ESP_LOGE(TAG, "Failed to create synchronization primitives");
     ledHalt();
   }
 
   xTaskCreatePinnedToCore(coinPulseTask, "CoinPulseTask", 4096, NULL, 6, NULL, 1);
   if (IS_MASTER) {
-    xTaskCreatePinnedToCore(finalizeCoinTask, "FinalizeCoinTask", 8192, NULL, 5, NULL,               1);
+    xTaskCreatePinnedToCore(coinSessionTask,  "CoinSessionTask",  8192, NULL, 5, NULL,               1);
     xTaskCreatePinnedToCore(webSocketTask,    "WebSocketTask",    8192, NULL, 4, NULL,               0);
     xTaskCreatePinnedToCore(updateClientTask, "UpdateClientTask", 4096, NULL, 3, &UPDATE_CLIENT_TASK, 1);
   }

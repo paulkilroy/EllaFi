@@ -142,40 +142,9 @@ Parse regex: `^AUTOGEN: (\d+)P(\d+)H (.+)$` → groups: price hint, duration hin
 - `authType: 4` = External Portal Server (vendo / our coin sessions)
 - `authType: 3` = Voucher
 
-### Confirmed VoucherGroup Fields (confirmed from user-pasted response)
-```json
-{
-  "name": "5P 2H Kano -- TESTING",
-  "createdTime": 1779432311310,
-  "creatorName": "paulkilroy@gmail.com",
-  "duration": 120,
-  "durationType": 1,
-  "unusedCount": 10,
-  "inUseCount": 0,
-  "expiredCount": 0,
-  "totalCount": 10,
-  "unitPrice": "5",
-  "unusedAmount": "50",
-  "usedAmount": "0",
-  "totalAmount": "50",
-  "currency": "PHP",
-  "description": "commission 10%",
-  "statisticsCount": {
-    "totalUnusedCount": 10,
-    "totalInUseCount": 0,
-    "totalExpiredCount": 0,
-    "totalStatisticsCount": 10
-  },
-  "totalRows": 10,
-  "currentPage": 1,
-  "currentSize": 10,
-  "data": [
-    { "id": "6a0ffb77...", "code": "98267625", "status": 0,
-      "startTime": 0, "endTime": 9223372036854775807,
-      "timeLeftSec": 7200, "timingByClientUsage": false }
-  ]
-}
-```
+### Confirmed VoucherGroup Fields
+
+Raw capture: [api_captures/voucherGroups.md](api_captures/voucherGroups.md) (GET detail). Distilled:
 - `createdTime` — Unix epoch **ms** ✅ use for "Generated" column, no need to store in description
 - `duration` — **minutes** (120 = 2h) ✅ use directly, no need to parse from name
 - `unitPrice` — price per voucher (string, PHP)
@@ -190,33 +159,7 @@ Parse regex: `^AUTOGEN: (\d+)P(\d+)H (.+)$` → groups: price hint, duration hin
 
 **URL:** `GET /api/v2/hotspot/sites/{siteId}/voucherGroups?currentPage=1&currentPageSize=100`
 
-**Response structure:**
-```json
-{
-  "errorCode": 0,
-  "result": {
-    "currentPage": 1,
-    "currentSize": 10,
-    "totalRows": 3,
-    "groupAmount": 5000,
-    "data": [
-      {
-        "id": "6a13ce23c7f118353f359694",
-        "name": "AUTOGEN: 5P2H Kano",
-        "description": "commission 10%",
-        "duration": 120,
-        "totalCount": 130,
-        "unusedCount": 130,
-        "usedCount": 0,
-        "createdTime": 1779682851340,
-        "applyToAllPortals": true
-      }
-    ]
-  }
-}
-```
-
-Key confirmed facts:
+Raw capture: [api_captures/voucherGroups.md](api_captures/voucherGroups.md) (GET list). Key confirmed facts:
 - `id` is top-level per group (use for detail/codes fetch)
 - `totalCount` is top-level per group (total voucher codes in the group)
 - No `statisticsCount` or `unitPrice` in list response — those are detail-only (or absent entirely; see below)
@@ -228,47 +171,28 @@ Key confirmed facts:
 ### Confirmed VoucherGroup CREATE (POST)
 
 **URL:** `POST /api/v2/hotspot/sites/{siteId}/voucherGroups`
+**Response:** `{"errorCode":0,"msg":"Success.","result":{"id":"..."}}` — just the new group id.
 
-**Response:** `{"errorCode":0,"msg":"Success.","result":{"id":"6a13ccbe386a14129cd00b20"}}` — just the new group id.
+Raw request bodies: [api_captures/voucherGroups.md](api_captures/voucherGroups.md) (POST create). Distilled:
+- `amount` = number of vouchers (NOT `totalCount`); `duration` = minutes
+- No `unitPrice` in create payload — Omada Essential has no native pricing; store `{"price":5,"commission":30}` JSON in `description`
+- `codeLength:8` + `codeForm:[0]` (digits only) required; Omada is strict about required fields
+- **`upTimeLimitEnable`: `false` = "By Time" (countdown from first use), `true` = "By Usage" (counts only online time)** — the ONLY field that differs between the two timing modes. Firmware sends `true`. NOT echoed back in any GET.
 
-**Required request body (confirmed from browser capture):**
-```json
-{
-  "codeLength": 8,
-  "codeForm": [0],
-  "amount": 100,
-  "name": "test2",
-  "type": 0,
-  "logout": true,
-  "downLimitUnit": 0,
-  "upLimitUnit": 0,
-  "trafficLimitEnable": false,
-  "trafficLimit": null,
-  "trafficLimitUnit": 0,
-  "voucherValidityEnable": false,
-  "upTimeLimitEnable": false,
-  "durationType": 1,
-  "duration": 120,
-  "description": "desfcripion here",
-  "maxUsers": 1,
-  "trafficLimitFrequency": 1,
-  "portalIds": [],
-  "applyToAllPortals": true,
-  "validityType": 0,
-  "startTime": "00:00",
-  "endTime": "23:59",
-  "scheduleTime": 0,
-  "weeklyEnableDays": {"1":true,"2":true,"3":true,"4":true,"5":true,"6":true,"7":true},
-  "pattern": {"patternType":0,"position":0,"ssidNetworkEnable":false,"durationEnable":false,"limitEnable":false,"logoPictureId":null,"logoSize":62}
-}
-```
+### VoucherGroup DELETE
 
-- `amount` = number of vouchers (NOT `totalCount`)
-- `duration` = minutes
-- No `unitPrice` field in create payload — Omada Essential does not support pricing natively
-- `description` is freeform — we store `{"price":5,"commission":30}` JSON here (confirmed approach)
-- `codeLength:8` and `codeForm:[0]` (digits only) are required
-- All other fields should be sent as shown — Omada is strict about required fields
+`DELETE /api/v2/hotspot/sites/{siteId}/voucherGroups/{groupId}` → `{"errorCode":0,"msg":"Success."}` (200).
+Raw: [api_captures/voucherGroups.md](api_captures/voucherGroups.md).
+
+---
+
+## Report Day-Bucketing & Timezone (2026-06-10)
+
+Daily report buckets (`handleAdminSales`) must use the **controller's local day**, matching the Omada dashboard. Device NTP stays UTC (`configTime(0,0,...)`); only the bucket math shifts.
+
+- **Timezone source:** `GET /api/v2/settings/system/status` → `result.timeZone` (IANA, e.g. `Asia/Hong_Kong` = UTC+8). Resolved at startup via an IANA→POSIX table + `setenv`/`tzset` (ESP32 has no IANA DB; POSIX strings carry DST rules). Default UTC+8. NOTE: `/sites/{siteId}/dst` 404s on the local API — use the status endpoint. Raw: [api_captures/controller-status.md](api_captures/controller-status.md).
+- **`GET /vouchers/statistics/history` buckets are END-stamped** — `time` = NEXT local midnight, so a bucket holds the PRIOR day's redemptions. Attribute via `localDayNum(time/1000 - 1)`, NOT `localDayNum(time)`. Using `time` directly shifts every day one day late (real bug, fixed). vendo_history.json `ts` is NOT end-stamped (written at sale time). Raw + decode: [api_captures/vouchers-statistics-history.md](api_captures/vouchers-statistics-history.md).
+- Bucket helpers: `localDayNum(utc)` (local day index) and `localDayStartUtc(day)` (UTC epoch of local midnight) in web.cpp.
 
 ---
 

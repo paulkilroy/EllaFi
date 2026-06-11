@@ -12,6 +12,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history so we can move onto master and push
 
       - name: Cache PlatformIO
         uses: actions/cache@v4
@@ -27,14 +29,19 @@ jobs:
 
       - name: Publish firmware to GitHub Pages
         run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # The build ran on the tag (detached HEAD), which may be behind master.
+          # Move onto the latest master before committing the binaries so the push
+          # can't be rejected by intervening commits (the previous CI failure).
+          git fetch origin master
+          git switch -C master origin/master
           cp .pio/build/esp32-s3-devkitc-1-serial/firmware.bin   docs/firmware.bin
           cp .pio/build/esp32-s3-devkitc-1-serial/bootloader.bin docs/bootloader.bin
           cp .pio/build/esp32-s3-devkitc-1-serial/partitions.bin docs/partitions.bin
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
           git add -f docs/firmware.bin docs/bootloader.bin docs/partitions.bin
           git commit -m "Update firmware binaries [skip ci]" || echo "No changes"
-          git push origin HEAD:master
+          git push origin master
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2

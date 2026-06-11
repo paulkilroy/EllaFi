@@ -3,6 +3,7 @@
 #include "omada.h"
 #include <PsychicHttp.h>
 #include <PsychicWebSocket.h>
+#include <atomic>
 
 // ── Coin pulse queue ──────────────────────────────────────────────────────────
 
@@ -12,6 +13,44 @@ struct CoinPulse {
   unsigned long   widthMicros;      // coin slot only — µs the signal stayed LOW; 0 for button/network
   unsigned long   timestampMicros;  // micros() at falling edge (ISR time) — used for gap/fraud calculation
   char            mac[18];          // sender MAC for PULSE_NETWORK; empty = master's own slot
+};
+
+// ── Session events (consumed only by coinSessionTask, the session-state owner) ────
+
+enum CoinSessionEventType {
+  COIN_SESSION_START,      // web startCoinInsert: open the insertion window
+  COIN_SESSION_COIN,       // coinPulseTask: an accepted coin pulse
+  COIN_SESSION_FRAUD_END,  // coinPulseTask: fraud limit hit — abort the session
+};
+struct CoinSessionEvent {
+  CoinSessionEventType type;
+  int  socketFd;        // COIN_SESSION_START only
+  char clientIp[16];    // COIN_SESSION_START only
+  char mac[18];         // COIN_SESSION_COIN only — node MAC (empty = master's own slot)
+  CoinSessionEvent() = default;
+  CoinSessionEvent(CoinSessionEventType t) : type(t), socketFd(-1) { clientIp[0] = '\0'; mac[0] = '\0'; }
+  CoinSessionEvent(int fd, const String& ip) : type(COIN_SESSION_START), socketFd(fd) {
+    strncpy(clientIp, ip.c_str(), sizeof(clientIp) - 1);
+    clientIp[sizeof(clientIp) - 1] = '\0';
+    mac[0] = '\0';
+  }
+};
+
+// The client↔socket binding as ONE atomic so a reader can never observe a torn pair
+// (new fd with the previous client's ip). clientIpV4 = 0 means no client.
+// Must stay trivially copyable for std::atomic. 8 bytes → lock-backed on Xtensa (correct).
+struct CoinSessionSlot {
+  uint32_t clientIpV4;
+  int32_t  socketFd;
+};
+
+// Coherent read bundle for the WS status path.
+struct CoinSessionStatus {
+  bool          accepting;
+  int           count;
+  int           socketFd;
+  uint32_t      clientIpV4;
+  unsigned long deadlineMs;
 };
 
 // ── WS job queue ──────────────────────────────────────────────────────────────
@@ -33,32 +72,32 @@ extern SessionCache HOTSPOT_SESSION_CACHE;
 
 // ── HTTP/WS server ────────────────────────────────────────────────────────────
 
-extern PsychicHttpServer       server;
-extern PsychicWebSocketHandler wsHandler;
+extern PsychicHttpServer       HTTP_SERVER;
+extern PsychicWebSocketHandler WEBSOCKET_HANDLER;
 
 // ── FreeRTOS handles ──────────────────────────────────────────────────────────
 
 extern QueueHandle_t     WEBSOCKET_JOB_QUEUE;
 extern QueueHandle_t     COIN_PULSE_QUEUE;
-extern SemaphoreHandle_t COIN_FINALIZE_SEM;
-extern SemaphoreHandle_t COIN_STATE_MUTEX;
+extern QueueHandle_t     COIN_SESSION_QUEUE;      // events into the session-state owner
 extern TaskHandle_t      UPDATE_CLIENT_TASK;
-extern TimerHandle_t     COIN_INSERT_TIMER;
 
 // ── Role ──────────────────────────────────────────────────────────────────────
 
 extern bool IS_MASTER;
 
 // ── Coin state ────────────────────────────────────────────────────────────────
+// Written by coinSessionTask (master) or slaveRecvCoinInsert* (slave).
+// Atomic so coinPulseTask and the WS push path read coherent values without a mutex.
 
-extern volatile bool  COIN_INSERT_ACTIVE;
-extern volatile bool  COINSLOT_PROGRAM_MODE;  // relay held HIGH until restart — set via /program
-extern volatile int   COIN_COUNT;
-extern int            COIN_SOCKET_FD;
-extern String         COIN_CLIENT_IP;
-extern unsigned long          COIN_SLOT_READY_MILLIS;  // suppress pulses until this millis() — boot glitch guard
+extern std::atomic<bool>            COIN_INSERT_ACTIVE;
+extern volatile bool                COINSLOT_PROGRAM_MODE;  // relay held HIGH until restart — set via /program
+extern std::atomic<int>             COIN_COUNT;
+extern std::atomic<CoinSessionSlot> COIN_SESSION_SLOT;    // client ip (u32) + WS fd as one CAS-able unit
+extern std::atomic<unsigned long>   COIN_DEADLINE_MILLIS;     // millis() the window expires; for UI countdown
+extern unsigned long                COIN_SLOT_READY_MILLIS;  // suppress pulses until this millis() — boot glitch guard
 
-#define SHOULD_ACCEPT_COINS (IS_MASTER ? (xTimerIsTimerActive(COIN_INSERT_TIMER) == pdTRUE) : COIN_INSERT_ACTIVE)
+#define SHOULD_ACCEPT_COINS (COIN_INSERT_ACTIVE.load())
 
 // ── WiFi config ───────────────────────────────────────────────────────────────
 
@@ -74,8 +113,8 @@ constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
 
 // ── Firmware version ─────────────────────────────────────────────────────────
 
-#define FIRMWARE_VERSION "1.0.0"
-#define FIRMWARE_BUILD   38       // increment on every release; used for slave version comparison
+#define FIRMWARE_VERSION "1.3.0"
+#define FIRMWARE_BUILD   39       // increment on every release; used for slave version comparison
 
 // ── Hardware pins ─────────────────────────────────────────────────────────────
 

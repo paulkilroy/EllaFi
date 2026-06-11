@@ -75,7 +75,7 @@ esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response) {
     clientIp.c_str(), clientMac.c_str(), apMac.c_str(),
     ssidName.c_str(), radioId.c_str(),
     existing ? existing->pausedRemainingMillis : 0UL,
-    (int)server.getClientList().size());
+    (int)HTTP_SERVER.getClientList().size());
 
   // Guard: if clientMac is missing, look up by IP — do NOT upsert yet (would create a phantom entry)
   if (clientMac.isEmpty()) {
@@ -201,11 +201,8 @@ void handleWsOpen(PsychicWebSocketClient* client) {
     ESP_LOGW(TAG, "WS socket #%d from %s: no cached session for this IP", socketFd, clientIp.c_str());
   }
 
-  // Keep COIN_SOCKET_FD fresh so finalizeCoinInsert can reach a reconnecting client
-  if (clientIp == COIN_CLIENT_IP && COIN_SOCKET_FD != socketFd) {
-    ESP_LOGI(TAG, "Updating COIN_SOCKET_FD from %d to %d (client reconnected)", COIN_SOCKET_FD, socketFd);
-    COIN_SOCKET_FD = socketFd;
-  }
+  if (coinSessionUpdateSocket(clientIp, socketFd))
+    ESP_LOGI(TAG, "Updated coin-session socket to %d (client reconnected)", socketFd);
 }
 
 esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* frame) {
@@ -242,30 +239,13 @@ esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* fram
   String action = doc["action"] | "";
 
   if (action == "getStatus") {
-    if (clientIp == COIN_CLIENT_IP && socketFd != COIN_SOCKET_FD) {
-      ESP_LOGI(TAG, "Updating COIN_SOCKET_FD from %d to %d (client reconnected)", COIN_SOCKET_FD, socketFd);
-      COIN_SOCKET_FD = socketFd;
-    }
+    if (coinSessionUpdateSocket(clientIp, socketFd))
+      ESP_LOGI(TAG, "Updated coin-session socket to %d (client reconnected)", socketFd);
     request->client()->sendMessage(buildStatusJson(*session).c_str());
 
   } else if (action == "startCoinInsert") {
-    bool coinInsertStarted = false;
-    xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
-    if (!COIN_INSERT_ACTIVE) {
-      COIN_INSERT_ACTIVE = true;
-      COIN_SOCKET_FD = socketFd;
-      COIN_CLIENT_IP = clientIp;
-      COIN_COUNT = 0;
-      COIN_SLOT_READY_MILLIS = millis() + COINSLOT_BOOT_SUPPRESS_MILLIS;
-      restartCoinInsertTimer();
-      xTaskNotify(LED_TASK, LED_NOTIFY_START, eSetValueWithOverwrite);
-      coinInsertStarted = true;
-    }
-    xSemaphoreGive(COIN_STATE_MUTEX);
-
-    if (coinInsertStarted) {
+    if (coinSessionTryClaim(socketFd, clientIp)) {
       ESP_LOGI(TAG, "Coin insertion started for MAC: %s via WS", session->clientMac.c_str());
-      masterBroadcastSessionStart();
       request->client()->sendMessage(buildStatusJson(*session).c_str());
     } else {
       request->reply("{\"type\":\"error\",\"message\":\"Another user already inserting coins\"}");
@@ -283,7 +263,7 @@ esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* fram
   } else if (action == "testInsertCoin") {
     // Simulate a coin pulse (assumes startCoinInsert was called first)
     coinButtonPulse();
-    ESP_LOGI(TAG, "Test coin inserted for MAC: %s (count: %d)", session->clientMac.c_str(), COIN_COUNT);
+    ESP_LOGI(TAG, "Test coin inserted for MAC: %s (count: %d)", session->clientMac.c_str(), COIN_COUNT.load());
 #endif
   } else {
     request->reply("{\"type\":\"error\",\"message\":\"Unknown action\"}");
@@ -297,17 +277,17 @@ void handleWsClose(PsychicWebSocketClient* client) {
 }
 
 String buildStatusJson(const SessionParams& session, const char* type) {
-  bool myCoinInsertActive = COIN_INSERT_ACTIVE && session.clientIp == COIN_CLIENT_IP;
+  CoinSessionStatus cs = coinSessionSnapshot();
+  bool myCoinInsertActive = cs.accepting && coinIpToU32(session.clientIp) == cs.clientIpV4;
   int coinInsertTimeLeft = 0;
   if (myCoinInsertActive) {
-    TickType_t expiry = xTimerGetExpiryTime(COIN_INSERT_TIMER);
-    TickType_t now = xTaskGetTickCount();
-    if (expiry > now) coinInsertTimeLeft = ((expiry - now) * portTICK_PERIOD_MS) / 1000;
+    unsigned long now = millis();
+    if (cs.deadlineMs > now) coinInsertTimeLeft = (cs.deadlineMs - now) / 1000;
   }
 
   String json = "{";
   json += "\"type\":\"" + String(type) + "\",";
-  json += "\"coinCount\":" + String(myCoinInsertActive ? COIN_COUNT : 0) + ",";
+  json += "\"coinCount\":" + String(myCoinInsertActive ? cs.count : 0) + ",";
   json += "\"coinInsertTimeLeft\":" + String(coinInsertTimeLeft) + ",";
   json += "\"sessionStartMillis\":" + String((unsigned long long)session.sessionStartMillis) + ",";
   json += "\"sessionEndMillis\":" + String((unsigned long long)session.sessionEndMillis) + ",";
@@ -321,12 +301,13 @@ String buildStatusJson(const SessionParams& session, const char* type) {
 }
 
 void pushCoinUpdateToClient() {
-  if (COIN_SOCKET_FD < 0 || COIN_CLIENT_IP.length() == 0) return;
+  CoinSessionStatus cs = coinSessionSnapshot();
+  if (cs.socketFd < 0 || cs.clientIpV4 == 0) return;
 
-  SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(COIN_CLIENT_IP);
+  SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(coinU32ToIp(cs.clientIpV4));
   if (!session) return;
 
-  PsychicWebSocketClient* ws = wsHandler.getClient(COIN_SOCKET_FD);
+  PsychicWebSocketClient* ws = WEBSOCKET_HANDLER.getClient(cs.socketFd);
   if (ws != nullptr) ws->sendMessage(buildStatusJson(*session).c_str());
 }
 
@@ -383,8 +364,8 @@ void setupOtaRoute() {
     return ESP_OK;
   });
 
-  server.maxUploadSize = 16 * 1024 * 1024;
-  server.on("/update", HTTP_POST, otaHandler);
+  HTTP_SERVER.maxUploadSize = 16 * 1024 * 1024;
+  HTTP_SERVER.on("/update", HTTP_POST, otaHandler);
 }
 
 // ── Firmware serve (for slave OTA) ───────────────────────────────────────────
@@ -437,9 +418,9 @@ esp_err_t handleFwBin(PsychicRequest* request, PsychicResponse* response) {
 // ── Filesystem OTA ───────────────────────────────────────────────────────────
 
 // PSRAM buffer for master's own FS self-flash, allocated during upload and freed after flashing.
-static uint8_t* fsPsramBuf    = nullptr;
-static size_t   fsPsramBufLen = 0;
-static size_t   fsPsramBufPos = 0;
+static uint8_t* FS_PSRAM_BUFFER    = nullptr;
+static size_t   FS_PSRAM_BUFFER_LEN = 0;
+static size_t   FS_PSRAM_BUFFER_POS = 0;
 
 void setupFsOtaRoute() {
   PsychicUploadHandler* fsHandler = new PsychicUploadHandler();
@@ -453,19 +434,19 @@ void setupFsOtaRoute() {
       }
       size_t contentLen = request->contentLength();
       ESP_LOGI(TAG, "FS OTA upload start: %zu bytes", contentLen);
-      if (fsPsramBuf) { heap_caps_free(fsPsramBuf); fsPsramBuf = nullptr; }
-      fsPsramBuf    = (uint8_t*)heap_caps_malloc(contentLen, MALLOC_CAP_SPIRAM);
-      fsPsramBufLen = contentLen;
-      fsPsramBufPos = 0;
-      if (!fsPsramBuf) {
+      if (FS_PSRAM_BUFFER) { heap_caps_free(FS_PSRAM_BUFFER); FS_PSRAM_BUFFER = nullptr; }
+      FS_PSRAM_BUFFER    = (uint8_t*)heap_caps_malloc(contentLen, MALLOC_CAP_SPIRAM);
+      FS_PSRAM_BUFFER_LEN = contentLen;
+      FS_PSRAM_BUFFER_POS = 0;
+      if (!FS_PSRAM_BUFFER) {
         ESP_LOGE("ota", "fs PSRAM alloc failed for %zu bytes", contentLen);
       } else {
         ESP_LOGI("ota", "fs PSRAM alloc OK: %zu bytes", contentLen);
       }
     }
-    if (fsPsramBuf && fsPsramBufPos + len <= fsPsramBufLen) {
-      memcpy(fsPsramBuf + fsPsramBufPos, data, len);
-      fsPsramBufPos += len;
+    if (FS_PSRAM_BUFFER && FS_PSRAM_BUFFER_POS + len <= FS_PSRAM_BUFFER_LEN) {
+      memcpy(FS_PSRAM_BUFFER + FS_PSRAM_BUFFER_POS, data, len);
+      FS_PSRAM_BUFFER_POS += len;
     }
     if (final) {
       ESP_LOGI("ota", "fs upload final chunk done: %llu bytes total", index + len);
@@ -477,7 +458,7 @@ void setupFsOtaRoute() {
     ESP_LOGI("ota", "fs onRequest fired — sending 200 OK");
     response->send(200, "application/json", "{\"ok\":true}");
 
-    if (!fsPsramBuf || fsPsramBufLen == 0) {
+    if (!FS_PSRAM_BUFFER || FS_PSRAM_BUFFER_LEN == 0) {
       ESP_LOGW("ota", "fs no PSRAM buf — skipping self-flash");
       return ESP_OK;
     }
@@ -488,9 +469,9 @@ void setupFsOtaRoute() {
       SavedFile preserved[4]; int nPreserved;
     };
     FsBuf* fb = new FsBuf{};
-    fb->buf = fsPsramBuf;
-    fb->len = fsPsramBufLen;
-    fsPsramBuf = nullptr;
+    fb->buf = FS_PSRAM_BUFFER;
+    fb->len = FS_PSRAM_BUFFER_LEN;
+    FS_PSRAM_BUFFER = nullptr;
 
     // Back up runtime data files before wiping the filesystem
     static const char* PRESERVE[] = {"/config.json", "/sellers.json", "/errors.log", "/refunds.log"};
@@ -554,7 +535,7 @@ void setupFsOtaRoute() {
     return ESP_OK;
   });
 
-  server.on("/update-fs", HTTP_POST, fsHandler);
+  HTTP_SERVER.on("/update-fs", HTTP_POST, fsHandler);
 }
 
 // ── Admin nodes ───────────────────────────────────────────────────────────────
@@ -647,13 +628,24 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
   doc["vendoActive"]   = vendoActive;
   doc["voucherActive"] = VOUCHER_ACTIVE_COUNT;
 
+  // Omada controller status (cached from GET settings/system/status)
+  {
+    JsonObject ctrl = doc["controller"].to<JsonObject>();
+    ctrl["reachable"]    = CONTROLLER_STATUS.reachable;
+    ctrl["model"]        = CONTROLLER_STATUS.model;
+    ctrl["version"]      = CONTROLLER_STATUS.version;
+    ctrl["timeZone"]     = CONTROLLER_STATUS.timeZone;
+    ctrl["uptimeMs"]     = CONTROLLER_STATUS.uptimeMillis;
+    ctrl["clockSkewSec"] = CONTROLLER_STATUS.clockSkewSec;
+  }
+
   // System health — master-only live metrics
   {
     JsonObject sys = doc["sys"].to<JsonObject>();
     sys["freeHeap"]           = ESP.getFreeHeap();
     sys["minFreeHeap"]        = ESP.getMinFreeHeap();
-    sys["activeSockets"]      = (int)server.getClientList().size();
-    sys["maxSockets"]         = server.config.max_open_sockets;
+    sys["activeSockets"]      = (int)HTTP_SERVER.getClientList().size();
+    sys["maxSockets"]         = HTTP_SERVER.config.max_open_sockets;
     sys["omadaSessionAgeMs"]  = getOmadaSessionAgeMs();
     sys["lastCacheRefreshMs"] = getLastCacheRefreshMs();
     sys["littleFsUsed"]       = LittleFS.usedBytes();
@@ -842,12 +834,41 @@ static int voucherBucketRevenue(JsonObject b, int fallbackPrice) {
 
 // ── Admin sales ───────────────────────────────────────────────────────────────
 
+// Day bucketing in the controller's local time. TZ is set at startup from the
+// controller's zone (applyControllerTimezone), so localtime()/mktime() apply the
+// correct offset AND daylight-saving. localDayNum increments by 1 at each local
+// midnight; localDayStartUtc is its inverse (UTC epoch of a local day's midnight),
+// used for Omada range queries and as the voucher-cache key. DST-correct because
+// the per-instant offset comes from localtime, not a fixed constant.
+
+// Days since 1970-01-01 for a civil (proleptic Gregorian) date. Hinnant's algorithm.
+static long daysFromCivil(int y, unsigned m, unsigned d) {
+  y -= m <= 2;
+  long era = (y >= 0 ? y : y - 399) / 400;
+  unsigned yoe = (unsigned)(y - era * 400);
+  unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+  unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+  return era * 146097 + (long)doe - 719468;
+}
+static long localDayNum(time_t utc) {
+  struct tm lt;
+  localtime_r(&utc, &lt);
+  return daysFromCivil(lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday);
+}
+static time_t localDayStartUtc(long dayNum) {
+  time_t midnightAsUtc = (time_t)dayNum * 86400;
+  struct tm lt;
+  gmtime_r(&midnightAsUtc, &lt);   // recover Y/M/D 00:00:00 of that local day
+  lt.tm_isdst = -1;
+  return mktime(&lt);              // interpret as local → real UTC epoch (DST-aware)
+}
+
 esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   if (!checkAdminAuth(request, response)) return ESP_OK;
   response->addHeader("Cache-Control", "no-store");
 
   time_t now      = time(NULL);
-  long   todayDay = (long)(now / 86400);
+  long   todayDay = localDayNum(now);
   static const int DAYS = 90;
 
   // ── Vendo history ──────────────────────────────────────────────────────────
@@ -863,7 +884,7 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
         if (line.isEmpty()) continue;
         JsonDocument doc;
         if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
-        long day = (long)((doc["ts"] | 0L) / 86400);
+        long day = localDayNum((time_t)(doc["ts"] | 0L));
         int  idx = (int)(todayDay - day);
         if (idx < 0 || idx >= DAYS) continue;
         int coins = doc["coins"] | 0;
@@ -892,7 +913,7 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
         if (line.isEmpty()) continue;
         JsonDocument doc;
         if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
-        long day = (long)((doc["ts"] | 0L) / 86400);
+        long day = localDayNum((time_t)(doc["ts"] | 0L));
         if (day > 0) vchrCache[day] = {doc["count"] | 0, doc["revenue"] | 0};
       }
       f.close();
@@ -906,13 +927,19 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
     if (!vchrCache.count(day)) missingDays.insert(day);
   }
   if (!missingDays.empty()) {
-    time_t startSec = (time_t)(*missingDays.begin()       * 86400);
-    time_t endSec   = (time_t)((*missingDays.rbegin() + 1) * 86400);
+    // Omada end-stamps each daily bucket at the NEXT local midnight, so the bucket
+    // for day L sits at localDayStartUtc(L+1). Widen the window by an extra day so
+    // the last missing day's bucket is comfortably inside it (extra buckets are
+    // filtered by missingDays below).
+    time_t startSec = localDayStartUtc(*missingDays.begin());
+    time_t endSec   = localDayStartUtc(*missingDays.rbegin() + 2);
     JsonDocument histDoc = getVoucherHistoryJson(startSec, endSec);
     if (!histDoc.isNull()) {
       // Accumulate all sub-day buckets by day before caching
       for (JsonObject b : voucherBuckets(histDoc)) {
-        long day = (long)(b["time"].as<long long>() / 1000 / 86400);
+        // Omada stamps the bucket at the day's END (next local midnight); -1s lands
+        // it in the day it actually represents.
+        long day = localDayNum((time_t)(b["time"].as<long long>() / 1000) - 1);
         if (!missingDays.count(day)) continue;
         vchrCache[day].first  += b["count"].as<int>();
         vchrCache[day].second += voucherBucketRevenue(b, PRICE_PER_COIN);
@@ -922,7 +949,7 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
       if (cacheFile) {
         for (long day : missingDays) {
           auto& v = vchrCache[day];
-          JsonDocument e; e["ts"] = day * 86400; e["count"] = v.first; e["revenue"] = v.second;
+          JsonDocument e; e["ts"] = (long)localDayStartUtc(day); e["count"] = v.first; e["revenue"] = v.second;
           serializeJson(e, cacheFile); cacheFile.print('\n');
         }
         cacheFile.close();
@@ -942,10 +969,12 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
 
   // Always fetch today live — incomplete day, never cache
   {
-    JsonDocument todayDoc = getVoucherHistoryJson((time_t)(todayDay * 86400), now);
+    // Fetch the whole current local day; Omada returns the partial bucket end-stamped
+    // at tomorrow's local midnight, which -1s attributes back to today.
+    JsonDocument todayDoc = getVoucherHistoryJson(localDayStartUtc(todayDay), localDayStartUtc(todayDay + 1));
     if (!todayDoc.isNull()) {
       for (JsonObject b : voucherBuckets(todayDoc)) {
-        long day = (long)(b["time"].as<long long>() / 1000 / 86400);
+        long day = localDayNum((time_t)(b["time"].as<long long>() / 1000) - 1);
         if (day != todayDay) continue;
         dayVoucherTotals[DAYS - 1] += b["count"].as<int>();
         dayVchrRevTotals[DAYS - 1] += voucherBucketRevenue(b, PRICE_PER_COIN);
@@ -1065,12 +1094,30 @@ esp_err_t handleAdminConfig(PsychicRequest* request, PsychicResponse* response) 
     String json; serializeJson(doc, json);
     return response->send(200, "application/json", json.c_str());
   }
-  // POST — write config and restart
+  // POST — merge onto existing config, validate, then write and restart
   JsonDocument doc;
   if (deserializeJson(doc, request->body())) return response->send(400, "text/plain", "Bad JSON");
+
+  // Start from the current config so omitted/blank fields (e.g. unchanged passwords) survive.
+  JsonDocument merged;
+  { File rf = LittleFS.open("/config.json", "r"); if (rf) { deserializeJson(merged, rf); rf.close(); } }
+  for (JsonPair kv : doc.as<JsonObject>()) {
+    // Ignore masked placeholders posted back unchanged — never overwrite a secret with "••••••••".
+    if (kv.value().is<const char*>() && String(kv.value().as<const char*>()) == "••••••••") continue;
+    merged[kv.key()] = kv.value();
+  }
+
+  // Refuse to write a config that would brick the device (can't join WiFi / reach Omada).
+  for (const char* k : {"wifi_ssid", "wifi_password", "omada_url", "omada_controller_id",
+                        "omada_username", "omada_password", "network_key"}) {
+    bool emptyStr = merged[k].is<const char*>() && String(merged[k].as<const char*>()).isEmpty();
+    if (merged[k].isNull() || emptyStr)
+      return response->send(400, "text/plain", (String("Missing required field: ") + k).c_str());
+  }
+
   File f = LittleFS.open("/config.json", "w");
   if (!f) return response->send(500, "text/plain", "Failed to write");
-  serializeJson(doc, f); f.close();
+  serializeJson(merged, f); f.close();
   response->send(200, "text/plain", "Saved — restarting...");
   delay(500);
   esp_restart();
@@ -1103,58 +1150,58 @@ void setupWeb() {
     ESP_LOGW(TAG, "mDNS failed to start");
   }
 
-  server.config.stack_size       = 16384;
-  server.config.max_open_sockets = 12;
-  server.config.lru_purge_enable = true;
+  HTTP_SERVER.config.stack_size       = 16384;
+  HTTP_SERVER.config.max_open_sockets = 12;
+  HTTP_SERVER.config.lru_purge_enable = true;
 
-  server.on("/", HTTP_GET, handleRoot);
+  HTTP_SERVER.on("/", HTTP_GET, handleRoot);
 
-  wsHandler.onOpen(handleWsOpen);
-  wsHandler.onFrame(handleWsRequest);
-  wsHandler.onClose(handleWsClose);
-  server.on("/ws", &wsHandler);
+  WEBSOCKET_HANDLER.onOpen(handleWsOpen);
+  WEBSOCKET_HANDLER.onFrame(handleWsRequest);
+  WEBSOCKET_HANDLER.onClose(handleWsClose);
+  HTTP_SERVER.on("/ws", &WEBSOCKET_HANDLER);
 
-  server.on("/refunds",           HTTP_GET,  handleRefunds);
-  server.on("/errors",            HTTP_GET,  handleErrors);
-  server.on("/program",           HTTP_GET,  handleProgram);
-  server.on("/admin/nodes",       HTTP_GET,  handleAdminNodes);
-  server.on("/admin/log",         HTTP_GET,  handleAdminLog);
-  server.on("/admin/sales",       HTTP_GET,  handleAdminSales);
-  server.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard);
-  server.on("/admin/sellers",     HTTP_ANY,  handleAdminSellers);
-  server.on("/admin/vouchers",    HTTP_ANY,   handleAdminVouchers);
-  server.on("/admin/config",      HTTP_ANY,  handleAdminConfig);
-  server.on("/admin/reboot",             HTTP_POST, handleAdminReboot);
-  server.on("/admin/clear-voucher-cache", HTTP_POST, handleAdminClearVoucherCache);
-  server.on("/admin",             HTTP_GET,  handleAdminPage);
-  server.on("/config.json", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+  HTTP_SERVER.on("/refunds",           HTTP_GET,  handleRefunds);
+  HTTP_SERVER.on("/errors",            HTTP_GET,  handleErrors);
+  HTTP_SERVER.on("/program",           HTTP_GET,  handleProgram);
+  HTTP_SERVER.on("/admin/nodes",       HTTP_GET,  handleAdminNodes);
+  HTTP_SERVER.on("/admin/log",         HTTP_GET,  handleAdminLog);
+  HTTP_SERVER.on("/admin/sales",       HTTP_GET,  handleAdminSales);
+  HTTP_SERVER.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard);
+  HTTP_SERVER.on("/admin/sellers",     HTTP_ANY,  handleAdminSellers);
+  HTTP_SERVER.on("/admin/vouchers",    HTTP_ANY,   handleAdminVouchers);
+  HTTP_SERVER.on("/admin/config",      HTTP_ANY,  handleAdminConfig);
+  HTTP_SERVER.on("/admin/reboot",             HTTP_POST, handleAdminReboot);
+  HTTP_SERVER.on("/admin/clear-voucher-cache", HTTP_POST, handleAdminClearVoucherCache);
+  HTTP_SERVER.on("/admin",             HTTP_GET,  handleAdminPage);
+  HTTP_SERVER.on("/config.json", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
     return res->send(403, "text/plain", "Forbidden");
   });
-  server.on("/status",     HTTP_GET, handleGetStatus);
-  server.on("/index.html", HTTP_GET, handleRoot);
+  HTTP_SERVER.on("/status",     HTTP_GET, handleGetStatus);
+  HTTP_SERVER.on("/index.html", HTTP_GET, handleRoot);
   setupOtaRoute();
   setupFsOtaRoute();
-  server.on("/fw.bin", HTTP_GET, handleFwBin);
+  HTTP_SERVER.on("/fw.bin", HTTP_GET, handleFwBin);
 
-  server.on("/assets/insertcoinbg.mp3", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+  HTTP_SERVER.on("/assets/insertcoinbg.mp3", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
     res->addHeader("Cache-Control", "max-age=86400");
     return res->send(200, "audio/mpeg", (const uint8_t*)web_assets_insertcoinbg_mp3_start, web_assets_insertcoinbg_mp3_end - web_assets_insertcoinbg_mp3_start);
   });
-  server.on("/assets/coin-received.mp3", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+  HTTP_SERVER.on("/assets/coin-received.mp3", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
     res->addHeader("Cache-Control", "max-age=86400");
     return res->send(200, "audio/mpeg", (const uint8_t*)web_assets_coin_received_mp3_start, web_assets_coin_received_mp3_end - web_assets_coin_received_mp3_start);
   });
-  server.on("/EllaFi.webp", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+  HTTP_SERVER.on("/EllaFi.webp", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
     res->addHeader("Cache-Control", "max-age=86400");
     return res->send(200, "image/webp", (const uint8_t*)web_EllaFi_webp_start, web_EllaFi_webp_end - web_EllaFi_webp_start);
   });
-  server.on("/favicon.ico", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+  HTTP_SERVER.on("/favicon.ico", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
     res->addHeader("Cache-Control", "max-age=86400");
     return res->send(200, "image/x-icon", (const uint8_t*)web_favicon_ico_start, web_favicon_ico_end - web_favicon_ico_start);
   });
 
-  server.onNotFound(handleNotFound);
-  server.begin();
+  HTTP_SERVER.onNotFound(handleNotFound);
+  HTTP_SERVER.begin();
   ESP_LOGI(TAG, "Web server started");
 }
 
@@ -1167,7 +1214,7 @@ void setupWeb() {
 void updateClientTask(void*) {
   for (;;) {
     xTaskNotifyWait(0, ULONG_MAX, NULL, pdMS_TO_TICKS(UPDATE_CLIENT_INTERVAL_MILLIS));
-    if (COIN_INSERT_ACTIVE) pushCoinUpdateToClient();
+    if (COIN_INSERT_ACTIVE.load()) pushCoinUpdateToClient();
   }
 }
 
@@ -1188,7 +1235,7 @@ void processPause(const String& mac) {
   SessionParams* session = HOTSPOT_SESSION_CACHE.findByMac(mac);
   if (!session) { ESP_LOGW(TAG, "processPause: no session for MAC=%s", mac.c_str()); return; }
 
-  PsychicWebSocketClient* ws = wsHandler.getClient(session->socketFd);  // may be null if WS disconnected
+  PsychicWebSocketClient* ws = WEBSOCKET_HANDLER.getClient(session->socketFd);  // may be null if WS disconnected
   uint64_t nowMillis = nowEpochMillis();
 
   if (session->sessionEndMillis == 0 || session->clientId.isEmpty()) {
@@ -1222,7 +1269,7 @@ void processResume(const String& mac) {
   SessionParams* session = HOTSPOT_SESSION_CACHE.findByMac(mac);
   if (!session) { ESP_LOGW(TAG, "processResume: no session for MAC=%s", mac.c_str()); return; }
 
-  PsychicWebSocketClient* ws = wsHandler.getClient(session->socketFd);  // may be null if WS disconnected
+  PsychicWebSocketClient* ws = WEBSOCKET_HANDLER.getClient(session->socketFd);  // may be null if WS disconnected
   unsigned long pausedRemainingMillis = session->pausedRemainingMillis;
 
   if (pausedRemainingMillis == 0) {

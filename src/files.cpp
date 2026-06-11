@@ -223,10 +223,10 @@ void appendErrorLog(const char* tag, const char* msg) {
   f.close();
 }
 
-static LogForwardFn s_logForwardFn = nullptr;
+static LogForwardFn LOG_FORWARD_FN = nullptr;
 
 void setLogForwardCallback(LogForwardFn fn) {
-  s_logForwardFn = fn;
+  LOG_FORWARD_FN = fn;
 }
 
 static void logCore(char level, const char* tag, const char* buf) {
@@ -234,7 +234,7 @@ static void logCore(char level, const char* tag, const char* buf) {
   logDirect(level, tag, buf);
   if (level == 'W' || level == 'E') {
     appendErrorLog(tag, buf);
-    if (s_logForwardFn) s_logForwardFn(level, tag, buf);
+    if (LOG_FORWARD_FN) LOG_FORWARD_FN(level, tag, buf);
   }
 }
 

@@ -2,21 +2,16 @@
 #include "files.h"
 
 #include <WiFi.h>
+#include <IPAddress.h>
 #include <map>
+#include <type_traits>
 #include <esp_log.h>
 #include "logger.h"
-
-// Coins contributed per node MAC in the current insertion session.
-// Keyed by uppercase MAC string. Guarded by COIN_STATE_MUTEX.
-static std::map<String, int> s_nodeCoinCounts;
 
 static const char* TAG = "EllaFi";
 
 static const char* ERR_SUBTYPE_NO_SESSION = "no_session";
 static const char* ERR_SUBTYPE_REFUNDABLE = "refundable";
-
-// Set by reportFraud when fraud limit ends the session — tells finalizeCoinInsert to skip WS messaging
-static volatile bool FRAUD_ENDED_SESSION = false;
 
 // ISR-only — tracks falling edge time (micros) for pulse width measurement
 static volatile unsigned long COINBUTTON_FALL_TIME = 0;
@@ -100,15 +95,6 @@ void IRAM_ATTR coinSlotPulse() {
   }
 }
 
-void coinTimerCallback(TimerHandle_t xTimer) {
-  xTaskNotify(LED_TASK, LED_NOTIFY_STOP, eSetValueWithOverwrite);  // cut coin acceptor power immediately
-  xSemaphoreGive(COIN_FINALIZE_SEM);
-}
-
-void restartCoinInsertTimer() {
-  xTimerReset(COIN_INSERT_TIMER, 0);  // starts if inactive, restarts if active
-}
-
 // ── Network event callbacks (wired by network.cpp) ───────────────────────────
 
 void masterRecvCoinInserted(const char* senderMac) {
@@ -120,37 +106,24 @@ void masterRecvCoinInserted(const char* senderMac) {
 }
 
 void slaveRecvCoinInsertStart() {
-  COIN_INSERT_ACTIVE = true;
+  COIN_INSERT_ACTIVE.store(true);
   xTaskNotify(LED_TASK, LED_NOTIFY_START, eSetValueWithOverwrite);
   ESP_LOGI(TAG, "Session started — accepting coins");
 }
 
 void slaveRecvCoinInsertEnd() {
-  COIN_INSERT_ACTIVE = false;
+  COIN_INSERT_ACTIVE.store(false);
   xTaskNotify(LED_TASK, LED_NOTIFY_STOP, eSetValueWithOverwrite);
   ESP_LOGI(TAG, "Session ended — coin acceptance disabled");
 }
 
 // ── FreeRTOS tasks ────────────────────────────────────────────────────────────
 
-// Master-only: send WS fraud error and finalize session if limit reached.
-static void reportFraud(int fraudCount, unsigned long& prevAcceptedTimestampMicros) {
-  SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(COIN_CLIENT_IP);
-  ESP_LOGE(TAG, "Fraud #%d MAC=%s", fraudCount, session ? session->clientMac.c_str() : "unknown");
-  PsychicWebSocketClient* ws = (COIN_SOCKET_FD >= 0) ? wsHandler.getClient(COIN_SOCKET_FD) : nullptr;
-  if (fraudCount >= COINSLOT_MAX_FRAUD_PER_SESSION) {
-    ESP_LOGE(TAG, "Fraud limit reached - ending session");
-    if (ws) ws->sendMessage("{\"type\":\"error\",\"subtype\":\"fraud\",\"message\":\"Session ended: repeated fraud detected\"}");
-    xTimerStop(COIN_INSERT_TIMER, 0);  // close acceptance window immediately — SHOULD_ACCEPT_COINS goes false
-    xTaskNotify(LED_TASK, LED_NOTIFY_STOP, eSetValueWithOverwrite);
-    xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
-    COIN_COUNT = 0;
-    s_nodeCoinCounts.clear();
-    xSemaphoreGive(COIN_STATE_MUTEX);
-    prevAcceptedTimestampMicros = 0;
-    FRAUD_ENDED_SESSION = true;
-    xSemaphoreGive(COIN_FINALIZE_SEM);
-  }
+// Post a fraud abort to the session owner. Called from coinPulseTask (master).
+static void abortSessionForFraud(int fraudCount) {
+  ESP_LOGE(TAG, "Fraud limit (%d) reached — ending session", fraudCount);
+  CoinSessionEvent e(COIN_SESSION_FRAUD_END);
+  xQueueSend(COIN_SESSION_QUEUE, &e, 0);
 }
 
 // Drains coin pulses from COIN_PULSE_QUEUE.
@@ -186,7 +159,7 @@ void coinPulseTask(void*) {
       if (pulse.widthMicros < COINSLOT_MIN_PULSE_WIDTH_MICROS) {
         fraudCountThisSession++;
         ESP_LOGE(TAG, "Pulse width fraud #%d: width=%luus (min %luus)", fraudCountThisSession, pulse.widthMicros, COINSLOT_MIN_PULSE_WIDTH_MICROS);
-        if (IS_MASTER) reportFraud(fraudCountThisSession, prevAcceptedTimestampMicros);
+        if (IS_MASTER && fraudCountThisSession >= COINSLOT_MAX_FRAUD_PER_SESSION) abortSessionForFraud(fraudCountThisSession);
         continue;
       }
     }
@@ -199,7 +172,7 @@ void coinPulseTask(void*) {
         fraudCountThisSession++;
         prevAcceptedTimestampMicros = 0;
         ESP_LOGE(TAG, "Interval fraud #%d: interval=%luus (min %lums)", fraudCountThisSession, interval, COINSLOT_MIN_PULSE_INTERVAL_MILLIS);
-        if (IS_MASTER) reportFraud(fraudCountThisSession, prevAcceptedTimestampMicros);
+        if (IS_MASTER && fraudCountThisSession >= COINSLOT_MAX_FRAUD_PER_SESSION) abortSessionForFraud(fraudCountThisSession);
         continue;
       }
     }
@@ -211,57 +184,135 @@ void coinPulseTask(void*) {
       // Determine which node the coin came from (empty mac = master's own slot)
       String nodeMac = pulse.mac[0] ? String(pulse.mac) : WiFi.macAddress();
       nodeMac.toUpperCase();
-      xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
-      COIN_COUNT++;
-      s_nodeCoinCounts[nodeMac]++;
-      xSemaphoreGive(COIN_STATE_MUTEX);
-      ESP_LOGE(TAG, "count=%d node=%s", COIN_COUNT, nodeMac.c_str());
-      xTimerReset(COIN_INSERT_TIMER, 0);
-      xTaskNotify(UPDATE_CLIENT_TASK, 1, eSetBits);
+      CoinSessionEvent e(COIN_SESSION_COIN);
+      strncpy(e.mac, nodeMac.c_str(), sizeof(e.mac) - 1);
+      e.mac[sizeof(e.mac) - 1] = '\0';
+      xQueueSend(COIN_SESSION_QUEUE, &e, 0);  // owner increments count, restarts deadline, pushes WS update
     } else {
       slaveSendCoinInserted();
     }
   }
 }
 
-// FinalizeCoinTask: sleeps until coinTimerCallback() signals COIN_FINALIZE_SEM.
-// Pinned to Core 1 alongside loop() — never touches the radio stack on Core 0.
-void finalizeCoinTask(void*) {
+// CoinSessionSlot must be trivially copyable for std::atomic. On Xtensa 8-byte atomics
+// are lock-backed (not lock-free) — correct and fine at this cadence. Add -latomic to
+// build_flags if the linker errors on __atomic_load_8 / __atomic_compare_exchange_8.
+static_assert(std::is_trivially_copyable<CoinSessionSlot>::value, "CoinSessionSlot must be trivially copyable");
+
+uint32_t coinIpToU32(const String& ip) {
+  IPAddress a;
+  return a.fromString(ip) ? (uint32_t)a : 0;
+}
+String coinU32ToIp(uint32_t v) {
+  return IPAddress(v).toString();
+}
+
+bool coinSessionTryClaim(int socketFd, const String& clientIp) {
+  bool expected = false;
+  if (!COIN_INSERT_ACTIVE.compare_exchange_strong(expected, true)) return false;
+  CoinSessionEvent e(socketFd, clientIp);
+  if (xQueueSend(COIN_SESSION_QUEUE, &e, 0) != pdTRUE) {
+    COIN_INSERT_ACTIVE.store(false);  // roll back the claim, else the slot is stuck active until reboot
+    return false;
+  }
+  return true;
+}
+
+bool coinSessionUpdateSocket(const String& clientIp, int socketFd) {
+  uint32_t ip = coinIpToU32(clientIp);
+  CoinSessionSlot cur = COIN_SESSION_SLOT.load();
   for (;;) {
-    xSemaphoreTake(COIN_FINALIZE_SEM, portMAX_DELAY);
-    finalizeCoinInsert();
+    if (cur.clientIpV4 != ip) return false;
+    CoinSessionSlot next{ ip, (int32_t)socketFd };
+    if (COIN_SESSION_SLOT.compare_exchange_weak(cur, next)) return true;
   }
 }
 
-// Called 10s after last coin insertion. Authenticates with Omada and pushes result via WS.
-void finalizeCoinInsert() {
-  ESP_LOGI(TAG, "======finalizeCoinInsert called");
+CoinSessionStatus coinSessionSnapshot() {
+  CoinSessionSlot slot = COIN_SESSION_SLOT.load();
+  CoinSessionStatus s;
+  s.accepting  = COIN_INSERT_ACTIVE.load();
+  s.count      = COIN_COUNT.load();
+  s.socketFd   = slot.socketFd;
+  s.clientIpV4 = slot.clientIpV4;
+  s.deadlineMs = COIN_DEADLINE_MILLIS.load();
+  return s;
+}
 
-  // Close the insertion window. COIN_INSERT_ACTIVE stays true so no new session can start
-  // and COIN_SOCKET_FD/COIN_CLIENT_IP remain valid for WS reconnect tracking during HTTPS.
-  std::map<String, int> nodeCounts;
-  xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
-  int coinCount = COIN_COUNT;
-  COIN_COUNT = 0;
-  nodeCounts = s_nodeCoinCounts;
-  s_nodeCoinCounts.clear();
-  xTimerStop(COIN_INSERT_TIMER, 0);  // no-op if already stopped (fraud path or timer already fired)
-  xSemaphoreGive(COIN_STATE_MUTEX);
-  masterBroadcastSessionEnd();  // tell slaves to stop accepting coins immediately
+static void finalizeSession(bool fraudEnded, const std::map<String, int>& nodeCounts);
+
+// coinSessionTask: sole owner of COIN_INSERT_ACTIVE, COIN_COUNT, COIN_DEADLINE_MILLIS,
+// COIN_SESSION_SLOT. Timed queue receive replaces the FreeRTOS timer + semaphore.
+void coinSessionTask(void*) {
+  CoinSessionEvent evt;
+  for (;;) {
+    if (xQueueReceive(COIN_SESSION_QUEUE, &evt, portMAX_DELAY) != pdTRUE) continue;
+    if (evt.type != COIN_SESSION_START) continue;  // stray event with no open session — drop
+
+    COIN_COUNT.store(0);
+    COIN_SESSION_SLOT.store(CoinSessionSlot{ coinIpToU32(String(evt.clientIp)), (int32_t)evt.socketFd });
+    COIN_SLOT_READY_MILLIS = millis() + COINSLOT_BOOT_SUPPRESS_MILLIS;
+    COIN_DEADLINE_MILLIS.store(millis() + COIN_INSERT_TIMEOUT_MILLIS);
+    xTaskNotify(LED_TASK, LED_NOTIFY_START, eSetValueWithOverwrite);
+    masterBroadcastSessionStart();
+    xTaskNotify(UPDATE_CLIENT_TASK, 1, eSetBits);
+    ESP_LOGI(TAG, "Session started — accepting coins (fd=%d ip=%s)", evt.socketFd, evt.clientIp);
+
+    bool fraudEnded = false;
+    std::map<String, int> nodeCounts;
+    for (;;) {
+      if (xQueueReceive(COIN_SESSION_QUEUE, &evt, pdMS_TO_TICKS(COIN_INSERT_TIMEOUT_MILLIS)) != pdTRUE)
+        break;  // timeout — finalize
+      if (evt.type == COIN_SESSION_COIN) {
+        int n = COIN_COUNT.fetch_add(1) + 1;
+        nodeCounts[String(evt.mac)]++;
+        COIN_DEADLINE_MILLIS.store(millis() + COIN_INSERT_TIMEOUT_MILLIS);
+        ESP_LOGI(TAG, "count=%d node=%s", n, evt.mac);
+        xTaskNotify(UPDATE_CLIENT_TASK, 1, eSetBits);
+        continue;
+      }
+      if (evt.type == COIN_SESSION_FRAUD_END) { fraudEnded = true; break; }
+      // COIN_SESSION_START while already active — ignore
+    }
+
+    COIN_INSERT_ACTIVE.store(false);
+    xTaskNotify(LED_TASK, LED_NOTIFY_STOP, eSetValueWithOverwrite);
+    finalizeSession(fraudEnded, nodeCounts);
+  }
+}
+
+// Authenticates with Omada and pushes result via WS, then clears the session slot.
+static void finalizeSession(bool fraudEnded, const std::map<String, int>& nodeCounts) {
+  ESP_LOGI(TAG, "======finalizeSession (fraud=%d)", (int)fraudEnded);
+
+  int coinCount = fraudEnded ? 0 : COIN_COUNT.load();
+  COIN_COUNT.store(0);
+  masterBroadcastSessionEnd();
+
+  CoinSessionSlot slot = COIN_SESSION_SLOT.load();
+
+  if (fraudEnded) {
+    PsychicWebSocketClient* fws = (slot.socketFd >= 0) ? WEBSOCKET_HANDLER.getClient(slot.socketFd) : nullptr;
+    if (fws) {
+      fws->sendMessage("{\"type\":\"error\",\"subtype\":\"fraud\",\"message\":\"Session ended: repeated fraud detected\"}");
+      fws->close();
+    }
+    COIN_SESSION_SLOT.store(CoinSessionSlot{0, -1});
+    return;
+  }
 
   String errorMsg;
   String errorDetail;
   String errorSubtype;
   bool success = false;
 
-  SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(COIN_CLIENT_IP);
+  SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(coinU32ToIp(slot.clientIpV4));
 
   if (coinCount > 0 && session) {
     unsigned long long additionalMillis = coinCount * MINUTES_PER_COIN * MILLIS_PER_MINUTE;
     uint64_t nowMillis = nowEpochMillis();
 
     if (session->sessionEndMillis > nowMillis && !session->clientId.isEmpty()) {
-      // Active session — extend by new coins only
       ESP_LOGI(TAG, "Extending %s: +%d min (%d remaining)",
                session->clientMac.c_str(),
                coinCount * MINUTES_PER_COIN,
@@ -277,7 +328,6 @@ void finalizeCoinInsert() {
         errorSubtype = ERR_SUBTYPE_REFUNDABLE;
       }
     } else {
-      // No active session — fresh auth
       ESP_LOGI(TAG, "Authenticating %s for %d minutes",
                session->clientMac.c_str(), coinCount * MINUTES_PER_COIN);
 
@@ -293,19 +343,20 @@ void finalizeCoinInsert() {
     }
 
   } else if (coinCount == 0) {
-    if (!FRAUD_ENDED_SESSION) errorMsg = "No coins inserted";
-    FRAUD_ENDED_SESSION = false;
+    errorMsg = "No coins inserted";
   } else {
     errorMsg = "No portal session found for this device";
     errorSubtype = ERR_SUBTYPE_NO_SESSION;
   }
 
-  PsychicWebSocketClient* ws = (COIN_SOCKET_FD >= 0) ? wsHandler.getClient(COIN_SOCKET_FD) : nullptr;
+  // Re-read slot: a reconnect may have swapped the fd during the Omada HTTPS call
+  int fd = COIN_SESSION_SLOT.load().socketFd;
+  PsychicWebSocketClient* ws = (fd >= 0) ? WEBSOCKET_HANDLER.getClient(fd) : nullptr;
 
   if (ws) {
     if (success) {
       ws->sendMessage("{\"type\":\"authenticated\"}");
-      { WsJob j(JOB_REFRESH_CACHE, ""); xQueueSend(WEBSOCKET_JOB_QUEUE, &j, 0); }  // background: sync sessionEndMillis + clientId
+      { WsJob j(JOB_REFRESH_CACHE, ""); xQueueSend(WEBSOCKET_JOB_QUEUE, &j, 0); }
     } else {
       String refundCode;
       if (errorSubtype == ERR_SUBTYPE_REFUNDABLE && session) {
@@ -325,9 +376,5 @@ void finalizeCoinInsert() {
     ESP_LOGW(TAG, "Auth result not delivered — client already disconnected");
   }
 
-  xSemaphoreTake(COIN_STATE_MUTEX, portMAX_DELAY);
-  COIN_INSERT_ACTIVE = false;
-  COIN_SOCKET_FD = -1;
-  COIN_CLIENT_IP = "";
-  xSemaphoreGive(COIN_STATE_MUTEX);
+  COIN_SESSION_SLOT.store(CoinSessionSlot{0, -1});
 }
