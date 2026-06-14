@@ -210,12 +210,14 @@ void setup() {
 }
 
 void loop() {
-  // Scheduled daily reboot at 3:00 AM UTC — simplest way to keep memory and cache clean
+  // Scheduled daily reboot at 3:00 AM LOCAL time — a dead hour, to keep memory and cache clean.
+  // localtime() honours the TZ set from the controller (e.g. TZ=HKT-8 = UTC+8); gmtime() fired at
+  // 3am UTC = 11am Philippine time, i.e. peak usage.
   static unsigned long lastRebootCheck = 0;
   if (millis() - lastRebootCheck > MILLIS_PER_MINUTE) {
     lastRebootCheck = millis();
     time_t now = time(NULL);
-    struct tm* t = gmtime(&now);
+    struct tm* t = localtime(&now);
     if (t->tm_hour == 3 && t->tm_min == 0) {
       ESP_LOGI(TAG, "Scheduled 3am reboot");
       esp_restart();
