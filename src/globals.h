@@ -113,8 +113,8 @@ constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
 
 // ── Firmware version ─────────────────────────────────────────────────────────
 
-#define FIRMWARE_VERSION "1.3.6"
-#define FIRMWARE_BUILD   45       // increment on every release; used for slave version comparison
+#define FIRMWARE_VERSION "1.3.7"
+#define FIRMWARE_BUILD   46       // increment on every release; used for slave version comparison
 
 // True byte size of the running firmware image, computed once at boot (ESP.getSketchSize()).
 // This is what the master serves to slaves for OTA — derived from the running partition, so it's
