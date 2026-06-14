@@ -16,38 +16,173 @@
 #include <esp_partition.h>
 #include <PsychicUploadHandler.h>
 #include <mbedtls/base64.h>
+#include <mbedtls/md.h>
+#include <esp_random.h>
 #include <esp_log.h>
 #include "logger.h"
 
 static const char* TAG = "EllaFi";
 
-// ── Admin auth ────────────────────────────────────────────────────────────────
+// ── Admin auth: challenge-response login + IP-bound session token ──────────────
+// HTTP Basic mailed the Omada password (base64) on every request. Instead, the browser sends
+// sha256(nonce:password) — the password never crosses the wire — and on success we mint a random
+// token bound to the client IP. The server is single-threaded (one httpd task), so these tables
+// need no lock. All state is RAM and clears on the daily reboot.
 
+static const uint32_t ADMIN_NONCE_TTL_MS     = 60000UL;        // 1 min to finish a login
+static const uint32_t ADMIN_SESSION_TTL_MS   = 30UL * 60000UL; // 30 min session
+static const int      ADMIN_MAX_FAILS        = 5;              // failed logins per IP before cooldown
+static const uint32_t ADMIN_FAIL_COOLDOWN_MS = 60000UL;        // lockout window once tripped
+
+struct AdminNonce   { String nonce; uint32_t expiresMs; };
+struct AdminSession { String token; uint32_t ip; uint32_t expiresMs; };
+struct AdminFails   { uint32_t ip; int count; uint32_t untilMs; };
+
+static AdminNonce   ADMIN_NONCES[8];
+static AdminSession ADMIN_SESSIONS[4];
+static AdminFails   ADMIN_FAILS[8];
+
+static bool ttlLive(uint32_t expiresMs, uint32_t now) { return (int32_t)(expiresMs - now) > 0; }
+
+static uint32_t reqIpU32(PsychicRequest* request) {
+  IPAddress ip = request->client()->remoteIP();
+  return ((uint32_t)ip[0] << 24) | ((uint32_t)ip[1] << 16) | ((uint32_t)ip[2] << 8) | (uint32_t)ip[3];
+}
+
+static String randomHex(int nbytes) {
+  String s; s.reserve(nbytes * 2);
+  for (int i = 0; i < nbytes; i++) { char b[3]; snprintf(b, sizeof(b), "%02x", (unsigned)(esp_random() & 0xff)); s += b; }
+  return s;
+}
+
+static String sha256Hex(const String& in) {
+  uint8_t out[32];
+  mbedtls_md(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), (const uint8_t*)in.c_str(), in.length(), out);
+  String hex; hex.reserve(64);
+  for (int i = 0; i < 32; i++) { char b[3]; snprintf(b, sizeof(b), "%02x", out[i]); hex += b; }
+  return hex;
+}
+
+// Constant-time compare of two equal-length strings.
+static bool ctEqual(const String& a, const String& b) {
+  if (a.length() != b.length()) return false;
+  uint8_t diff = 0;
+  for (size_t i = 0; i < a.length(); i++) diff |= (uint8_t)(a[i] ^ b[i]);
+  return diff == 0;
+}
+
+static String cookieValue(PsychicRequest* request, const char* name) {
+  size_t len = httpd_req_get_hdr_value_len(request->request(), "Cookie");
+  if (len == 0 || len >= 512) return "";
+  char buf[512] = {};
+  httpd_req_get_hdr_value_str(request->request(), "Cookie", buf, sizeof(buf));
+  String cookies(buf);
+  String key = String(name) + "=";
+  int p = cookies.indexOf(key);
+  if (p < 0) return "";
+  p += key.length();
+  int e = cookies.indexOf(';', p);
+  String v = (e < 0) ? cookies.substring(p) : cookies.substring(p, e);
+  v.trim();
+  return v;
+}
+
+// True if the request carries a live session cookie bound to its own IP.
 static bool isAuthorized(PsychicRequest* request) {
-  size_t len = httpd_req_get_hdr_value_len(request->request(), "Authorization");
-  if (len == 0) return false;
-  char buf[256] = {};
-  if (len >= sizeof(buf)) return false;
-  httpd_req_get_hdr_value_str(request->request(), "Authorization", buf, sizeof(buf));
-  String hdr(buf);
-  if (!hdr.startsWith("Basic ")) return false;
-  unsigned char decoded[128] = {};
-  size_t decodedLen = 0;
-  String b64 = hdr.substring(6);
-  mbedtls_base64_decode(decoded, sizeof(decoded) - 1, &decodedLen,
-                        (const unsigned char*)b64.c_str(), b64.length());
-  return String((char*)decoded) == ADMIN_USERNAME + ":" + ADMIN_PASSWORD;
+  String token = cookieValue(request, "ellafi_admin");
+  if (token.isEmpty()) return false;
+  uint32_t ip = reqIpU32(request), now = millis();
+  for (auto& s : ADMIN_SESSIONS)
+    if (!s.token.isEmpty() && s.token == token && s.ip == ip && ttlLive(s.expiresMs, now)) return true;
+  return false;
 }
 
 static bool checkAdminAuth(PsychicRequest* request, PsychicResponse* response) {
   if (isAuthorized(request)) return true;
-  response->addHeader("WWW-Authenticate", "Basic realm=\"EllaFi Admin\"");
-  response->send(401, "text/plain", "Unauthorized");
+  response->send(401, "application/json", "{\"error\":\"auth required\"}");  // client renders its own login
   return false;
 }
 
+static esp_err_t handleAdminChallenge(PsychicRequest* request, PsychicResponse* response) {
+  uint32_t now = millis();
+  String nonce = randomHex(16);
+  int slot = 0; uint32_t oldest = 0xffffffffUL;
+  for (int i = 0; i < 8; i++) {
+    if (!ttlLive(ADMIN_NONCES[i].expiresMs, now)) { slot = i; break; }   // free/expired
+    if (ADMIN_NONCES[i].expiresMs < oldest) { oldest = ADMIN_NONCES[i].expiresMs; slot = i; }
+  }
+  ADMIN_NONCES[slot] = { nonce, now + ADMIN_NONCE_TTL_MS };
+  response->addHeader("Cache-Control", "no-store");
+  return response->send(200, "application/json", (String("{\"nonce\":\"") + nonce + "\"}").c_str());
+}
+
+static void recordFail(uint32_t ip, uint32_t now) {
+  for (auto& f : ADMIN_FAILS) if (f.ip == ip) {
+    if (!ttlLive(f.untilMs, now)) f.count = 0;   // window elapsed → start over
+    f.count++; f.untilMs = now + ADMIN_FAIL_COOLDOWN_MS; return;
+  }
+  for (auto& f : ADMIN_FAILS) if (f.ip == 0 || !ttlLive(f.untilMs, now)) {
+    f = { ip, 1, now + ADMIN_FAIL_COOLDOWN_MS }; return;
+  }
+}
+static void clearFails(uint32_t ip) { for (auto& f : ADMIN_FAILS) if (f.ip == ip) f = {}; }
+static bool throttled(uint32_t ip, uint32_t now) {
+  for (auto& f : ADMIN_FAILS) if (f.ip == ip && f.count >= ADMIN_MAX_FAILS && ttlLive(f.untilMs, now)) return true;
+  return false;
+}
+
+static esp_err_t handleAdminLogin(PsychicRequest* request, PsychicResponse* response) {
+  uint32_t now = millis(), ip = reqIpU32(request);
+  if (throttled(ip, now)) return response->send(429, "application/json", "{\"error\":\"too many attempts — wait a minute\"}");
+
+  JsonDocument doc;
+  if (deserializeJson(doc, request->body())) return response->send(400, "application/json", "{\"error\":\"bad request\"}");
+  String nonce  = doc["nonce"].as<String>();
+  String digest = doc["digest"].as<String>();
+
+  bool nonceOk = false;
+  for (auto& n : ADMIN_NONCES) if (!n.nonce.isEmpty() && n.nonce == nonce && ttlLive(n.expiresMs, now)) {
+    n = {};            // burn — use once
+    nonceOk = true; break;
+  }
+
+  bool ok = nonceOk && digest.length() == 64 && ctEqual(digest, sha256Hex(nonce + ":" + ADMIN_PASSWORD));
+  if (!ok) {
+    recordFail(ip, now);
+    return response->send(401, "application/json", "{\"error\":\"invalid password\"}");
+  }
+  clearFails(ip);
+
+  String token = randomHex(16);
+  int slot = 0; uint32_t oldest = 0xffffffffUL;
+  for (int i = 0; i < 4; i++) {
+    if (!ttlLive(ADMIN_SESSIONS[i].expiresMs, now)) { slot = i; break; }
+    if (ADMIN_SESSIONS[i].expiresMs < oldest) { oldest = ADMIN_SESSIONS[i].expiresMs; slot = i; }
+  }
+  ADMIN_SESSIONS[slot] = { token, ip, now + ADMIN_SESSION_TTL_MS };
+
+  String cookie = "ellafi_admin=" + token + "; Path=/; Max-Age=" + String(ADMIN_SESSION_TTL_MS / 1000) + "; HttpOnly; SameSite=Strict";
+  response->addHeader("Set-Cookie", cookie.c_str());
+  return response->send(200, "application/json", "{\"ok\":true}");
+}
+
+static esp_err_t handleAdminLogout(PsychicRequest* request, PsychicResponse* response) {
+  String token = cookieValue(request, "ellafi_admin");
+  for (auto& s : ADMIN_SESSIONS) if (!s.token.isEmpty() && s.token == token) s = {};
+  response->addHeader("Set-Cookie", "ellafi_admin=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict");
+  return response->send(200, "application/json", "{\"ok\":true}");
+}
+
+static esp_err_t handleSha256Js(PsychicRequest* request, PsychicResponse* response) {
+  response->addHeader("Cache-Control", "max-age=86400");
+  return response->send(200, "application/javascript",
+    (const uint8_t*)web_sha256_min_js_start,
+    web_sha256_min_js_end - web_sha256_min_js_start);
+}
+
 esp_err_t handleAdminPage(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
+  // Unauthenticated on purpose: the page renders its own login overlay, then the gated
+  // data endpoints (/admin/nodes, etc.) enforce auth.
   response->addHeader("Cache-Control", "no-store");
   return response->send(200, "text/html",
     (const uint8_t*)web_admin_html_start,
@@ -172,13 +307,30 @@ esp_err_t handleRefunds(PsychicRequest* request, PsychicResponse* response) {
 esp_err_t handleErrors(PsychicRequest* request, PsychicResponse* response) {
   if (!checkAdminAuth(request, response)) return ESP_OK;
   if (!fsExists("/errors.log")) return response->send(200, "text/plain", "No errors logged.");
+
+  // Render only the most recent entries. The file can hold hundreds; assembling them all into one
+  // String overruns the heap (yields an empty/failed response). Two passes: count, then skip all
+  // but the last MAX_SHOW so `out` stays small regardless of file size.
+  const int MAX_SHOW = 200;
+  int total = 0;
+  {
+    File f = LittleFS.open("/errors.log", FILE_READ);
+    if (!f) return response->send(500, "text/plain", "Could not open errors.log");
+    while (f.available()) { String l = f.readStringUntil('\n'); l.trim(); if (!l.isEmpty()) total++; }
+    f.close();
+  }
+  int skip = total > MAX_SHOW ? total - MAX_SHOW : 0;
+
   File f = LittleFS.open("/errors.log", FILE_READ);
   if (!f) return response->send(500, "text/plain", "Could not open errors.log");
   String out = "ERRORS\n======\n";
+  if (skip) out += "(showing last " + String(MAX_SHOW) + " of " + String(total) + ")\n";
+  int idx = 0;
   while (f.available()) {
     String line = f.readStringUntil('\n');
     line.trim();
     if (line.isEmpty()) continue;
+    if (idx++ < skip) continue;
     JsonDocument doc;
     if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
     out += formatTimestamp(doc["ts"] | 0L);
@@ -207,6 +359,16 @@ void handleWsOpen(PsychicWebSocketClient* client) {
     ESP_LOGI(TAG, "Updated coin-session socket to %d (client reconnected)", socketFd);
 }
 
+// Reply with a terminal error, then aggressively close the socket. These are dead-end replies —
+// the client can't act further on this connection — and a backgrounded/stale client may never close
+// on its own, pinning a slot in PsychicHttp's small socket pool. close() just triggers an async
+// close (httpd_sess_trigger_close), so it's safe from inside the frame handler.
+static esp_err_t wsError(PsychicWebSocketRequest* request, const char* json) {
+  request->reply(json);
+  request->client()->close();
+  return ESP_OK;
+}
+
 esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* frame) {
   int socketFd = request->client()->socket();
   String clientIp = request->client()->remoteIP().toString();
@@ -216,8 +378,7 @@ esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* fram
   DeserializationError error = deserializeJson(doc, payload);
   if (error) {
     ESP_LOGE(TAG, "WS JSON parse error (%s): %.200s", error.c_str(), payload.c_str());
-    request->reply("{\"type\":\"error\",\"message\":\"Invalid WS JSON Request\"}");
-    return ESP_OK;
+    return wsError(request, "{\"type\":\"error\",\"message\":\"Invalid WS JSON Request\"}");
   }
 
 #ifdef TEST_MODE
@@ -234,8 +395,7 @@ esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* fram
   }
 
   if (!session) {
-    request->reply("{\"type\":\"error\",\"subtype\":\"no_session\",\"message\":\"No portal session found for this device\"}");
-    return ESP_OK;
+    return wsError(request, "{\"type\":\"error\",\"subtype\":\"no_session\",\"message\":\"No portal session found for this device\"}");
   }
 
   String action = doc["action"] | "";
@@ -246,11 +406,13 @@ esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* fram
     request->client()->sendMessage(buildStatusJson(*session).c_str());
 
   } else if (action == "startCoinInsert") {
-    if (coinSessionTryClaim(socketFd, clientIp)) {
+    if (!isServiceReady()) {
+      return wsError(request, "{\"type\":\"error\",\"message\":\"Temporarily out of service — please try again shortly\"}");
+    } else if (coinSessionTryClaim(socketFd, clientIp)) {
       ESP_LOGI(TAG, "Coin insertion started for MAC: %s via WS", session->clientMac.c_str());
       request->client()->sendMessage(buildStatusJson(*session).c_str());
     } else {
-      request->reply("{\"type\":\"error\",\"message\":\"Another user already inserting coins\"}");
+      return wsError(request, "{\"type\":\"error\",\"message\":\"Another user already inserting coins\"}");
     }
 
   } else if (action == "pause") {
@@ -268,7 +430,7 @@ esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* fram
     ESP_LOGI(TAG, "Test coin inserted for MAC: %s (count: %d)", session->clientMac.c_str(), COIN_COUNT.load());
 #endif
   } else {
-    request->reply("{\"type\":\"error\",\"message\":\"Unknown action\"}");
+    return wsError(request, "{\"type\":\"error\",\"message\":\"Unknown action\"}");
   }
 
   return ESP_OK;
@@ -630,6 +792,7 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
   }
   doc["vendoActive"]   = vendoActive;
   doc["voucherActive"] = VOUCHER_ACTIVE_COUNT;
+  doc["serviceReady"]  = isServiceReady();  // false → out of service: coins off, banner, red LED
 
   // Omada controller status (cached from GET settings/system/status)
   {
@@ -640,6 +803,9 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
     ctrl["timeZone"]     = CONTROLLER_STATUS.timeZone;
     ctrl["uptimeMs"]     = CONTROLLER_STATUS.uptimeMillis;
     ctrl["clockSkewSec"] = CONTROLLER_STATUS.clockSkewSec;
+    ctrl["mgmtSsid"]       = MANAGEMENT_SSID;
+    ctrl["mgmtSsidBreach"] = CONTROLLER_STATUS.mgmtSsidBreach;
+    ctrl["siteLoaded"]     = !SITE_ID.isEmpty();  // for the out-of-service reason
   }
 
   // System health — master-only live metrics
@@ -703,10 +869,34 @@ esp_err_t handleAdminSellers(PsychicRequest* request, PsychicResponse* response)
   if (!checkAdminAuth(request, response)) return ESP_OK;
   response->addHeader("Cache-Control", "no-store");
   if (request->method() == HTTP_GET) {
+    // Start from the saved file (commission rates + node nicknames live only here).
+    JsonDocument doc;
     File f = LittleFS.open("/sellers.json", "r");
-    if (!f) return response->send(200, "application/json", "{\"sellers\":[],\"nodes\":[]}");
-    String content = f.readString(); f.close();
-    return response->send(200, "application/json", content.c_str());
+    if (f) { deserializeJson(doc, f); f.close(); }
+    if (!doc["sellers"].is<JsonArray>()) doc["sellers"].to<JsonArray>();
+    if (!doc["nodes"].is<JsonArray>())   doc["nodes"].to<JsonArray>();
+    JsonArray sellers = doc["sellers"].as<JsonArray>();
+
+    // Self-heal: add any seller seen in AUTOGEN voucher groups that isn't already listed.
+    // Voucher groups live on the controller, so seller names survive a LittleFS wipe — only
+    // their commission rate (file-only metadata) is lost and re-entered.
+    std::set<String> known;
+    for (JsonObject s : sellers) known.insert(s["name"].as<String>());
+    JsonDocument vg = getVoucherGroupsJson();
+    if (!vg.isNull()) {
+      for (JsonObject g : vg["result"]["data"].as<JsonArray>()) {
+        String gname = g["name"].as<String>();
+        if (!gname.startsWith("AUTOGEN: ")) continue;
+        String rest = gname.substring(9);
+        int sp = rest.indexOf(' ');
+        String seller = sp >= 0 ? rest.substring(sp + 1) : "";
+        if (seller.isEmpty() || known.count(seller)) continue;
+        known.insert(seller);
+        sellers.add<JsonObject>()["name"] = seller;
+      }
+    }
+    String json; serializeJson(doc, json);
+    return response->send(200, "application/json", json.c_str());
   }
   // POST — write sellers.json
   JsonDocument doc;
@@ -1141,6 +1331,13 @@ esp_err_t handleAdminClearVoucherCache(PsychicRequest* request, PsychicResponse*
   return response->send(200, "text/plain", "OK");
 }
 
+esp_err_t handleAdminClearErrors(PsychicRequest* request, PsychicResponse* response) {
+  if (!checkAdminAuth(request, response)) return ESP_OK;
+  if (fsExists("/errors.log")) LittleFS.remove("/errors.log");
+  ESP_LOGI(TAG, "Error log cleared by admin");  // INFO → not re-logged to errors.log
+  return response->send(200, "text/plain", "OK");
+}
+
 // ── GitHub OTA (pull the latest published build over HTTPS) ───────────────────
 // Source of truth is the GitHub *Release*: the firmware asset is named firmware-<BUILD>.bin,
 // so the build number lives in the artifact itself — no sidecar version.json to drift, and the
@@ -1296,9 +1493,14 @@ void setupWeb() {
   HTTP_SERVER.on("/admin/config",      HTTP_ANY,  handleAdminConfig);
   HTTP_SERVER.on("/admin/reboot",             HTTP_POST, handleAdminReboot);
   HTTP_SERVER.on("/admin/clear-voucher-cache", HTTP_POST, handleAdminClearVoucherCache);
+  HTTP_SERVER.on("/admin/clear-errors",        HTTP_POST, handleAdminClearErrors);
   HTTP_SERVER.on("/admin/github-check",        HTTP_GET,  handleGithubCheck);
   HTTP_SERVER.on("/admin/update-github",       HTTP_POST, handleGithubUpdate);
   HTTP_SERVER.on("/admin",             HTTP_GET,  handleAdminPage);
+  HTTP_SERVER.on("/admin/challenge",   HTTP_GET,  handleAdminChallenge);  // unauthenticated — login flow
+  HTTP_SERVER.on("/admin/login",       HTTP_POST, handleAdminLogin);      // unauthenticated — login flow
+  HTTP_SERVER.on("/admin/logout",      HTTP_POST, handleAdminLogout);
+  HTTP_SERVER.on("/sha256.min.js",     HTTP_GET,  handleSha256Js);        // unauthenticated — needed to log in
   HTTP_SERVER.on("/config.json", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
     return res->send(403, "text/plain", "Forbidden");
   });

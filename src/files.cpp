@@ -6,6 +6,8 @@
 #include <esp_log.h>
 #include <stdarg.h>
 #include <sys/stat.h>
+#include <errno.h>
+#include <string.h>  // strerror
 #include "logger.h"
 
 static const char* TAG = "files";
@@ -87,7 +89,7 @@ void checkSerialCommands() {
 }
 
 void setupLogs() {
-  purgeOldLogEntries("/errors.log");
+  purgeOldLogEntries("/errors.log", 86400, 500);  // cap to last 500 — a controller-down flood can blow past the age window
   purgeOldLogEntries("/refunds.log");
   purgeOldLogEntries("/vendo_history.json",   365 * 86400);
   purgeOldLogEntries("/voucher_history.json", 365 * 86400);
@@ -113,24 +115,24 @@ bool loadConfig() {
     ESP_LOGE(TAG, "Failed to parse config.json: %s", err.c_str());
     return false;
   }
-  AP_SSID               = doc["wifi_ssid"]               | "";
-  AP_PASSWORD           = doc["wifi_password"]            | "";
+  MANAGEMENT_SSID       = doc["wifi_ssid"]               | "";
+  MANAGEMENT_PASSWORD   = doc["wifi_password"]            | "";
   CONTROLLER_BASE_URL   = doc["omada_url"]                | "";
   CONTROLLER_ID         = doc["omada_controller_id"]      | "";
   ADMIN_USERNAME        = doc["omada_username"]           | "";
   ADMIN_PASSWORD        = doc["omada_password"]           | "";
   MASTER_MAC            = doc["master_mac"]               | "";
-  NET_PSK               = doc["network_key"]              | 0ULL;
+  NET_KEY               = doc["network_key"]              | 0ULL;
   MINUTES_PER_COIN      = doc["minutes_per_coin"]         | 24;
   PRICE_PER_COIN        = doc["price_per_coin"]           | 5;
-  if (AP_SSID.isEmpty())             { ESP_LOGE(TAG, "config.json missing: wifi_ssid");           return false; }
-  if (AP_PASSWORD.isEmpty())         { ESP_LOGE(TAG, "config.json missing: wifi_password");       return false; }
+  if (MANAGEMENT_SSID.isEmpty())     { ESP_LOGE(TAG, "config.json missing: wifi_ssid");           return false; }
+  if (MANAGEMENT_PASSWORD.isEmpty()) { ESP_LOGE(TAG, "config.json missing: wifi_password");       return false; }
   if (CONTROLLER_BASE_URL.isEmpty()) { ESP_LOGE(TAG, "config.json missing: omada_url");           return false; }
   if (CONTROLLER_ID.isEmpty())       { ESP_LOGE(TAG, "config.json missing: omada_controller_id"); return false; }
   if (ADMIN_USERNAME.isEmpty())      { ESP_LOGE(TAG, "config.json missing: omada_username");      return false; }
   if (ADMIN_PASSWORD.isEmpty())      { ESP_LOGE(TAG, "config.json missing: omada_password");      return false; }
-  if (NET_PSK == 0)                  { ESP_LOGE(TAG, "config.json missing: network_key");         return false; }
-  ESP_LOGI(TAG, "Config loaded: ssid=%s url=%s", AP_SSID.c_str(), CONTROLLER_BASE_URL.c_str());
+  if (NET_KEY == 0)                  { ESP_LOGE(TAG, "config.json missing: network_key");         return false; }
+  ESP_LOGI(TAG, "Config loaded: ssid=%s url=%s", MANAGEMENT_SSID.c_str(), CONTROLLER_BASE_URL.c_str());
   return true;
 }
 
@@ -181,25 +183,41 @@ void deletePausedSessionFile(const String& mac) {
 
 // ── Logging ───────────────────────────────────────────────────────────────────
 
-void purgeOldLogEntries(const char* path, time_t maxAgeSeconds) {
+void purgeOldLogEntries(const char* path, time_t maxAgeSeconds, int maxEntries) {
   if (!fsExists(path)) return;
   const char* tmpPath = "/log_tmp.dat";
+  time_t cutoff = time(NULL) - maxAgeSeconds;
+
+  // First pass: count entries that survive the age filter. A flood can blow past the age window
+  // (e.g. the controller down spamming errors), so we also drop the oldest beyond maxEntries.
+  int surviving = 0;
+  {
+    File src = LittleFS.open(path, FILE_READ);
+    if (!src) return;
+    while (src.available()) {
+      String line = src.readStringUntil('\n');
+      line.trim();
+      if (line.isEmpty()) continue;
+      int tsIdx = line.indexOf("\"ts\":");
+      if (tsIdx >= 0 && (time_t)atol(line.c_str() + tsIdx + 5) < cutoff) continue;
+      surviving++;
+    }
+    src.close();
+  }
+  int skip = (maxEntries > 0 && surviving > maxEntries) ? surviving - maxEntries : 0;
+
   File src = LittleFS.open(path, FILE_READ);
   if (!src) return;
   File dst = LittleFS.open(tmpPath, FILE_WRITE);
   if (!dst) { src.close(); return; }
-
-  time_t cutoff = time(NULL) - maxAgeSeconds;
-  int kept = 0, removed = 0;
+  int kept = 0, removed = 0, idx = 0;
   while (src.available()) {
     String line = src.readStringUntil('\n');
     line.trim();
     if (line.isEmpty()) continue;
     int tsIdx = line.indexOf("\"ts\":");
-    if (tsIdx >= 0) {
-      time_t ts = (time_t)atol(line.c_str() + tsIdx + 5);
-      if (ts < cutoff) { removed++; continue; }
-    }
+    if (tsIdx >= 0 && (time_t)atol(line.c_str() + tsIdx + 5) < cutoff) { removed++; continue; }
+    if (idx++ < skip) { removed++; continue; }   // oldest survivors beyond the count cap
     dst.println(line);
     kept++;
   }
@@ -213,7 +231,13 @@ void purgeOldLogEntries(const char* path, time_t maxAgeSeconds) {
 // appendErrorLog must NOT call ESP_LOGE — would recurse via logger.h macro.
 void appendErrorLog(const char* tag, const char* msg) {
   File f = LittleFS.open("/errors.log", FILE_APPEND);
-  if (!f) return;
+  if (!f) {
+    // DIAGNOSTIC: errno tells us why (EMFILE/ENFILE = handle exhaustion, ENOSPC = full, etc.).
+    // Serial (not ESP_LOGE) to avoid recursing back into here.
+    Serial.printf("E (%lu) files: appendErrorLog open FAILED errno=%d (%s) — dropped [%s] %s\r\n",
+                  (unsigned long)millis(), errno, strerror(errno), tag, msg);
+    return;
+  }
   JsonDocument doc;
   doc["ts"]  = (long)time(NULL);
   doc["tag"] = tag;
@@ -247,18 +271,12 @@ void _logToBuffer(char level, const char* tag, const char* fmt, ...) {
   logCore(level, tag, buf);
 }
 
-void logAppend(char level, const char* tag, const char* fmt, ...) {
-  char buf[512];
-  va_list args;
-  va_start(args, fmt);
-  vsnprintf(buf, sizeof(buf), fmt, args);
-  va_end(args);
-  logCore(level, tag, buf);
-}
-
 void appendRefundLog(const String& mac, int coins, int minutes, const String& code) {
   File f = LittleFS.open("/refunds.log", FILE_APPEND);
-  if (!f) return;
+  if (!f) {
+    ESP_LOGE(TAG, "appendRefundLog: can't open /refunds.log — refund code %s (%d coins) NOT persisted", code.c_str(), coins);
+    return;
+  }
   JsonDocument doc;
   doc["ts"]      = (long)time(NULL);
   doc["mac"]     = mac;
@@ -272,7 +290,10 @@ void appendRefundLog(const String& mac, int coins, int minutes, const String& co
 
 void appendSaleLog(int coins, int minutes, const String& nodeMac) {
   File f = LittleFS.open("/vendo_history.json", FILE_APPEND);
-  if (!f) return;
+  if (!f) {
+    ESP_LOGE(TAG, "appendSaleLog: can't open /vendo_history.json — sale (%d coins, node '%s') NOT persisted", coins, nodeMac.c_str());
+    return;
+  }
   JsonDocument doc;
   doc["ts"]    = (long)time(NULL);
   doc["coins"] = coins;

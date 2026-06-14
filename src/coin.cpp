@@ -20,7 +20,7 @@ static volatile unsigned long COINSLOT_FALL_TIME   = 0;
 // ISR-only — debounce timestamp for button (millis)
 static volatile unsigned long LAST_COIN_PULSE_TIME = 0;
 
-// ── ISR + timer ───────────────────────────────────────────────────────────────
+// ── ISRs ──────────────────────────────────────────────────────────────────────
 
 // Triggers on CHANGE to measure pulse width — same pitik rejection as coin slot.
 // Pitik spikes couple electromagnetically into GPIO0 (~100us); real press holds LOW for 50-200ms.
@@ -309,7 +309,7 @@ static void finalizeSession(bool fraudEnded, const std::map<String, int>& nodeCo
   SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(coinU32ToIp(slot.clientIpV4));
 
   if (coinCount > 0 && session) {
-    unsigned long long additionalMillis = coinCount * MINUTES_PER_COIN * MILLIS_PER_MINUTE;
+    unsigned long long additionalMillis = (unsigned long long)coinCount * MINUTES_PER_COIN * MILLIS_PER_MINUTE;
     uint64_t nowMillis = nowEpochMillis();
 
     if (session->sessionEndMillis > nowMillis && !session->clientId.isEmpty()) {
@@ -363,12 +363,14 @@ static void finalizeSession(bool fraudEnded, const std::map<String, int>& nodeCo
         refundCode = generateRefundCode();
         appendRefundLog(session->clientMac, coinCount, coinCount * MINUTES_PER_COIN, refundCode);
       }
-      String errJson = "{\"type\":\"error\"";
-      if (errorSubtype.length() > 0) errJson += ",\"subtype\":\"" + errorSubtype + "\"";
-      errJson += ",\"message\":\"" + errorMsg + "\"";
-      if (errorDetail.length() > 0) errJson += ",\"detail\":\"" + errorDetail + "\"";
-      if (refundCode.length() > 0)  errJson += ",\"refundCode\":\"" + refundCode + "\"";
-      errJson += "}";
+      JsonDocument err;  // ArduinoJson escapes errorDetail (Omada's msg can contain quotes)
+      err["type"] = "error";
+      if (errorSubtype.length() > 0) err["subtype"]    = errorSubtype;
+      err["message"] = errorMsg;
+      if (errorDetail.length() > 0)  err["detail"]     = errorDetail;
+      if (refundCode.length() > 0)   err["refundCode"] = refundCode;
+      String errJson;
+      serializeJson(err, errJson);
       ws->sendMessage(errJson.c_str());
     }
     ws->close();

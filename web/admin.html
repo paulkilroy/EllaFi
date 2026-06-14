@@ -139,8 +139,29 @@
       .v-card .v-meta { font-size: 7px; color: #555 !important; line-height: 1.2; margin: 0; }
     }
   </style>
+  <script src="/sha256.min.js"></script>
 </head>
 <body>
+
+<div id="login-overlay" style="display:none;position:fixed;inset:0;background:#0f1420;z-index:9999;align-items:center;justify-content:center;">
+  <div style="background:#16213e;padding:2rem;border-radius:12px;width:300px;max-width:90%;box-shadow:0 8px 40px rgba(0,0,0,.5);">
+    <h2 style="margin:0 0 1rem;color:#fff;">EllaFi Admin</h2>
+    <input id="login-pass" type="password" placeholder="Admin password" autocomplete="current-password"
+           style="width:100%;padding:.6rem;margin-bottom:.6rem;border-radius:6px;border:1px solid #2a3a55;background:#0f1626;color:#fff;box-sizing:border-box;">
+    <button id="login-btn" onclick="doLogin()"
+            style="width:100%;padding:.6rem;border:0;border-radius:6px;background:#2ecc71;color:#fff;font-weight:600;cursor:pointer;">Log in</button>
+    <div id="login-err" style="color:#e74c3c;margin-top:.6rem;min-height:1em;font-size:.9em;"></div>
+  </div>
+</div>
+
+<div id="reconnect-overlay" style="display:none;position:fixed;inset:0;background:rgba(15,20,32,.92);z-index:9998;align-items:center;justify-content:center;">
+  <div style="text-align:center;color:#cdd7e6;">
+    <div class="reconnect-spinner" style="width:36px;height:36px;margin:0 auto 1rem;border:3px solid #2a3a55;border-top-color:#2ecc71;border-radius:50%;animation:reconnect-spin 1s linear infinite;"></div>
+    <div style="font-weight:600;">Reconnecting…</div>
+    <div style="font-size:.85em;color:#6a7a90;margin-top:.3rem;">Waiting for the device to come back online.</div>
+  </div>
+</div>
+<style>@keyframes reconnect-spin{to{transform:rotate(360deg)}}</style>
 
 <header>
   <div>
@@ -148,7 +169,10 @@
     <div class="subtitle">Coin WiFi Management</div>
   </div>
   <div style="margin-left:auto;font-size:12px;color:#6a7a90" id="hdr-status">Connecting...</div>
+  <button onclick="doLogout()" style="margin-left:1rem;padding:.3rem .6rem;font-size:12px;background:#222c3c;color:#8aa;border:1px solid #2a3a55;border-radius:4px;cursor:pointer;">Log out</button>
 </header>
+
+<div id="service-banner" style="display:none;background:#7a1f1f;color:#fff;padding:.6rem 1rem;text-align:center;font-weight:600;border-bottom:2px solid #e74c3c;"></div>
 
 <nav>
   <button class="active" onclick="showTab('dashboard',this)">Dashboard</button>
@@ -272,7 +296,7 @@
         <thead>
           <tr>
             <th><input type="checkbox" id="v-all" onchange="toggleAll(this)"></th>
-            <th>Generated</th><th>Seller</th><th>Vouchers</th><th>Duration</th><th>Price</th><th></th>
+            <th>Generated</th><th>Seller</th><th>Used</th><th>Duration</th><th>Price</th><th></th>
           </tr>
         </thead>
         <tbody id="v-tbody"></tbody>
@@ -304,6 +328,7 @@
     <div class="section-title">
       Error Log
       <button class="btn btn-sm btn-primary" onclick="loadErrors()">Refresh</button>
+      <button class="btn btn-sm btn-danger" onclick="clearErrors()">Clear</button>
     </div>
     <div class="tbl-wrap">
       <table>
@@ -469,6 +494,82 @@
 
 <script>
 // ─────────────────────────────────────────────────────────────────────────────
+// Admin login (challenge-response; password never sent — see /admin/login)
+// ─────────────────────────────────────────────────────────────────────────────
+function showLogin() {
+  const o = document.getElementById('login-overlay');
+  o.style.display = 'flex';
+  document.getElementById('login-pass').focus();
+}
+async function doLogin() {
+  const pass = document.getElementById('login-pass').value;
+  const err  = document.getElementById('login-err');
+  const btn  = document.getElementById('login-btn');
+  err.textContent = ''; btn.disabled = true;
+  try {
+    const ch = await fetch('/admin/challenge', { cache: 'no-store' });
+    if (!ch.ok) { err.textContent = 'Server error'; btn.disabled = false; return; }
+    const { nonce } = await ch.json();
+    const digest = sha256(nonce + ':' + pass);
+    const r = await fetch('/admin/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nonce, digest })
+    });
+    if (r.ok) { location.reload(); return; }
+    err.textContent = (r.status === 429) ? 'Too many attempts — wait a minute.' : 'Wrong password.';
+    btn.disabled = false;
+  } catch (e) { err.textContent = 'Network error'; btn.disabled = false; }
+}
+async function doLogout() {
+  try { await fetch('/admin/logout', { method: 'POST' }); } catch (e) {}
+  stopDevLog();
+  showLogin();   // overlay is opaque → covers the stale dashboard, no empty-shell flash from a reload
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const p = document.getElementById('login-pass');
+  if (p) p.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+});
+// Any gated request that comes back 401 means our session is gone — e.g. the device rebooted and
+// wiped its in-RAM sessions, or the cookie expired. Globally surface the login overlay instead of
+// silently rendering empty pages (which looked like the tabs were broken until a manual refresh).
+const _origFetch = window.fetch.bind(window);
+
+// While the device is rebooting it refuses connections (a thrown network error, not a 401), so
+// the page would otherwise look frozen. Show a "Reconnecting…" overlay and poll until it answers.
+let reconnectTimer = null;
+function showReconnecting() {
+  document.getElementById('reconnect-overlay').style.display = 'flex';
+  if (reconnectTimer) return;                       // watchdog already running
+  reconnectTimer = setInterval(async () => {
+    try {
+      const r = await _origFetch('/admin/nodes', { cache: 'no-store' });
+      hideReconnecting();                           // it answered → we're back
+      if (r.status === 401) { stopDevLog(); showLogin(); }
+    } catch (e) { /* still down — keep waiting */ }
+  }, 1500);
+}
+function hideReconnecting() {
+  document.getElementById('reconnect-overlay').style.display = 'none';
+  if (reconnectTimer) { clearInterval(reconnectTimer); reconnectTimer = null; }
+}
+
+window.fetch = async (...args) => {
+  let r;
+  try { r = await _origFetch(...args); }
+  catch (e) { showReconnecting(); throw e; }        // connection refused → device is down
+  hideReconnecting();
+  if (r.status === 401) { stopDevLog(); showLogin(); }
+  return r;
+};
+
+// Probe auth on load: if the session cookie is missing/expired, show the login overlay
+// (it covers the dashboard, which would otherwise just render empty on 401s).
+(async function authProbe() {
+  try { if ((await fetch('/admin/nodes', { cache: 'no-store' })).status === 401) showLogin(); }
+  catch (e) {}
+})();
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Tab routing
 // ─────────────────────────────────────────────────────────────────────────────
 function goToSettings() {
@@ -613,15 +714,18 @@ async function loadDashboard() {
       document.getElementById('d-sessions-voucher').textContent = data.voucherActive ?? '—';
       renderNodeHealth(data.nodes || []);
       renderSystemHealth(data.sys, data.controller);
+      updateServiceBanner(data);
     } else {
       renderNodeHealth([]);
       renderSystemHealth(null, null);
+      updateServiceBanner(null);
     }
   } catch {
     document.getElementById('d-sessions-vendo').textContent   = '—';
     document.getElementById('d-sessions-voucher').textContent = '—';
     renderNodeHealth([]);
     renderSystemHealth(null);
+    updateServiceBanner(null);
   }
 
   try {
@@ -656,6 +760,19 @@ function fmtUptime(ms) {
   return `${m}m`;
 }
 
+function updateServiceBanner(data) {
+  const el = document.getElementById('service-banner');
+  if (!el) return;
+  if (!data || data.serviceReady) { el.style.display = 'none'; return; }
+  const c = data.controller || {}, s = data.sys || {};
+  const reason = !s.ntpSynced  ? 'clock not set (no internet?)'
+               : !c.reachable  ? 'controller unreachable'
+               : !c.siteLoaded ? 'controller site not loaded'
+               :                 'service unavailable';
+  el.innerHTML = `⚠ OUT OF SERVICE — ${reason}. Coin selling is paused. Fix the controller URL in <b>Settings</b>.`;
+  el.style.display = 'block';
+}
+
 function renderSystemHealth(sys, ctrl) {
   const rows = [];
   if (ctrl) {
@@ -668,6 +785,11 @@ function renderSystemHealth(sys, ctrl) {
       const skewVal = skew < 5 ? '<span style="color:#2ecc71">In sync</span>'
         : `<span style="color:${skew < 60 ? '#f39c12' : '#e74c3c'}">Skew ${skew < 60 ? skew + 's' : Math.round(skew / 60) + 'm'}</span>`;
       rows.push({ metric: 'Controller Clock', value: skewVal });
+    }
+    if (ctrl.mgmtSsid) {
+      rows.push({ metric: 'Mgmt SSID Isolation', value: ctrl.mgmtSsidBreach
+        ? `<span style="color:#e74c3c">⚠ Breach — a customer is on ${ctrl.mgmtSsid} (see logs)</span>`
+        : `<span style="color:#2ecc71">Clear</span> · ${ctrl.mgmtSsid}` });
     }
   }
   if (sys) {
@@ -887,6 +1009,7 @@ function renderVoucherTable() {
     count.textContent = '';
     return;
   }
+  voucherGroups.sort((a, b) => (b.createdTime || 0) - (a.createdTime || 0));  // newest first
   const sel = voucherGroups.filter(g => g.checked).length;
   const totalPages = voucherGroups.reduce((s, g) => s + (g.pages || Math.round(g.qty / CARDS_PER_PAGE)), 0);
   count.textContent = `${voucherGroups.length} batch${voucherGroups.length !== 1 ? 'es' : ''} · ${totalPages} pages` + (sel ? ` · ${sel} selected` : '');
@@ -897,7 +1020,11 @@ function renderVoucherTable() {
       <td><input type="checkbox" ${g.checked?'checked':''} onchange="voucherGroups[${i}].checked=this.checked;renderVoucherTable()"></td>
       <td class="muted">${g.createdTime ? new Date(g.createdTime).toLocaleDateString('en-PH') : '—'}</td>
       <td>${g.seller}${commLabel}</td>
-      <td>${g.usedCount != null ? `<span style="color:#5dade2">${g.usedCount}</span> / ${g.totalCount}` : (g.pages || '—') + ' pages'}</td>
+      <td>${(() => {
+        const total = g.totalCount ?? (g.pages || 0) * CARDS_PER_PAGE;  // fresh batch: no counts yet
+        const used  = g.usedCount  ?? 0;                                // ...so none used yet
+        return `<span style="color:#5dade2">${used}</span> / ${total}`;
+      })()}</td>
       <td>${durLabelShort(g.duration)}</td>
       <td>₱${g.price}</td>
       <td style="white-space:nowrap">
@@ -1293,6 +1420,12 @@ function stopDevLog() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Logs
 // ─────────────────────────────────────────────────────────────────────────────
+async function clearErrors() {
+  if (!confirm('Clear the error log? This cannot be undone.')) return;
+  await fetch('/admin/clear-errors', { method: 'POST' });
+  loadErrors();
+}
+
 async function loadErrors() {
   const tbody = document.getElementById('err-tbody');
   tbody.innerHTML = '<tr><td colspan="3" class="muted">Loading...</td></tr>';

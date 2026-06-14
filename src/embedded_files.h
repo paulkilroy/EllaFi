@@ -24,3 +24,6 @@ extern const uint8_t web_favicon_ico_end[]               asm("_binary_web_favico
 
 extern const uint8_t web_jspdf_umd_min_js_start[]        asm("_binary_web_jspdf_umd_min_js_start");
 extern const uint8_t web_jspdf_umd_min_js_end[]          asm("_binary_web_jspdf_umd_min_js_end");
+
+extern const uint8_t web_sha256_min_js_start[]           asm("_binary_web_sha256_min_js_start");
+extern const uint8_t web_sha256_min_js_end[]             asm("_binary_web_sha256_min_js_end");

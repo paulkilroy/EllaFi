@@ -2,7 +2,7 @@
  * EllaFi - ESP32 Coin-Operated WiFi Hotspot Portal
  *
  * Captive portal for coin-operated WiFi access via TP-Link Omada Controller (EAP auth, v5.11+).
- * Uses WebSockets for real-time state push. Session data keyed by client IP in HOTSPOT_SESSION_CACHE.
+ * Uses WebSockets for real-time state push. Session data keyed by client MAC in HOTSPOT_SESSION_CACHE.
  *
  * Endpoints: GET / (portal page), WS /ws (real-time comms)
  *
@@ -109,8 +109,8 @@ std::atomic<int>            COIN_COUNT{0};
 std::atomic<CoinSessionSlot> COIN_SESSION_SLOT{ CoinSessionSlot{0, -1} };
 std::atomic<unsigned long>  COIN_DEADLINE_MILLIS{0};
 
-String AP_SSID;
-String AP_PASSWORD;
+String MANAGEMENT_SSID;
+String MANAGEMENT_PASSWORD;
 
 // ── Arduino entry points ──────────────────────────────────────────────────────
 
@@ -127,15 +127,15 @@ static bool setupPins() {
 }
 
 static bool setupWifi() {
-  WiFi.begin(AP_SSID.c_str(), AP_PASSWORD.c_str());
-  ESP_LOGI(TAG, "Connecting to WiFi: %s", AP_SSID.c_str());
+  WiFi.begin(MANAGEMENT_SSID.c_str(), MANAGEMENT_PASSWORD.c_str());
+  ESP_LOGI(TAG, "Connecting to WiFi: %s", MANAGEMENT_SSID.c_str());
   for (int i = 0; i < 5; i++) {
     delay(500);
     if (WiFi.status() == WL_CONNECTED) break;
     ESP_LOGW(TAG, "WiFi not connected — attempt %d/5", i + 1);
   }
   if (WiFi.status() != WL_CONNECTED) {
-    ESP_LOGE(TAG, "WiFi failed (SSID: %s)", AP_SSID.c_str());
+    ESP_LOGE(TAG, "WiFi failed (SSID: %s)", MANAGEMENT_SSID.c_str());
     WiFi.disconnect(true);
     return false;
   }
@@ -199,11 +199,11 @@ void setup() {
   ESP_LOGI(TAG, "Running firmware: build %d (%s), image %u bytes",
            FIRMWARE_BUILD, FIRMWARE_VERSION, (unsigned)RUNNING_IMAGE_SIZE);
   setupNetwork();
-  RETRY_ON_FAIL(setupNtp());
+  setupNtp();          // best-effort — never block the admin; loop() retries until synced
   setupLogs();
   if (IS_MASTER) {
-    RETRY_ON_FAIL(setupOmada());
-    setupWeb();
+    setupWeb();        // ALWAYS up first, so /admin is reachable even if NTP/Omada are down
+    setupOmada();      // best-effort — loop() retries login + site-load in the background
   }
   setupTasks();
   ledReady();
@@ -227,6 +227,26 @@ void loop() {
   if (millis() - lastHeartbeat > HEARTBEAT_INTERVAL_MILLIS) {
     lastHeartbeat = millis();
     broadcastHeartbeat();
+  }
+
+  // Service-health monitor (master): keep /admin reachable when NTP/Omada are down, retry them in
+  // the background, and reflect the state on the LED. Coin selling is gated on isServiceReady().
+  if (IS_MASTER) {
+    static bool wasReady = true;
+    static unsigned long lastServiceRetry = 0;
+    bool ready = isServiceReady();
+    if (ready != wasReady) {
+      ready ? ledReady() : ledError();   // solid idle when healthy, red blink when out of service
+      ESP_LOGW(TAG, ready ? "Service restored — coin selling enabled"
+                          : "OUT OF SERVICE — NTP/controller down; coin selling paused (admin still up)");
+      wasReady = ready;
+    }
+    if (!ready && millis() - lastServiceRetry > 30000) {
+      lastServiceRetry = millis();
+      if (time(NULL) < NTP_EPOCH_MIN)
+        configTime(0, 0, "pool.ntp.org", "time.cloudflare.com", "time.google.com");  // non-blocking NTP re-trigger
+      setupOmada();   // re-login + reload SITE_ID (recovers when controller is back / URL fixed)
+    }
   }
 
   networkLoop();

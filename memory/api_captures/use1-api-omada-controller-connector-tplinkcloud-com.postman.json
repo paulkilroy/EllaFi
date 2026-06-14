@@ -1,0 +1,4103 @@
+{
+  "info": {
+    "name": "Captured \u2014 use1-api-omada-controller-connector.tplinkcloud.com",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://use1-api-omada-controller-connector.tplinkcloud.com"
+    }
+  ],
+  "item": [
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/adopt-tip",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/adopt-tip",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "adopt-tip"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/client-detail-information",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/client-detail-information",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "client-detail-information"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/openapi/v1/{id2}/clients/stat/devices",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/clients/stat/devices",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "clients",
+            "stat",
+            "devices"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"devices\": [\n    {\n      \"mac\": \"\",\n      \"siteId\": \"\"\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/devices/upgradeable/stat",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/devices/upgradeable/stat",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "devices",
+            "upgradeable",
+            "stat"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/openapi/v1/{id2}/settings/ui-setting",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/settings/ui-setting",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "settings",
+            "ui-setting"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"settings\": [\n    {\n      \"settingKey\": \"\"\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "PUT /omadac/{id}/openapi/v1/{id2}/settings/ui-setting",
+      "request": {
+        "method": "PUT",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/settings/ui-setting",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "settings",
+            "ui-setting"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"settings\": [\n    {\n      \"settingKey\": \"\",\n      \"uiSetting\": \"\",\n      \"accountLevel\": false\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/clients/search-fields-options",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/clients/search-fields-options",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "clients",
+            "search-fields-options"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/active-clients",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/active-clients",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "active-clients"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/ap-density",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/ap-density",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "ap-density"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/card/overview",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/card/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "card",
+            "overview"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/categoryInfo",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/categoryInfo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "categoryInfo"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "page",
+              "value": ""
+            },
+            {
+              "key": "pageSize",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/client-association-activities",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/client-association-activities",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "client-association-activities"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/client-association-time-distribution",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/client-association-time-distribution",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "client-association-time-distribution"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/client-freq-distribution",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/client-freq-distribution",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "client-freq-distribution"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/client-rssi-distribution",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/client-rssi-distribution",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "client-rssi-distribution"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/client-signal-distribution",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/client-signal-distribution",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "client-signal-distribution"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/client-ssid-distribution",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/client-ssid-distribution",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "client-ssid-distribution"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/clients-bubble",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/clients-bubble",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "clients-bubble"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/current-client-num",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/current-client-num",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "current-client-num"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/gateway/isp/load",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/gateway/isp/load",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "gateway",
+            "isp",
+            "load"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/longest-uptime",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/longest-uptime",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "longest-uptime"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/mostActiveAppTraffic",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/mostActiveAppTraffic",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "mostActiveAppTraffic"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/dashboard/top-aps",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/dashboard/top-aps",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "top-aps"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/health/client/timeline",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/health/client/timeline",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "health",
+            "client",
+            "timeline"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/health/timeline",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/health/timeline",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "health",
+            "timeline"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/hotspot/portal/candidates",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/hotspot/portal/candidates",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "hotspot",
+            "portal",
+            "candidates"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"allPortal\": false,\n  \"portalIds\": [\n    \"\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/hotspot/voucher-group-options",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/hotspot/voucher-group-options",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "hotspot",
+            "voucher-group-options"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": ""
+            },
+            {
+              "key": "pageSize",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/hotspot/vouchers/statistics/history/distribution/unit-price/voucher-groups/{id3}",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/hotspot/vouchers/statistics/history/distribution/unit-price/voucher-groups/{{id3}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "hotspot",
+            "vouchers",
+            "statistics",
+            "history",
+            "distribution",
+            "unit-price",
+            "voucher-groups",
+            "{{id3}}"
+          ],
+          "query": [
+            {
+              "key": "filters.timeEnd",
+              "value": ""
+            },
+            {
+              "key": "filters.timeStart",
+              "value": ""
+            },
+            {
+              "key": "page",
+              "value": ""
+            },
+            {
+              "key": "pageSize",
+              "value": ""
+            },
+            {
+              "key": "sorts.usedCount",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/hotspot/vouchers/statistics/history/voucher-groups/{id3}",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/hotspot/vouchers/statistics/history/voucher-groups/{{id3}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "hotspot",
+            "vouchers",
+            "statistics",
+            "history",
+            "voucher-groups",
+            "{{id3}}"
+          ],
+          "query": [
+            {
+              "key": "filters.timeEnd",
+              "value": ""
+            },
+            {
+              "key": "filters.timeStart",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/hotspot/vouchers/statistics/summary/voucher-groups/{id3}",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/hotspot/vouchers/statistics/summary/voucher-groups/{{id3}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "hotspot",
+            "vouchers",
+            "statistics",
+            "summary",
+            "voucher-groups",
+            "{{id3}}"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/report/allTabs",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/report/allTabs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "report",
+            "allTabs"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/report/cards",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/report/cards",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "report",
+            "cards"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"cards\": [\n    {\n      \"type\": \"\",\n      \"topK\": 0\n    }\n  ],\n  \"start\": 0,\n  \"end\": 0\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/rfPlanning/dashboard",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/rfPlanning/dashboard",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "rfPlanning",
+            "dashboard"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/rfPlanning/dashboard/history",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/rfPlanning/dashboard/history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "rfPlanning",
+            "dashboard",
+            "history"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/rfPlanning/dashboard/status",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/rfPlanning/dashboard/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "rfPlanning",
+            "dashboard",
+            "status"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/settings/ui-setting",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/settings/ui-setting",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "settings",
+            "ui-setting"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"settings\": [\n    {\n      \"settingKey\": \"\"\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "PUT /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/settings/ui-setting",
+      "request": {
+        "method": "PUT",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/settings/ui-setting",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "settings",
+            "ui-setting"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"settings\": [\n    {\n      \"settingKey\": \"\",\n      \"uiSetting\": \"\",\n      \"accountLevel\": false\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/wifi/health/client/list",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/wifi/health/client/list",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "wifi",
+            "health",
+            "client",
+            "list"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"time\": 0,\n  \"topK\": 0\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/wifi/health/timeline",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/wifi/health/timeline",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "wifi",
+            "health",
+            "timeline"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v1/{id2}/sites/{siteId}/wifi/sub/health/timeline",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v1/{{id2}}/sites/{{siteId}}/wifi/sub/health/timeline",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v1",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "wifi",
+            "sub",
+            "health",
+            "timeline"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/openapi/v2/{id2}/sites/{siteId}/clients",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v2/{{id2}}/sites/{{siteId}}/clients",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v2",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "clients"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"filters\": {\n    \"active\": false\n  },\n  \"sorts\": {\n    \"trafficDown\": \"\"\n  },\n  \"hideHealthUnsupported\": false,\n  \"page\": 0,\n  \"pageSize\": 0,\n  \"scope\": 0\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v2/{id2}/sites/{siteId}/topology/available-network",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v2/{{id2}}/sites/{{siteId}}/topology/available-network",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v2",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "topology",
+            "available-network"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/openapi/v2/{id2}/sites/{siteId}/topology/devices/all-clients",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v2/{{id2}}/sites/{{siteId}}/topology/devices/all-clients",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v2",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "topology",
+            "devices",
+            "all-clients"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deviceMacs\": [\n    {\n      \"mac\": \"\",\n      \"filterType\": \"\"\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v2/{id2}/sites/{siteId}/topology/isolated-and-pre-config",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v2/{{id2}}/sites/{{siteId}}/topology/isolated-and-pre-config",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v2",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "topology",
+            "isolated-and-pre-config"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v2/{id2}/sites/{siteId}/topology/search-device-client",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v2/{{id2}}/sites/{{siteId}}/topology/search-device-client",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v2",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "topology",
+            "search-device-client"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": ""
+            },
+            {
+              "key": "pageSize",
+              "value": ""
+            },
+            {
+              "key": "searchField",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/openapi/v3/{id2}/sites/{siteId}/topology",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/openapi/v3/{{id2}}/sites/{{siteId}}/topology",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "openapi",
+            "v3",
+            "{{id2}}",
+            "sites",
+            "{{siteId}}",
+            "topology"
+          ],
+          "query": [
+            {
+              "key": "filters.deviceStatus",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/alerts/num",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/alerts/num",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "alerts",
+            "num"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/anon/global/dst",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/anon/global/dst",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "anon",
+            "global",
+            "dst"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/audit-notification",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/audit-notification",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "audit-notification"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/audit/logs",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/audit/logs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "audit",
+            "logs"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            },
+            {
+              "key": "filters.times",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/capabilities",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/capabilities",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "capabilities"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/cluster/nodes",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/cluster/nodes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "cluster",
+            "nodes"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/cmd/devicemodelimg",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/cmd/devicemodelimg",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "cmd",
+            "devicemodelimg"
+          ],
+          "query": [
+            {
+              "key": "cloudAccess",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/controller/client/historyEnable",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/controller/client/historyEnable",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "controller",
+            "client",
+            "historyEnable"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/controller/features",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/controller/features",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "controller",
+            "features"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/controller/notification/updateInfo",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/controller/notification/updateInfo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "controller",
+            "notification",
+            "updateInfo"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/controller/setting",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/controller/setting",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "controller",
+            "setting"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "PATCH /omadac/{id}/{id2}/api/v2/controller/setting",
+      "request": {
+        "method": "PATCH",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/controller/setting",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "controller",
+            "setting"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"loggingLevel\": {\n    \"type\": \"\"\n  },\n  \"webPort\": {\n    \"hostName\": \"\",\n    \"autoRefresh\": false,\n    \"manageHttpsPort\": 0,\n    \"manageHttpPort\": 0,\n    \"upgradeHttpsPort\": 0,\n    \"portalHttpPort\": 0,\n    \"portalHttpsPort\": 0,\n    \"autoPortalIpEnable\": false,\n    \"portalHttpsRedirect\": false\n  },\n  \"deviceManage\": {\n    \"deviceHostEnable\": false,\n    \"deviceHost\": \"\"\n  },\n  \"firmware\": {\n    \"controllerNotification\": false,\n    \"releaseChannel\": 0\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/controller/settings/general",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/controller/settings/general",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "controller",
+            "settings",
+            "general"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/controller/systemTime",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/controller/systemTime",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "controller",
+            "systemTime"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/current/user-detail",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/current/user-detail",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "current",
+            "user-detail"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/current/user/init-info",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/current/user/init-info",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "current",
+            "user",
+            "init-info"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/current/view",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/current/view",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "current",
+            "view"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/dashboard/overview-without-client",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/dashboard/overview-without-client",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "dashboard",
+            "overview-without-client"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/devices/notification/updateInfo",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/devices/notification/updateInfo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "devices",
+            "notification",
+            "updateInfo"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/global/settings/general",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/global/settings/general",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "global",
+            "settings",
+            "general"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/global/settings/user-experience",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/global/settings/user-experience",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "global",
+            "settings",
+            "user-experience"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/grid/devices/adopted",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/grid/devices/adopted",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "grid",
+            "devices",
+            "adopted"
+          ],
+          "query": [
+            {
+              "key": "asyncColumns",
+              "value": ""
+            },
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/grid/devices/adopted/stat",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/grid/devices/adopted/stat",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "grid",
+            "devices",
+            "adopted",
+            "stat"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/capabilities",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/capabilities",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "capabilities"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/currentRole",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/currentRole",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "currentRole"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/maintenance/controllerName",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/maintenance/controllerName",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "maintenance",
+            "controllerName"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/maintenance/controllerStatus",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/maintenance/controllerStatus",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "maintenance",
+            "controllerStatus"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/clients",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/clients",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "clients"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/dashboard/statistic",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/dashboard/statistic",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "statistic"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/formAuths",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/formAuths",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "formAuths"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/localusers",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/localusers",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "localusers"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/operators",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/operators",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "operators"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/setting/localuser/portals",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/setting/localuser/portals",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "localuser",
+            "portals"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/setting/profiles/rateLimits",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/setting/profiles/rateLimits",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "profiles",
+            "rateLimits"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/setting/voucher/portals",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/setting/voucher/portals",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "voucher",
+            "portals"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/voucherGroups",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/voucherGroups",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "voucherGroups"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            },
+            {
+              "key": "searchField",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/voucherGroups",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/voucherGroups",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "voucherGroups"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"codeLength\": 0,\n  \"codeForm\": [\n    0\n  ],\n  \"amount\": 0,\n  \"name\": \"\",\n  \"type\": 0,\n  \"logout\": false,\n  \"rateLimitId\": \"\",\n  \"downLimitUnit\": 0,\n  \"upLimitUnit\": 0,\n  \"trafficLimitEnable\": false,\n  \"trafficLimit\": null,\n  \"trafficLimitUnit\": 0,\n  \"voucherValidityEnable\": false,\n  \"upTimeLimitEnable\": false,\n  \"durationType\": 0,\n  \"duration\": 0,\n  \"description\": \"\",\n  \"maxUsers\": 0,\n  \"trafficLimitFrequency\": 0,\n  \"portalIds\": [\n    \"\"\n  ],\n  \"applyToAllPortals\": false,\n  \"validityType\": 0,\n  \"startTime\": \"\",\n  \"endTime\": \"\",\n  \"scheduleTime\": 0,\n  \"weeklyEnableDays\": {\n    \"1\": false,\n    \"2\": false,\n    \"3\": false,\n    \"4\": false,\n    \"5\": false,\n    \"6\": false,\n    \"7\": false\n  },\n  \"pattern\": {\n    \"patternType\": 0,\n    \"position\": 0,\n    \"ssidNetworkEnable\": false,\n    \"durationEnable\": false,\n    \"limitEnable\": false,\n    \"logoPictureId\": null,\n    \"logoSize\": 0\n  }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/voucherGroups/currencyList",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/voucherGroups/currencyList",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "voucherGroups",
+            "currencyList"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/vouchers/statistics/history",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/vouchers/statistics/history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "vouchers",
+            "statistics",
+            "history"
+          ],
+          "query": [
+            {
+              "key": "filters.timeEnd",
+              "value": ""
+            },
+            {
+              "key": "filters.timeStart",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/vouchers/statistics/history/distribution/unitPrice",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/vouchers/statistics/history/distribution/unitPrice",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "vouchers",
+            "statistics",
+            "history",
+            "distribution",
+            "unitPrice"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            },
+            {
+              "key": "filters.timeEnd",
+              "value": ""
+            },
+            {
+              "key": "filters.timeStart",
+              "value": ""
+            },
+            {
+              "key": "sorts.usedCount",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/hotspot/sites/{siteId}/vouchers/statistics/summary",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/hotspot/sites/{{siteId}}/vouchers/statistics/summary",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "hotspot",
+            "sites",
+            "{{siteId}}",
+            "vouchers",
+            "statistics",
+            "summary"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/log/nums",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/log/nums",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "log",
+            "nums"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/logs/alerts",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/logs/alerts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "logs",
+            "alerts"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            },
+            {
+              "key": "filters.resolved",
+              "value": ""
+            },
+            {
+              "key": "filters.timeEnd",
+              "value": ""
+            },
+            {
+              "key": "filters.timeStart",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/logs/events",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/logs/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "logs",
+            "events"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            },
+            {
+              "key": "filters.timeEnd",
+              "value": ""
+            },
+            {
+              "key": "filters.timeStart",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/logs/notification",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/logs/notification",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "logs",
+            "notification"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/maintenance/built-in-radius/check",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/maintenance/built-in-radius/check",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "maintenance",
+            "built-in-radius",
+            "check"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/maintenance/software/channelUpdate",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/maintenance/software/channelUpdate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "maintenance",
+            "software",
+            "channelUpdate"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/maintenance/software/channelUpdate/beta",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/maintenance/software/channelUpdate/beta",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "maintenance",
+            "software",
+            "channelUpdate",
+            "beta"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/maintenance/uiInterface",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/maintenance/uiInterface",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "maintenance",
+            "uiInterface"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/organization/site-ids",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/organization/site-ids",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "organization",
+            "site-ids"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/organization/workspace",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/organization/workspace",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "organization",
+            "workspace"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/role/current",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/role/current",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "role",
+            "current"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/session/idle-timeout",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/session/idle-timeout",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "session",
+            "idle-timeout"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/setting/capacity",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/setting/capacity",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "setting",
+            "capacity"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/settings/network/services/client-active-timeout",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/settings/network/services/client-active-timeout",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "settings",
+            "network",
+            "services",
+            "client-active-timeout"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/settings/network/services/device-access",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/settings/network/services/device-access",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "settings",
+            "network",
+            "services",
+            "device-access"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/settings/system/status",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/settings/system/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "settings",
+            "system",
+            "status"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/settings/system/usage",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/settings/system/usage",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "settings",
+            "system",
+            "usage"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/{id2}/api/v2/sites/alert-count",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/alert-count",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "alert-count"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"siteIds\": [\n    \"\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/basic",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/basic",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "basic"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/site-tags",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/site-tags",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "site-tags"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/{id2}/api/v2/sites/statistic",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/statistic",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "statistic"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"omadaAndSiteIds\": [\n    {\n      \"siteId\": \"\",\n      \"omadacId\": \"\"\n    }\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/applicationControl/status",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/applicationControl/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "applicationControl",
+            "status"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/{id2}/api/v2/sites/{siteId}/cmd/switch",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/cmd/switch",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "cmd",
+            "switch"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/dashboard/alertLogs",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/dashboard/alertLogs",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "alertLogs"
+          ],
+          "query": [
+            {
+              "key": "end",
+              "value": ""
+            },
+            {
+              "key": "start",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/dashboard/channels",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/dashboard/channels",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "channels"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/dashboard/portstatedetails",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/dashboard/portstatedetails",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "dashboard",
+            "portstatedetails"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/{id2}/api/v2/sites/{siteId}/device/client-num",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/device/client-num",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "device",
+            "client-num"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deviceMacs\": [\n    \"\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/devices/onlineUpgradeStatus",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/devices/onlineUpgradeStatus",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "devices",
+            "onlineUpgradeStatus"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/{id2}/api/v2/sites/{siteId}/devices/topology-info",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/devices/topology-info",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "devices",
+            "topology-info"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deviceMacs\": [\n    \"\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/dst",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/dst",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "dst"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/grid/devices",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/grid/devices",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "grid",
+            "devices"
+          ],
+          "query": [
+            {
+              "key": "asyncColumns",
+              "value": ""
+            },
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/logs/alerts",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/logs/alerts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "logs",
+            "alerts"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            },
+            {
+              "key": "filters.module",
+              "value": ""
+            },
+            {
+              "key": "filters.resolved",
+              "value": ""
+            },
+            {
+              "key": "filters.timeEnd",
+              "value": ""
+            },
+            {
+              "key": "filters.timeStart",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/logs/events",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/logs/events",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "logs",
+            "events"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            },
+            {
+              "key": "filters.module",
+              "value": ""
+            },
+            {
+              "key": "filters.timeEnd",
+              "value": ""
+            },
+            {
+              "key": "filters.timeStart",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/logs/notification",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/logs/notification",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "logs",
+            "notification"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/quick-action",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/quick-action",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "quick-action"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/setting",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/setting",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "setting"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/setting/available-virtual-wans",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/setting/available-virtual-wans",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "available-virtual-wans"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/setting/capacity",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/setting/capacity",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "capacity"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/setting/disaster",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/setting/disaster",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "disaster"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/setting/exist",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/setting/exist",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "exist"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/setting/firewall/macfilter",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/setting/firewall/macfilter",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "firewall",
+            "macfilter"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/setting/lan/networks/interface",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/setting/lan/networks/interface",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "lan",
+            "networks",
+            "interface"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/setting/sim/sms/support",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/setting/sim/sms/support",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "sim",
+            "sms",
+            "support"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/setting/switch-support",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/setting/switch-support",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "switch-support"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/setting/wan/networks",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/setting/wan/networks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "setting",
+            "wan",
+            "networks"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/settings/quick-action",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/settings/quick-action",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "settings",
+            "quick-action"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/site/alerts/num",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/site/alerts/num",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "site",
+            "alerts",
+            "num"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/site/workspace",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/site/workspace",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "site",
+            "workspace"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/stat/dpi/crop",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/stat/dpi/crop",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "stat",
+            "dpi",
+            "crop"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/tags",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/tags",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "tags"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/tools/network-check/device-type/2",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/tools/network-check/device-type/2",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "tools",
+            "network-check",
+            "device-type",
+            "2"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            },
+            {
+              "key": "testType",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/sites/{siteId}/workspace-site",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/sites/{{siteId}}/workspace-site",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "sites",
+            "{{siteId}}",
+            "workspace-site"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /omadac/{id}/{id2}/api/v2/tools/network-check/0",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/tools/network-check/0",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "tools",
+            "network-check",
+            "0"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deviceType\": 0,\n  \"source\": \"\",\n  \"destType\": 0,\n  \"dest\": \"\",\n  \"packetSize\": 0,\n  \"count\": 0,\n  \"nid\": \"\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/tools/network-check/device",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/tools/network-check/device",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "tools",
+            "network-check",
+            "device"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/user/sites",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/user/sites",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "user",
+            "sites"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            },
+            {
+              "key": "filters.needFavorite",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/api/v2/workspace",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/api/v2/workspace",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "api",
+            "v2",
+            "workspace"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omadac/{id}/{id2}/ws/status/info",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omadac/{{id}}/{{id2}}/ws/status/info",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omadac",
+            "{{id}}",
+            "{{id2}}",
+            "ws",
+            "status",
+            "info"
+          ],
+          "query": [
+            {
+              "key": "t",
+              "value": ""
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

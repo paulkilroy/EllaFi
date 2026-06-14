@@ -12,6 +12,8 @@
 #include <Preferences.h>
 #include <esp_log.h>
 #include <map>
+#include <mbedtls/md.h>
+#include <sys/time.h>
 #include "logger.h"
 
 static const char* TAG = "net";
@@ -19,17 +21,18 @@ static const char* TAG = "net";
 static const uint16_t NET_PORT = 4210;
 
 String   MASTER_MAC;
-uint64_t NET_PSK = 0;
+uint64_t NET_KEY = 0;  // shared HMAC key (from network_key); authenticates every packet, never transmitted
 
 
 static WiFiUDP UDP_SOCKET;
+static SemaphoreHandle_t UDP_SOCKET_MUTEX;  // serializes all UDP_SOCKET access across tasks
 
 // ── Node map (master only) ────────────────────────────────────────────────────
 
 static SemaphoreHandle_t NODE_MAP_MUTEX;
 static std::map<String, NodeInfo> NODE_MAP;  // keyed by MAC
 
-// Heartbeat packet body after the 10-byte [type][psk] header.
+// Heartbeat packet body after the 10-byte [type][timestamp] header, before the trailing HMAC.
 struct __attribute__((packed)) HeartbeatBody {
   uint32_t buildNumber;  // FIRMWARE_BUILD — used for version comparison
   uint32_t uptimeSec;
@@ -40,23 +43,95 @@ struct __attribute__((packed)) HeartbeatBody {
   char     mac[18];      // null-terminated, e.g. "AA:BB:CC:DD:EE:FF"
 };
 
-// OTA command body after the 10-byte [type][psk] header.
+// OTA command body after the 10-byte [type][timestamp] header, before the trailing HMAC.
 struct __attribute__((packed)) OtaCmdBody {
   char targetMac[18];  // null-terminated — slave only acts if this matches its own MAC
 };
 
-// Coin-inserted body after the 10-byte [type][psk] header.
+// Coin-inserted body after the 10-byte [type][timestamp] header, before the trailing HMAC.
 struct __attribute__((packed)) CoinInsertedBody {
   char mac[18];  // null-terminated sender MAC, e.g. "AA:BB:CC:DD:EE:FF"
 };
 
-// Log-entry body after the 10-byte [type][psk] header.
+// Log-entry body after the 10-byte [type][timestamp] header, before the trailing HMAC.
 struct __attribute__((packed)) LogEntryBody {
   char level;    // 'W' or 'E'
   char tag[16];  // null-terminated
   char msg[128]; // null-terminated
   char mac[18];  // null-terminated sender MAC
 };
+
+// ── Authenticated wire format ─────────────────────────────────────────────────
+// Every packet is [type][timestamp_ms][body][16-byte HMAC]. The HMAC, keyed by the
+// never-transmitted network_key, authenticates the message; the timestamp gives replay
+// freshness. (The old scheme mailed the key in the clear, so it proved nothing.)
+
+static constexpr size_t   NET_HMAC_LEN        = 16;  // truncated HMAC-SHA256 tag
+static constexpr size_t   NET_HEADER_LEN      = sizeof(NetMsgType) + sizeof(uint64_t);  // [type][timestamp]
+static constexpr size_t   NET_MAX_PACKET      = NET_HEADER_LEN + sizeof(LogEntryBody) + NET_HMAC_LEN;
+static constexpr uint64_t NET_FRESH_WINDOW_MS = 5000;  // reject messages this far off our clock
+
+// Epoch milliseconds (NTP-synced). Finer than time(NULL)*1000 so two coins <1s apart differ.
+static uint64_t netNowMs() {
+  struct timeval tv;
+  gettimeofday(&tv, nullptr);
+  return (uint64_t)tv.tv_sec * 1000ULL + (uint64_t)tv.tv_usec / 1000ULL;
+}
+
+// HMAC-SHA256(network_key, data), truncated to NET_HMAC_LEN.
+static void netHmac(const uint8_t* data, size_t len, uint8_t out[NET_HMAC_LEN]) {
+  uint8_t full[32];
+  mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256),
+                  (const uint8_t*)&NET_KEY, sizeof(NET_KEY), data, len, full);
+  memcpy(out, full, NET_HMAC_LEN);
+}
+
+// Constant-time tag compare — don't leak how many leading bytes matched.
+static bool netTagEqual(const uint8_t* a, const uint8_t* b) {
+  uint8_t diff = 0;
+  for (size_t i = 0; i < NET_HMAC_LEN; i++) diff |= (uint8_t)(a[i] ^ b[i]);
+  return diff == 0;
+}
+
+// Build [type][timestamp][body][HMAC] and send it under the socket mutex.
+static void netTransmit(IPAddress dest, NetMsgType type, const void* body, size_t bodyLen) {
+  if (bodyLen > sizeof(LogEntryBody)) return;  // guards buf; never happens with our bodies
+  uint8_t buf[NET_MAX_PACKET];
+  size_t  off = 0;
+  memcpy(buf + off, &type, sizeof(type)); off += sizeof(type);
+  uint64_t ts = netNowMs();
+  memcpy(buf + off, &ts, sizeof(ts));     off += sizeof(ts);
+  if (body && bodyLen) { memcpy(buf + off, body, bodyLen); off += bodyLen; }
+  netHmac(buf, off, buf + off);           off += NET_HMAC_LEN;
+
+  xSemaphoreTake(UDP_SOCKET_MUTEX, portMAX_DELAY);
+  UDP_SOCKET.beginPacket(dest, NET_PORT);
+  UDP_SOCKET.write(buf, off);
+  UDP_SOCKET.endPacket();
+  xSemaphoreGive(UDP_SOCKET_MUTEX);
+}
+
+static void netBroadcast(NetMsgType type, const void* body, size_t bodyLen) {
+  netTransmit(IPAddress(255, 255, 255, 255), type, body, bodyLen);
+}
+
+// Replay guard for coin inserts: reject a (sender, timestamp) we've already credited.
+// Touched only by networkLoop (one task), so no lock is needed. The ring must outlast the
+// freshness window at the real coin rate so a within-window replay still finds its match;
+// 64 entries covers minutes of human-paced inserts (replays > NET_FRESH_WINDOW_MS are already
+// dropped as stale). Distinct coins have distinct ms timestamps, so reordering is harmless.
+static constexpr int COIN_SEEN_N = 64;
+static struct { char mac[18]; uint64_t ts; } COIN_SEEN[COIN_SEEN_N] = {};
+static int COIN_SEEN_IDX = 0;
+static bool coinIsReplay(const char* mac, uint64_t ts) {
+  for (auto& c : COIN_SEEN)
+    if (c.ts == ts && strncmp(c.mac, mac, sizeof(c.mac)) == 0) return true;
+  strncpy(COIN_SEEN[COIN_SEEN_IDX].mac, mac, sizeof(COIN_SEEN[0].mac) - 1);
+  COIN_SEEN[COIN_SEEN_IDX].mac[sizeof(COIN_SEEN[0].mac) - 1] = '\0';
+  COIN_SEEN[COIN_SEEN_IDX].ts = ts;
+  COIN_SEEN_IDX = (COIN_SEEN_IDX + 1) % COIN_SEEN_N;
+  return false;
+}
 
 // ── Slave OTA state ───────────────────────────────────────────────────────────
 
@@ -75,7 +150,8 @@ bool isMaster() {
 // ── Setup ─────────────────────────────────────────────────────────────────────
 
 void setupNetwork() {
-  NODE_MAP_MUTEX = xSemaphoreCreateMutex();
+  NODE_MAP_MUTEX   = xSemaphoreCreateMutex();
+  UDP_SOCKET_MUTEX = xSemaphoreCreateMutex();
   UDP_SOCKET.begin(NET_PORT);
   ESP_LOGI(TAG, "UDP listening on port %d — role: %s (own MAC: %s) build=%u",
            NET_PORT, isMaster() ? "MASTER" : "SLAVE",
@@ -88,12 +164,7 @@ void setupNetwork() {
       strncpy(body.tag, tag, sizeof(body.tag) - 1);
       strncpy(body.msg, msg, sizeof(body.msg) - 1);
       WiFi.macAddress().toCharArray(body.mac, sizeof(body.mac));
-      NetMsgType type = NET_MSG_LOG_ENTRY;
-      UDP_SOCKET.beginPacket(IPAddress(255, 255, 255, 255), NET_PORT);
-      UDP_SOCKET.write((const uint8_t*)&type,    sizeof(type));
-      UDP_SOCKET.write((const uint8_t*)&NET_PSK, sizeof(NET_PSK));
-      UDP_SOCKET.write((const uint8_t*)&body,    sizeof(body));
-      UDP_SOCKET.endPacket();
+      netBroadcast(NET_MSG_LOG_ENTRY, &body, sizeof(body));
     });
   }
 }
@@ -112,12 +183,7 @@ void broadcastHeartbeat() {
   WiFi.localIP().toString().toCharArray(body.ip,  sizeof(body.ip));
   WiFi.macAddress().toCharArray(       body.mac, sizeof(body.mac));
 
-  NetMsgType type = NET_MSG_HEARTBEAT;
-  UDP_SOCKET.beginPacket(IPAddress(255, 255, 255, 255), NET_PORT);
-  UDP_SOCKET.write((const uint8_t*)&type,    sizeof(type));
-  UDP_SOCKET.write((const uint8_t*)&NET_PSK, sizeof(NET_PSK));
-  UDP_SOCKET.write((const uint8_t*)&body,    sizeof(body));
-  UDP_SOCKET.endPacket();
+  netBroadcast(NET_MSG_HEARTBEAT, &body, sizeof(body));
 }
 
 std::vector<NodeInfo> getKnownNodes() {
@@ -135,12 +201,8 @@ void masterSendOtaToNode(const String& targetMac, IPAddress targetIp) {
   OtaCmdBody body = {};
   strncpy(body.targetMac, targetMac.c_str(), sizeof(body.targetMac) - 1);
 
-  NetMsgType type = NET_MSG_OTA_AVAILABLE;
-  UDP_SOCKET.beginPacket(targetIp, NET_PORT);  // unicast — AP broadcast filtering blocks 255.255.255.255
-  UDP_SOCKET.write((const uint8_t*)&type,    sizeof(type));
-  UDP_SOCKET.write((const uint8_t*)&NET_PSK, sizeof(NET_PSK));
-  UDP_SOCKET.write((const uint8_t*)&body,    sizeof(body));
-  UDP_SOCKET.endPacket();
+  // unicast — AP broadcast filtering blocks 255.255.255.255
+  netTransmit(targetIp, NET_MSG_OTA_AVAILABLE, &body, sizeof(body));
   ESP_LOGI(TAG, "OTA send → %s (%s)", targetMac.c_str(), targetIp.toString().c_str());
 }
 
@@ -211,7 +273,7 @@ static bool slaveFlashFromUrl(const String& url, int updateType) {
   return true;
 }
 
-// FreeRTOS task: fetch firmware (and filesystem if available) from master and apply OTA.
+// FreeRTOS task: fetch firmware from the master and apply OTA.
 static void slaveOtaTask(void* arg) {
   uint8_t* ipBytes = (uint8_t*)arg;
   IPAddress masterIp(ipBytes[0], ipBytes[1], ipBytes[2], ipBytes[3]);
@@ -237,10 +299,7 @@ static void slaveOtaTask(void* arg) {
 // ── Wire format helpers ───────────────────────────────────────────────────────
 
 static void netSend(NetMsgType type) {
-  UDP_SOCKET.beginPacket(IPAddress(255, 255, 255, 255), NET_PORT);
-  UDP_SOCKET.write((const uint8_t*)&type,    sizeof(type));
-  UDP_SOCKET.write((const uint8_t*)&NET_PSK, sizeof(NET_PSK));
-  UDP_SOCKET.endPacket();
+  netBroadcast(type, nullptr, 0);
 }
 
 void masterBroadcastSessionStart() { netSend(NET_MSG_SESSION_START); ESP_LOGI(TAG, "UDP broadcast session_start"); }
@@ -249,12 +308,7 @@ void masterBroadcastSessionEnd()   { netSend(NET_MSG_SESSION_END);   ESP_LOGI(TA
 void slaveSendCoinInserted() {
   CoinInsertedBody body = {};
   WiFi.macAddress().toCharArray(body.mac, sizeof(body.mac));
-  NetMsgType type = NET_MSG_COIN_INSERTED;
-  UDP_SOCKET.beginPacket(IPAddress(255, 255, 255, 255), NET_PORT);
-  UDP_SOCKET.write((const uint8_t*)&type,    sizeof(type));
-  UDP_SOCKET.write((const uint8_t*)&NET_PSK, sizeof(NET_PSK));
-  UDP_SOCKET.write((const uint8_t*)&body,    sizeof(body));
-  UDP_SOCKET.endPacket();
+  netBroadcast(NET_MSG_COIN_INSERTED, &body, sizeof(body));
   ESP_LOGI(TAG, "UDP coin_inserted sent from %s", body.mac);
 }
 
@@ -262,16 +316,6 @@ void slaveSendCoinInserted() {
 // ── Main receive loop ─────────────────────────────────────────────────────────
 
 void networkLoop() {
-  // Stale bytes left from a partial read would cause parsePacket() to return 0 forever.
-  // Log and flush so we can catch any future handler that forgets to consume its packet.
-  {
-    int stale = UDP_SOCKET.available();
-    if (stale > 0) {
-      ESP_LOGW(TAG, "%d stale bytes before parsePacket — unread from previous packet", stale);
-      while (UDP_SOCKET.available()) UDP_SOCKET.read();
-    }
-  }
-
   // Periodic WiFi health — reconnects if the driver stalls after AUTH_LEAVE/ASSOC_LEAVE
   static unsigned long lastWifiDiag = 0;
   if (millis() - lastWifiDiag > 30000) {
@@ -285,31 +329,49 @@ void networkLoop() {
     }
   }
 
-  int size = UDP_SOCKET.parsePacket();
-  if (size == 0) return;
-  if (size < (int)(sizeof(NetMsgType) + sizeof(uint64_t))) {
-    ESP_LOGW(TAG, "UDP short packet: %d bytes from %s", size, UDP_SOCKET.remoteIP().toString().c_str());
+  // Read one whole datagram under the socket mutex. parsePacket + remoteIP + read must be
+  // atomic w.r.t. concurrent sends, or remoteIP() could return a send's destination.
+  uint8_t   rxBuf[NET_MAX_PACKET];
+  IPAddress senderIp;
+  int       size = 0, got = 0;
+  xSemaphoreTake(UDP_SOCKET_MUTEX, portMAX_DELAY);
+  size = UDP_SOCKET.parsePacket();
+  if (size > 0) {
+    senderIp = UDP_SOCKET.remoteIP();
+    if (size <= (int)sizeof(rxBuf)) got = UDP_SOCKET.read(rxBuf, size);
+    else while (UDP_SOCKET.available()) UDP_SOCKET.read();  // oversized/foreign — drain it
+  }
+  xSemaphoreGive(UDP_SOCKET_MUTEX);
+  if (size <= 0) return;
+  if (size < (int)(NET_HEADER_LEN + NET_HMAC_LEN) || got != size) {
+    ESP_LOGW(TAG, "UDP bad packet: %d bytes from %s", size, senderIp.toString().c_str());
     return;
   }
 
-  NetMsgType type;
-  uint64_t   psk;
-  UDP_SOCKET.read((uint8_t*)&type, sizeof(type));
-  UDP_SOCKET.read((uint8_t*)&psk,  sizeof(psk));
-
-  if (psk != NET_PSK) {
-    ESP_LOGI(TAG, "UDP packet from %s rejected: bad PSK", UDP_SOCKET.remoteIP().toString().c_str());  // foreign packet on our port — not our error
+  // Authenticate: HMAC over everything but the trailing tag. Rejects forged + foreign packets.
+  uint8_t tag[NET_HMAC_LEN];
+  netHmac(rxBuf, size - NET_HMAC_LEN, tag);
+  if (!netTagEqual(tag, rxBuf + size - NET_HMAC_LEN)) {
+    ESP_LOGI(TAG, "UDP packet from %s rejected: bad HMAC", senderIp.toString().c_str());
     return;
   }
+  // Freshness: reject stale/replayed (or wildly clock-skewed) messages.
+  uint64_t msgTs; memcpy(&msgTs, rxBuf + sizeof(NetMsgType), sizeof(msgTs));
+  uint64_t now  = netNowMs();
+  uint64_t skew = (now > msgTs) ? now - msgTs : msgTs - now;
+  if (skew > NET_FRESH_WINDOW_MS) {
+    ESP_LOGI(TAG, "UDP packet from %s rejected: stale by %llums", senderIp.toString().c_str(), (unsigned long long)skew);
+    return;
+  }
+
+  NetMsgType type; memcpy(&type, rxBuf, sizeof(type));
+  const uint8_t* bodyPtr  = rxBuf + NET_HEADER_LEN;
+  const int      bodySize = size - (int)NET_HEADER_LEN - (int)NET_HMAC_LEN;
 
   if (type == NET_MSG_HEARTBEAT) {
-    int bodySize = size - sizeof(NetMsgType) - sizeof(uint64_t);
-    if (bodySize < (int)sizeof(HeartbeatBody)) return;
-
-    IPAddress senderIp = UDP_SOCKET.remoteIP();  // capture before any further reads
+    if (!IS_MASTER || bodySize < (int)sizeof(HeartbeatBody)) return;
     HeartbeatBody body;
-    UDP_SOCKET.read((uint8_t*)&body, sizeof(body));  // always read before any early return
-    if (!isMaster()) return;
+    memcpy(&body, bodyPtr, sizeof(body));
     body.version[sizeof(body.version) - 1] = '\0';
     body.ip[sizeof(body.ip)       - 1] = '\0';
     body.mac[sizeof(body.mac)     - 1] = '\0';
@@ -338,7 +400,7 @@ void networkLoop() {
     // Trigger OTA if the slave is on an older build. We serve our own running image, whose true
     // size we captured at boot — so this works regardless of how we were flashed.
     ESP_LOGD(TAG, "HB from %s build=%u [mine=%u] fw=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD, (unsigned)RUNNING_IMAGE_SIZE);
-    if (mac != ownMac && body.buildNumber < FIRMWARE_BUILD) {
+    if (body.buildNumber < FIRMWARE_BUILD) {  // (mac != ownMac already returned above)
       ESP_LOGI(TAG, "OTA trigger: %s build=%u < mine=%u", mac.c_str(), body.buildNumber, (unsigned)FIRMWARE_BUILD);
       masterSendOtaToNode(mac, senderIp);
       if (xSemaphoreTake(NODE_MAP_MUTEX, pdMS_TO_TICKS(10)) == pdTRUE) {
@@ -349,14 +411,10 @@ void networkLoop() {
     }
 
   } else if (type == NET_MSG_OTA_AVAILABLE) {
-    int bodySize = size - sizeof(NetMsgType) - sizeof(uint64_t);
-    if (bodySize < (int)sizeof(OtaCmdBody)) return;
-
+    if (IS_MASTER || bodySize < (int)sizeof(OtaCmdBody)) return;
     OtaCmdBody body;
-    UDP_SOCKET.read((uint8_t*)&body, sizeof(body));  // always read before any early return
-
-    if (isMaster()) return;
-    ESP_LOGI(TAG, "OTA_AVAILABLE packet received from %s", UDP_SOCKET.remoteIP().toString().c_str());
+    memcpy(&body, bodyPtr, sizeof(body));
+    ESP_LOGI(TAG, "OTA_AVAILABLE packet received from %s", senderIp.toString().c_str());
     // Exactly one OTA worker at a time. Spawning a second slaveOtaTask alongside a live one
     // would run a concurrent Update on the same partition — guaranteed corruption (and the
     // reason a slow transfer used to loop forever). slaveFlashFromUrl self-bounds (HTTP
@@ -376,15 +434,13 @@ void networkLoop() {
     ESP_LOGI(TAG, "OTA_AVAILABLE: target=%s own=%s", target.c_str(), ownMac.c_str());
     if (target != ownMac) return;  // not for us
 
-    // Capture master IP before any other UDP call
-    IPAddress masterIp = UDP_SOCKET.remoteIP();
     uint8_t* ipBytes = (uint8_t*)malloc(4);
     if (!ipBytes) return;
-    ipBytes[0] = masterIp[0]; ipBytes[1] = masterIp[1];
-    ipBytes[2] = masterIp[2]; ipBytes[3] = masterIp[3];
+    ipBytes[0] = senderIp[0]; ipBytes[1] = senderIp[1];
+    ipBytes[2] = senderIp[2]; ipBytes[3] = senderIp[3];
 
     OTA_IN_PROGRESS = true;
-    ESP_LOGI(TAG, "OTA_AVAILABLE for us — fetching from %s", masterIp.toString().c_str());
+    ESP_LOGI(TAG, "OTA_AVAILABLE for us — fetching from %s", senderIp.toString().c_str());
     if (xTaskCreate(slaveOtaTask, "SlaveOTA", 16384, ipBytes, 5, NULL) != pdPASS) {
       ESP_LOGE(TAG, "OTA: xTaskCreate failed — will retry");
       free(ipBytes);
@@ -392,11 +448,9 @@ void networkLoop() {
     }
 
   } else if (type == NET_MSG_LOG_ENTRY) {
-    int bodySize = size - sizeof(NetMsgType) - sizeof(uint64_t);
-    if (bodySize < (int)sizeof(LogEntryBody)) return;
+    if (!IS_MASTER || bodySize < (int)sizeof(LogEntryBody)) return;
     LogEntryBody body;
-    UDP_SOCKET.read((uint8_t*)&body, sizeof(body));
-    if (!isMaster()) return;
+    memcpy(&body, bodyPtr, sizeof(body));
     body.tag[sizeof(body.tag) - 1] = '\0';
     body.msg[sizeof(body.msg) - 1] = '\0';
     body.mac[sizeof(body.mac) - 1] = '\0';
@@ -405,14 +459,17 @@ void networkLoop() {
     logDirect(body.level, body.tag, msgBuf);
     if (body.level == 'W' || body.level == 'E') appendErrorLog(body.tag, msgBuf);
 
-  } else if (isMaster()) {
+  } else if (IS_MASTER) {
     if (type == NET_MSG_COIN_INSERTED) {
-      CoinInsertedBody body = {};
-      int bodySize = size - sizeof(NetMsgType) - sizeof(uint64_t);
-      if (bodySize >= (int)sizeof(CoinInsertedBody))
-        UDP_SOCKET.read((uint8_t*)&body, sizeof(body));
+      if (bodySize < (int)sizeof(CoinInsertedBody)) return;
+      CoinInsertedBody body;
+      memcpy(&body, bodyPtr, sizeof(body));
       body.mac[sizeof(body.mac) - 1] = '\0';
-      ESP_LOGI(TAG, "UDP coin_inserted from %s (mac=%s)", UDP_SOCKET.remoteIP().toString().c_str(), body.mac);
+      if (coinIsReplay(body.mac, msgTs)) {
+        ESP_LOGW(TAG, "UDP coin_inserted from %s rejected: replay", body.mac);
+        return;
+      }
+      ESP_LOGI(TAG, "UDP coin_inserted from %s (mac=%s)", senderIp.toString().c_str(), body.mac);
       masterRecvCoinInserted(body.mac);
     }
   } else {

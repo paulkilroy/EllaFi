@@ -1,0 +1,220 @@
+openapi: 3.1.0
+info:
+  title: "Captured API \u2014 use1-omada-cloud.tplinkcloud.com"
+  version: '1.0'
+  description: "Auto-generated from a sanitized HAR. Schemas are inferred (types only \u2014 no captured values). IDs templated."
+servers:
+- url: https://use1-omada-cloud.tplinkcloud.com
+paths:
+  /omada/6.2.10.18/:
+    get:
+      summary: GET /omada/6.2.10.18/
+      responses:
+        '304':
+          description: captured
+      parameters:
+      - name: deviceId
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: omadacId
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: theme
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: token
+        in: query
+        required: false
+        schema:
+          type: string
+  /omada/6.2.10.18/config/accountSettingNavigator-1778221486179.json:
+    get:
+      summary: GET /omada/6.2.10.18/config/accountSettingNavigator-1778221486179.json
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  main:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        groupMenu:
+                          type: boolean
+                        name:
+                          type: string
+                        text:
+                          type: string
+                        children:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              text:
+                                type: string
+                  extra:
+                    type: array
+                    items: {}
+  /omada/6.2.10.18/config/initApiList.json:
+    get:
+      summary: GET /omada/6.2.10.18/config/initApiList.json
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  global:
+                    type: array
+                    items: {}
+                  site:
+                    type: array
+                    items: {}
+                  msp:
+                    type: array
+                    items: {}
+                  central:
+                    type: array
+                    items: {}
+  /omada/6.2.10.18/config/mspNavigator-1778221486179.json:
+    get:
+      summary: GET /omada/6.2.10.18/config/mspNavigator-1778221486179.json
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  main:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        text:
+                          type: string
+                  extra:
+                    type: array
+                    items: {}
+  /omada/6.2.10.18/config/normalGlobalNavigator-1778221486179.json:
+    get:
+      summary: GET /omada/6.2.10.18/config/normalGlobalNavigator-1778221486179.json
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  main:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        text:
+                          type: string
+                  extra:
+                    type: array
+                    items: {}
+  /omada/6.2.10.18/config/profileNavigator-1778221486179.json:
+    get:
+      summary: GET /omada/6.2.10.18/config/profileNavigator-1778221486179.json
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  main:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        text:
+                          type: string
+                        children:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              text:
+                                type: string
+                              children:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    name: {}
+                                    text: {}
+                  extra:
+                    type: array
+                    items: {}
+  /omada/6.2.10.18/config/siteNavigator-1778221486179.json:
+    get:
+      summary: GET /omada/6.2.10.18/config/siteNavigator-1778221486179.json
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  main:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        text:
+                          type: string
+                        privilege:
+                          type: array
+                          items:
+                            type: string
+                  extra:
+                    type: array
+                    items: {}
+  /omada/6.2.10.18/modules/1jo34c0fm.txt:
+    get:
+      summary: GET /omada/6.2.10.18/modules/1jo34c0fm.txt
+      responses:
+        '200':
+          description: captured
+  /omada/6.2.10.18/modules/hotspot.txt:
+    get:
+      summary: GET /omada/6.2.10.18/modules/hotspot.txt
+      responses:
+        '200':
+          description: captured
+      parameters:
+      - name: _t
+        in: query
+        required: false
+        schema:
+          type: string

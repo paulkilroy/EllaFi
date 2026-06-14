@@ -219,6 +219,7 @@ bool loadOmadaSites(String& errorDetail) {
   JsonArray data = doc["result"]["data"].as<JsonArray>();
   if (data.size() == 0) {
     errorDetail = "Sites: no sites returned";
+    ESP_LOGE(TAG, "%s", errorDetail.c_str());
     return false;
   }
 
@@ -226,6 +227,7 @@ bool loadOmadaSites(String& errorDetail) {
   SITE_NAME = data[0]["name"].as<String>();
   if (SITE_ID.isEmpty()) {
     errorDetail = "Sites: id field empty";
+    ESP_LOGE(TAG, "%s", errorDetail.c_str());
     return false;
   }
 
@@ -495,10 +497,11 @@ JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, ui
     entry["id"]    = hs["id"];
     entry["start"] = hs["start"].as<uint64_t>();
     entry["end"]   = end;
-    entry["ip"]    = hs["ip"];  // hotspot API is authoritative for ip; wifi clients list lags
+    entry["ip"]    = hs["ip"];  // baseline: auth-time IP (covers a client not yet in the WiFi list)
 
     auto it = allMap.find(hs["mac"].as<String>());
     if (it != allMap.end()) {
+      if (!it->second["ip"].isNull()) entry["ip"] = it->second["ip"];  // live WiFi table = current IP, fresh across re-IP
       entry["apMac"]   = it->second["apMac"];
       entry["ssid"]    = it->second["ssid"];
       entry["radioId"] = it->second["radioId"];
@@ -538,29 +541,18 @@ void refreshHotspotSessionCache() {
   for (JsonObject client : merged.as<JsonArray>()) {
     String mac = client["mac"].as<String>();
     String ip  = client["ip"].as<String>();
+    if (mac.isEmpty()) continue;  // the cache is keyed by MAC
 
-    SessionParams* macSession = HOTSPOT_SESSION_CACHE.findByMac(mac);
-    SessionParams* ipSession  = HOTSPOT_SESSION_CACHE.findByIp(ip);
-    SessionParams* session;
-    bool isNew = false;
+    SessionParams* prior = HOTSPOT_SESSION_CACHE.findByMac(mac);
+    bool isNew = (prior == nullptr);
+    if (ip.isEmpty() && isNew) continue;  // not yet visible in all-clients and never cached
 
-    if (ip.isEmpty() && !macSession) continue;  // not yet visible in all-clients and not previously cached
+    if (prior && !ip.isEmpty() && prior->clientIp != ip)
+      ESP_LOGI(TAG, "MAC %s moved IP: %s -> %s", mac.c_str(), prior->clientIp.c_str(), ip.c_str());
 
-    if (!ipSession && macSession) {
-      session = macSession;
-    } else if (!macSession && ipSession) {
-      ESP_LOGI(TAG, "Replacing stale cache entry at IP=%s with MAC=%s", ip.c_str(), mac.c_str());
-      HOTSPOT_SESSION_CACHE.removeByIp(ip);
-      session = &HOTSPOT_SESSION_CACHE.upsert(ip, mac);
-      isNew = true;
-    } else if (macSession && ipSession && macSession != ipSession) {
-      ESP_LOGI(TAG, "MAC %s moved IP: %s -> %s", mac.c_str(), macSession->clientIp.c_str(), ip.c_str());
-      HOTSPOT_SESSION_CACHE.removeByIp(macSession->clientIp);
-      session = &HOTSPOT_SESSION_CACHE.upsert(ip, mac);
-    } else {
-      isNew = (macSession == nullptr && ipSession == nullptr);
-      session = &HOTSPOT_SESSION_CACHE.upsert(ip, mac);
-    }
+    // Keyed by MAC: an IP change re-points the index, never destroys the entry — this is what
+    // fixes the finalize use-after-free and preserves paused/socket state across a DHCP re-IP.
+    SessionParams* session = &HOTSPOT_SESSION_CACHE.upsert(ip, mac);
 
     if (isNew && hasPausedSessionFile(mac)) session->pausedRemainingMillis = loadPausedSessionFile(mac);
 
@@ -575,6 +567,21 @@ void refreshHotspotSessionCache() {
   }
 
   ESP_LOGI(TAG, "refreshHotspotSessionCache: %d active session(s)", updated);
+
+  // Management-SSID tripwire: a hotspot/portal client should never appear on the SSID our
+  // nodes live on. One that does = a customer breached isolation. Our own nodes aren't
+  // portal clients, so they never show in this list — no whitelist needed. Binary flag for
+  // the dashboard; the offending MAC goes to the log for detail.
+  bool mgmtBreach = false;
+  if (!MANAGEMENT_SSID.isEmpty()) {
+    for (JsonObject client : merged.as<JsonArray>()) {
+      if (client["ssid"].as<String>() != MANAGEMENT_SSID) continue;
+      mgmtBreach = true;
+      ESP_LOGW(TAG, "SECURITY: hotspot client %s is on the management SSID '%s' — isolation breach",
+               client["mac"].as<String>().c_str(), MANAGEMENT_SSID.c_str());
+    }
+  }
+  CONTROLLER_STATUS.mgmtSsidBreach = mgmtBreach;
 
   uint64_t now = nowEpochMillis();
   HOTSPOT_SESSION_CACHE.lock();
@@ -645,11 +652,13 @@ bool createVoucherGroup(const String& name, int durationMin, int totalCount,
   WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/sites/" + SITE_ID + "/voucherGroups";
   h.begin(wc, url); applyCredentials(h, creds); h.addHeader("Content-Type", "application/json");
+  String escapedName = name;
+  escapedName.replace("\"", "\\\"");
   String escapedDesc = description;
   escapedDesc.replace("\"", "\\\"");
   String body =
     "{\"codeLength\":8,\"codeForm\":[0],\"amount\":" + String(totalCount) +
-    ",\"name\":\"" + name + "\",\"type\":0,\"logout\":true" +
+    ",\"name\":\"" + escapedName + "\",\"type\":0,\"logout\":true" +
     ",\"downLimitUnit\":0,\"upLimitUnit\":0,\"trafficLimitEnable\":false,\"trafficLimit\":null,\"trafficLimitUnit\":0" +
     // upTimeLimitEnable: true = "By Usage" (counts only online time); false = "By Time" (from first use)
     ",\"voucherValidityEnable\":false,\"upTimeLimitEnable\":true"
@@ -661,12 +670,17 @@ bool createVoucherGroup(const String& name, int durationMin, int totalCount,
     ",\"pattern\":{\"patternType\":0,\"position\":0,\"ssidNetworkEnable\":false,\"durationEnable\":false" +
     ",\"limitEnable\":false,\"logoPictureId\":null,\"logoSize\":62}}";
   int code = h.POST(body);
-  if (code <= 0) { errorDetail = h.errorToString(code); h.end(); return false; }
+  if (code <= 0) {
+    errorDetail = h.errorToString(code); h.end();
+    ESP_LOGE(TAG, "createVoucherGroup: POST failed: %s", errorDetail.c_str());
+    return false;
+  }
   String resp = h.getString(); h.end();
   ESP_LOGI(TAG, "createVoucherGroup: HTTP %d body=%.200s", code, resp.c_str());
   JsonDocument doc;
   if (code != 200 || deserializeJson(doc, resp) || doc["errorCode"].as<int>() != 0) {
     errorDetail = doc["msg"].isNull() ? ("HTTP " + String(code)) : doc["msg"].as<String>();
+    ESP_LOGE(TAG, "createVoucherGroup failed: %s", errorDetail.c_str());  // W/E → errors.log + forward + Logs tab
     return false;
   }
   groupId = doc["result"]["id"].as<String>();
@@ -871,6 +885,10 @@ static void refreshControllerStatus() {
     ESP_LOGI(TAG, "Controller: %s v%s tz=%s -> TZ=%s",
              CONTROLLER_STATUS.model.c_str(), CONTROLLER_STATUS.version.c_str(), zone.c_str(), posix);
   }
+}
+
+bool isServiceReady() {
+  return (time(NULL) > NTP_EPOCH_MIN) && CONTROLLER_STATUS.reachable && !SITE_ID.isEmpty();
 }
 
 bool setupOmada() {

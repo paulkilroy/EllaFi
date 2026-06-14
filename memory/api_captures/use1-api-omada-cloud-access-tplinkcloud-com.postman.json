@@ -1,0 +1,81 @@
+{
+  "info": {
+    "name": "Captured \u2014 use1-api-omada-cloud-access.tplinkcloud.com",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://use1-api-omada-cloud-access.tplinkcloud.com"
+    }
+  ],
+  "item": [
+    {
+      "name": "GET /api/v1/cloudaccess/organizations",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/cloudaccess/organizations",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "cloudaccess",
+            "organizations"
+          ],
+          "query": [
+            {
+              "key": "currentPage",
+              "value": ""
+            },
+            {
+              "key": "currentPageSize",
+              "value": ""
+            },
+            {
+              "key": "filters.deviceType",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/cloudaccess/organizations/cloud-device-info",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/cloudaccess/organizations/cloud-device-info",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "cloudaccess",
+            "organizations",
+            "cloud-device-info"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"deviceIds\": [\n    \"\"\n  ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

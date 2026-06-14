@@ -29,7 +29,7 @@ struct NodeInfo {
 
 // Populated by loadConfig() in main.cpp
 extern String   MASTER_MAC;
-extern uint64_t NET_PSK;
+extern uint64_t NET_KEY;  // shared HMAC key (from network_key); authenticates UDP messages, never transmitted
 
 bool isMaster();
 

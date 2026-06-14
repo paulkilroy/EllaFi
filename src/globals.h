@@ -101,8 +101,8 @@ extern unsigned long                COIN_SLOT_READY_MILLIS;  // suppress pulses 
 
 // ── WiFi config ───────────────────────────────────────────────────────────────
 
-extern String AP_SSID;
-extern String AP_PASSWORD;
+extern String MANAGEMENT_SSID;      // the SSID our nodes live on (from wifi_ssid); a hotspot client here = isolation breach
+extern String MANAGEMENT_PASSWORD;
 
 // ── Omada auth types ─────────────────────────────────────────────────────────
 
@@ -113,8 +113,8 @@ constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
 
 // ── Firmware version ─────────────────────────────────────────────────────────
 
-#define FIRMWARE_VERSION "1.3.4"
-#define FIRMWARE_BUILD   43       // increment on every release; used for slave version comparison
+#define FIRMWARE_VERSION "1.3.6"
+#define FIRMWARE_BUILD   45       // increment on every release; used for slave version comparison
 
 // True byte size of the running firmware image, computed once at boot (ESP.getSketchSize()).
 // This is what the master serves to slaves for OTA — derived from the running partition, so it's

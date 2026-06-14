@@ -442,6 +442,14 @@ class OmadaHandler(BaseHTTPRequestHandler):
             print(f"  {ts}  {RED}cloud forward error: {e}{RESET}")
             self.send_json(502, {"errorCode": -1, "msg": str(e)})
             return
+        # Surface what the real controller returned (the cloud-forward path skips send_json).
+        try:
+            cd = json.loads(body); cec, cmsg = cd.get("errorCode"), cd.get("msg", "")
+        except Exception:
+            cec, cmsg = None, ""
+        cbad = status >= 400 or (cec not in (0, None))
+        cdetail = f"  errorCode={cec} msg={cmsg!r}" if (cec not in (0, None) or cmsg) else ""
+        print(f"  {ts}  {(RED if cbad else GREEN)}← cloud HTTP {status}{RESET}  {api}{cdetail}")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -512,6 +520,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
             else:
                 print(f"  {ts}  {YELLOW}clientIp not in auth body — assigned {ip}{RESET}")
             CLIENT_IPS[mac] = ip
+            hotspot_sessions[mac]["ip"] = ip   # real Omada returns ip in the hotspot client record too
             all_clients[mac] = {
                 "ip":      ip,
                 "apMac":   data.get("apMac", ""),
@@ -605,6 +614,14 @@ class OmadaHandler(BaseHTTPRequestHandler):
             print(f"  {ts}  {RED}cloud group history error: {e}{RESET}")
             self.send_json(502, {"errorCode": -1, "msg": str(e)})
             return
+        # Surface what the real controller returned (the cloud-forward path skips send_json).
+        try:
+            cd = json.loads(body); cec, cmsg = cd.get("errorCode"), cd.get("msg", "")
+        except Exception:
+            cec, cmsg = None, ""
+        cbad = status >= 400 or (cec not in (0, None))
+        cdetail = f"  errorCode={cec} msg={cmsg!r}" if (cec not in (0, None) or cmsg) else ""
+        print(f"  {ts}  {(RED if cbad else GREEN)}← cloud HTTP {status}{RESET}  {api}{cdetail}")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -643,6 +660,12 @@ class OmadaHandler(BaseHTTPRequestHandler):
 
     def send_json(self, status, data, cookies=None):
         body = json.dumps(data).encode("utf-8")
+        # Surface what we return so mock-side failures (e.g. a 502 / errorCode) are visible, not inferred.
+        ec  = data.get("errorCode") if isinstance(data, dict) else None
+        msg = data.get("msg", "")   if isinstance(data, dict) else ""
+        bad = status >= 400 or (ec not in (0, None))
+        detail = f"  errorCode={ec} msg={msg!r}" if (ec not in (0, None) or msg) else ""
+        print(f"  {datetime.now().strftime('%H:%M:%S')}  {(RED if bad else GREEN)}← HTTP {status}{RESET}  {self._api_path()}{detail}")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))

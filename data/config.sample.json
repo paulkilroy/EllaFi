@@ -1,5 +1,5 @@
 {
-  "wifi_ssid": "your-wifi-network-name",
+  "wifi_ssid": "your-wifi-network-name (the isolated management SSID the nodes live on)",
   "wifi_password": "your-wifi-password",
 
   "master_mac": "AA:BB:CC:DD:EE:FF",

@@ -1,0 +1,183 @@
+openapi: 3.1.0
+info:
+  title: "Captured API \u2014 use1-api-omada-cloud-access.tplinkcloud.com"
+  version: '1.0'
+  description: "Auto-generated from a sanitized HAR. Schemas are inferred (types only \u2014 no captured values). IDs templated."
+servers:
+- url: https://use1-api-omada-cloud-access.tplinkcloud.com
+paths:
+  /api/v1/cloudaccess/organizations:
+    get:
+      summary: GET /api/v1/cloudaccess/organizations
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      totalRows:
+                        type: integer
+                      currentPage:
+                        type: integer
+                      currentSize:
+                        type: integer
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            deviceId:
+                              type: string
+                            status:
+                              type: integer
+                            deviceName:
+                              type: string
+                            alias:
+                              type: string
+                            deviceMac:
+                              type: string
+                            deviceModel:
+                              type: string
+                            deviceHwVer:
+                              type: string
+                            deviceType:
+                              type: string
+                            fwVer:
+                              type: string
+                            appServerUrl:
+                              type: string
+                            isSameRegion:
+                              type: boolean
+                            role:
+                              type: integer
+                            controllerVersion:
+                              type: string
+                            alerts:
+                              type: integer
+                            alertObscured:
+                              type: boolean
+                            sites:
+                              type: integer
+                            devices:
+                              type: integer
+                            clients:
+                              type: integer
+                            newChannel:
+                              type: boolean
+                            ip:
+                              type: string
+                            httpPort:
+                              type: integer
+                            canUpgrade:
+                              type: boolean
+                            deviceUpgrade:
+                              type: boolean
+                            fwChannel:
+                              type: integer
+                            mspMode:
+                              type: boolean
+                            hasMspPermission:
+                              type: boolean
+                            configured:
+                              type: boolean
+                            apiProtocol:
+                              type: string
+                            disconnectedDeviceNum:
+                              type: integer
+                            connectedDeviceNum:
+                              type: integer
+                            guestNum:
+                              type: integer
+                            timeZone:
+                              type: string
+                            hwId:
+                              type: string
+                            oemId:
+                              type: string
+                            siteByPage:
+                              type: boolean
+                            omadacId:
+                              type: string
+                            category:
+                              type: string
+                            sn:
+                              type: string
+                            showModel:
+                              type: string
+                            mfaStatus:
+                              type: boolean
+                            lastDisconnectTime:
+                              type: integer
+                            clusterMode:
+                              type: boolean
+                            hasClusterPermission:
+                              type: boolean
+                            separatedControllerFrontendSupported:
+                              type: boolean
+                            cloudAccessUrl:
+                              type: string
+                            connectorUrl:
+                              type: string
+                            guardUrl:
+                              type: string
+      parameters:
+      - name: currentPage
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: currentPageSize
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: filters.deviceType
+        in: query
+        required: false
+        schema:
+          type: string
+  /api/v1/cloudaccess/organizations/cloud-device-info:
+    post:
+      summary: POST /api/v1/cloudaccess/organizations/cloud-device-info
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        deviceId:
+                          type: string
+                        supportRemarks:
+                          type: boolean
+                        lastDisconnectTime:
+                          type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                deviceIds:
+                  type: array
+                  items:
+                    type: string

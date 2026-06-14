@@ -1,0 +1,205 @@
+{
+  "info": {
+    "name": "Captured \u2014 use1-omada-cloud.tplinkcloud.com",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://use1-omada-cloud.tplinkcloud.com"
+    }
+  ],
+  "item": [
+    {
+      "name": "GET /omada/6.2.10.18/",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omada/6.2.10.18",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omada",
+            "6.2.10.18"
+          ],
+          "query": [
+            {
+              "key": "deviceId",
+              "value": ""
+            },
+            {
+              "key": "omadacId",
+              "value": ""
+            },
+            {
+              "key": "theme",
+              "value": ""
+            },
+            {
+              "key": "token",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /omada/6.2.10.18/config/accountSettingNavigator-1778221486179.json",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omada/6.2.10.18/config/accountSettingNavigator-1778221486179.json",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omada",
+            "6.2.10.18",
+            "config",
+            "accountSettingNavigator-1778221486179.json"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omada/6.2.10.18/config/initApiList.json",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omada/6.2.10.18/config/initApiList.json",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omada",
+            "6.2.10.18",
+            "config",
+            "initApiList.json"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omada/6.2.10.18/config/mspNavigator-1778221486179.json",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omada/6.2.10.18/config/mspNavigator-1778221486179.json",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omada",
+            "6.2.10.18",
+            "config",
+            "mspNavigator-1778221486179.json"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omada/6.2.10.18/config/normalGlobalNavigator-1778221486179.json",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omada/6.2.10.18/config/normalGlobalNavigator-1778221486179.json",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omada",
+            "6.2.10.18",
+            "config",
+            "normalGlobalNavigator-1778221486179.json"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omada/6.2.10.18/config/profileNavigator-1778221486179.json",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omada/6.2.10.18/config/profileNavigator-1778221486179.json",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omada",
+            "6.2.10.18",
+            "config",
+            "profileNavigator-1778221486179.json"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omada/6.2.10.18/config/siteNavigator-1778221486179.json",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omada/6.2.10.18/config/siteNavigator-1778221486179.json",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omada",
+            "6.2.10.18",
+            "config",
+            "siteNavigator-1778221486179.json"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omada/6.2.10.18/modules/1jo34c0fm.txt",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omada/6.2.10.18/modules/1jo34c0fm.txt",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omada",
+            "6.2.10.18",
+            "modules",
+            "1jo34c0fm.txt"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /omada/6.2.10.18/modules/hotspot.txt",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/omada/6.2.10.18/modules/hotspot.txt",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "omada",
+            "6.2.10.18",
+            "modules",
+            "hotspot.txt"
+          ],
+          "query": [
+            {
+              "key": "_t",
+              "value": ""
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
