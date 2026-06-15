@@ -8,32 +8,24 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ---
 
-## 🔴 Near-term / pre-launch
+## 🔴 Near-term (next up)
 
-- **3am reboot fix → ship it.** Fixed (uses `localtime`, was firing 3am UTC = 11am PHT). Uncommitted.
-  Commit → tag `v1.3.7` → OTA to the field nodes (they're still rebooting at peak until updated).
-- **Confirm/create an External-Portal SSID for the vendos.** The prod voucher SSID rejects the
-  firmware's `authType:4` auth (`-41501`) — coin machines can't authorize anyone without an
-  External-Portal-typed portal. (The Omada-analyzer feature below would auto-detect/fix this.)
-- **Finish the test plan** → `memory/test_plan.md`: no-internet boot + controller-dies-mid-run
-  recovery; re-IP re-point / hour soak / dashboard counts; seller self-heal; voucher-cap error.
-- ~~Place PCB order~~ — DONE (6 boards, PCBWay turnkey).
+- **Healthchecks.io ping (master dead-man's switch).** Master POSTs `healthchecks_url` every 60s.
+  - Add `healthchecks_url` to `config.sample.json` (empty = disabled); load in `files.cpp`.
+  - `HEALTHCHECK_TIMER` 60s repeating, created in master startup.
+  - Payload `{"mac":...,"uptime_s":...,"active_sessions":...}`; dashboard Period=1min, Grace=5min.
+  - Master-only; independent of the election refactor.
+- **Out-of-service banner: auto-recover the admin view.** Banner is passive (only updates on reload).
+  Poll `/status` every ~10s while it's showing and clear it when `serviceReady` flips; + a Retry link.
 
 ## 🟡 Resilience / ops
 
 - **Auto master election + failover/takeover.** Static master = single point of failure. Full design
   (gossip HELLO 300ms, lowest-MAC self-promote after ~2s of no master heartbeat, uptime-weighted) →
   **`memory/master_election_design.md`** (status: not yet implemented — deploy config-master first).
-- **Healthchecks.io ping (master dead-man's switch).** Master POSTs `healthchecks_url` every 60s.
-  - Add `healthchecks_url` to `config.sample.json` (empty = disabled); load in `files.cpp`.
-  - `HEALTHCHECK_TIMER` 60s repeating, created in master startup.
-  - Payload `{"mac":...,"uptime_s":...,"active_sessions":...}`; dashboard Period=1min, Grace=5min.
-  - Independent of the election refactor.
 - **Field WiFi re-provisioning** (change SSID/pw without serial when the node falls off the network).
   Use Espressif `WiFiProv` (BLE + SoftAP), armed on sustained join-failure, gated. Apps: "ESP BLE
   Provisioning" / "ESP SoftAP Provisioning". Cheap companion: backup-SSID list in config.
-- **Out-of-service banner: auto-recover the admin view.** Banner is passive (only updates on reload).
-  Poll `/status` every ~10s while it's showing and clear it when `serviceReady` flips; + a Retry link.
 
 ## 🟡 Features
 
@@ -45,18 +37,14 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   - create the needed **hotspot portals** — a **voucher** portal *and* an **External-Portal (vendo)**
     portal — and the **SSIDs** to enforce segmentation;
   - flag/fix anything else needed for a working deployment.
-  - Folds in audit **S1** (bind admin to a management VLAN/SSID) and resolves the External-Portal-SSID
-    deployment flag above. Pairs with the existing SSID-isolation tripwire (detect) by adding *repair*.
-- **Web config editor.** Edit `config.json` (rates, creds, network) from the browser, no reflash.
-  Hard part: must authenticate securely on a **public/customer WiFi** — needs a real auth story.
-- **Analytics dashboard.** Payments by day — bar of unique clients + line of pesos received.
-  Write to a file (crash-safe re-read); background worker to keep writes off the main thread;
-  **public, no-auth** page. Find a nice, simple JS charting lib.
-- **Session-tracking refactor.** Kill the 60s two-call refresh; look up `clientId` on-demand at
-  extend/pause; dissolves the C2 re-IP problem. **Open question:** can we drop `apMac`/`radioId`
-  from auth? — untestable on the voucher SSID (`-41501`); needs a pending client on an
-  External-Portal SSID. See `test/auth_field_probe.py`.
-- **Alt UI** (`index_alt3.html`) — the alt3 design you liked, WIP, not production-ready.
+  - Folds in audit **S1** (bind admin to a management VLAN/SSID). Pairs with the existing
+    SSID-isolation tripwire (detect) by adding *repair*.
+- **Omada client-cache optimization (session-tracking refactor).** Kill the 60s two-call refresh of
+  `HOTSPOT_SESSION_CACHE` (hotspot/clients + all-clients); look up `clientId` on-demand at extend/pause
+  instead; also dissolves the C2 re-IP problem. **Open question (now testable):** can we drop
+  `apMac`/`radioId` from auth? — was blocked by the voucher SSID (`-41501`), but the **EllaFi PisoWiFi**
+  External-Portal SSID on Bakhaw is now a clean target. Run `test/auth_field_probe.py` against a
+  pending client there.
 
 ## 🟡 Security — open items from the 2026-06-10 audit
 
@@ -94,6 +82,17 @@ HMAC-authenticated mesh + replay/freshness (audit **S3**, kills the **S2** trigg
 password brick fix + **C1**/**C3** (v1.3.0) · admin **challenge-response** auth + IP-bound token +
 throttle (**S1** core — cleartext Basic-auth gone) · graceful degradation (web-first boot,
 `isServiceReady`, out-of-service LED/banner, reconnect overlay) · error-log bounding (read last 200 +
-file cap 500) + Clear button · voucher "Used X/Y" column (newest-first) · seller self-heal · mock
-response-code logging · SSID-isolation tripwire (detect) · WS terminal-error socket close · flasher
-"Read device MAC" button · merge reads live WiFi IP (pause `IP=null` fix) · v1.3.6/build-46 bump.
+file cap 500) + Clear button · voucher "Used X/Y" column (newest-first) · mock response-code logging ·
+SSID-isolation tripwire (detect) · WS terminal-error socket close · flasher "Read device MAC" button ·
+merge reads live WiFi IP (pause `IP=null` fix) ·
+**node nickname+commission stored on the controller** (each node is a client; `name` = `"nickname|commission"`
+via `setClientName` PATCH on save, read back from the all-clients list — survives a `sellers.json` wipe;
+replaced the abandoned seller self-heal, voucher names being immutable) · test plan finished ·
+**build-47 batch / v1.3.7 release:** 3am reboot → master `localtime` + slaves gated + "Reboot All"
+(`NET_MSG_REBOOT`, HMAC'd), dashboard uptime fix, Device Log Clear-button removal + colored W/I/D filters.
+
+## ✗ Cancelled
+
+- **Alt UI** (`index_alt3.html`) — dropped.
+- **Seller self-heal** — abandoned (voucher group names are immutable; too problematic). The node
+  nickname/commission storage above is the surviving controller-backed-storage feature.

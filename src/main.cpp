@@ -210,11 +210,11 @@ void setup() {
 }
 
 void loop() {
-  // Scheduled daily reboot at 3:00 AM LOCAL time — a dead hour, to keep memory and cache clean.
-  // localtime() honours the TZ set from the controller (e.g. TZ=HKT-8 = UTC+8); gmtime() fired at
-  // 3am UTC = 11am Philippine time, i.e. peak usage.
+  // Scheduled daily reboot at 3:00 AM LOCAL — MASTER ONLY. Slaves never set TZ (no controller calls),
+  // so a slave running this would fire at 3am UTC = 11am peak. Gating to the master avoids that;
+  // cycle slaves via the admin "Reboot All" button. localtime() honours the controller-set TZ (UTC+8).
   static unsigned long lastRebootCheck = 0;
-  if (millis() - lastRebootCheck > MILLIS_PER_MINUTE) {
+  if (IS_MASTER && millis() - lastRebootCheck > MILLIS_PER_MINUTE) {
     lastRebootCheck = millis();
     time_t now = time(NULL);
     struct tm* t = localtime(&now);

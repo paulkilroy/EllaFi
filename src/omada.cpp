@@ -472,6 +472,42 @@ JsonDocument getAllClientsJson() {
   return doc;
 }
 
+// Set a client's Omada name/alias (PATCH). EllaFi stows a node's "nickname|commission" here so it
+// survives a device wipe and syncs across nodes; it's read back for free from getAllClientsJson()["name"].
+bool setClientName(const String& mac, const String& name, String& errorDetail) {
+  OmadaCredentials creds = getCredentials(errorDetail);
+  if (creds.loginMs == 0) return false;
+
+  String macDash = mac; macDash.replace(":", "-"); macDash.toUpperCase();   // path wants dash-separated
+  String esc = name; esc.replace("\\", "\\\\"); esc.replace("\"", "\\\"");
+
+  WiFiClientSecure wc;
+  HTTPClient h;
+  wc.setInsecure();
+  String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/sites/" + SITE_ID + "/clients/" + macDash;
+  String body = "{\"name\":\"" + esc + "\"}";
+  ESP_LOGI(TAG, "PATCH %s name=%s", url.c_str(), name.c_str());
+  h.begin(wc, url);
+  applyCredentials(h, creds);
+  h.addHeader("Content-Type", "application/json;charset=UTF-8");
+  int code = h.sendRequest("PATCH", body);
+  if (code <= 0) {
+    errorDetail = "setClientName: " + h.errorToString(code);
+    ESP_LOGE(TAG, "%s", errorDetail.c_str());
+    h.end();
+    return false;
+  }
+  String resp = h.getString();
+  h.end();
+  JsonDocument doc;
+  if (deserializeJson(doc, resp) || doc["errorCode"].as<int>() != 0) {
+    errorDetail = "setClientName: " + resp.substring(0, 160);
+    ESP_LOGE(TAG, "setClientName: API error: %.200s", resp.c_str());
+    return false;
+  }
+  return true;
+}
+
 // Merges active hotspot sessions with all-clients data, keyed on MAC.
 // Only includes sessions where end > nowMs (expired records are filtered out).
 // Each entry in the returned array has:

@@ -314,10 +314,9 @@
     <div class="section-title">
       Device Log
       <span style="display:flex;gap:6px;align-items:center;margin-left:auto">
-        <button id="log-btn-W" class="btn btn-sm log-lvl-btn active" onclick="toggleLevel('W')" title="Warnings">W</button>
-        <button id="log-btn-I" class="btn btn-sm log-lvl-btn active" onclick="toggleLevel('I')" title="Info">I</button>
-        <button id="log-btn-D" class="btn btn-sm log-lvl-btn" onclick="toggleLevel('D')" title="Debug">D</button>
-        <button class="btn btn-sm" onclick="clearDevLog()" title="Clear display">Clear</button>
+        <button id="log-btn-W" class="btn btn-sm log-lvl-btn active" style="color:#f0b429" onclick="toggleLevel('W')" title="Warnings">W</button>
+        <button id="log-btn-I" class="btn btn-sm log-lvl-btn active" style="color:#5dade2" onclick="toggleLevel('I')" title="Info">I</button>
+        <button id="log-btn-D" class="btn btn-sm log-lvl-btn" style="color:#6a7a90" onclick="toggleLevel('D')" title="Debug">D</button>
       </span>
     </div>
     <div id="dev-log" class="hide-D" style="height:380px;overflow-y:auto;font-family:monospace;font-size:12px;background:#111;border-radius:6px;padding:6px"></div>
@@ -482,7 +481,8 @@
   <div class="section">
     <div class="section-title">Device Control</div>
     <div class="btn-row">
-      <button class="btn btn-warning" onclick="doReboot()">Reboot ESP32</button>
+      <button class="btn btn-warning" onclick="doReboot()">Reboot Master</button>
+      <button class="btn btn-danger" onclick="doRebootAll()">Reboot All</button>
       <button class="btn btn-primary" onclick="doProgramMode()">Coin Slot Program Mode</button>
       <button class="btn" onclick="clearVoucherCache()">Clear Voucher Cache</button>
     </div>
@@ -617,12 +617,6 @@ function deltaHtml(d) {
        : '<span class="muted">—</span>';
 }
 
-function fmtUptime(sec) {
-  if (!sec) return '—';
-  const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
-  return d > 0 ? `${d}d ${h}h` : h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
 function fmtHeap(bytes) { return bytes ? Math.round(bytes / 1024) + ' KB' : '—'; }
 
 function renderNodeHealth(nodes) {
@@ -648,7 +642,7 @@ function renderNodeHealth(nodes) {
       <td>${nickname}</td>
       <td>${comm}</td>
       <td class="col-ip" style="font-family:monospace;font-size:12px">${n.ip || '—'}</td>
-      <td class="col-uptime muted">${fmtUptime(n.uptimeSec)}</td>
+      <td class="col-uptime muted">${fmtUptime(n.uptimeSec * 1000)}</td>   <!-- fmtUptime takes ms; uptimeSec is seconds -->
       <td>${ver}</td>
       <td>${rssi}</td>
     </tr>`;
@@ -1368,11 +1362,6 @@ function toggleLevel(l) {
   document.getElementById('dev-log').classList.toggle('hide-' + l, !devLogLevels[l]);
 }
 
-function clearDevLog() {
-  document.getElementById('dev-log').innerHTML = '';
-  devLogSince = 0;
-}
-
 function fmtUptimeMs(ms) {
   const s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60);
   return h ? `${h}h${String(m%60).padStart(2,'0')}m` : m ? `${m}m${String(s%60).padStart(2,'0')}s` : `${s}s`;
@@ -1469,11 +1458,19 @@ async function loadRefunds() {
 // System
 // ─────────────────────────────────────────────────────────────────────────────
 async function doReboot() {
-  if (!confirm('Reboot the ESP32?')) return;
+  if (!confirm('Reboot the master node?')) return;
   const msg = document.getElementById('sys-msg');
   msg.textContent = 'Sending reboot command...';
   try { await fetch('/admin/reboot', { method: 'POST' }); } catch {}
-  msg.textContent = 'Reboot sent — device will be back in ~10 seconds.';
+  msg.textContent = 'Reboot sent — master will be back in ~10 seconds.';
+}
+
+async function doRebootAll() {
+  if (!confirm('Reboot the master AND all slave nodes?')) return;
+  const msg = document.getElementById('sys-msg');
+  msg.textContent = 'Broadcasting reboot to all nodes...';
+  try { await fetch('/admin/reboot-all', { method: 'POST' }); } catch {}
+  msg.textContent = 'Reboot-all sent — all nodes will be back in ~10 seconds.';
 }
 
 async function clearVoucherCache() {

@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="460" font-family="sans-serif">
+<rect width="760" height="460" fill="#0f1420"/>
+<text x="64" y="24" fill="#fff" font-size="16" font-weight="bold">EllaFi coin board — landed cost per board vs run size</text>
+<line x1="64" y1="410.0" x2="510" y2="410.0" stroke="#2a3a55" stroke-width="1"/>
+<text x="56" y="414.0" fill="#8aa" font-size="11" text-anchor="end">$20</text>
+<line x1="64" y1="358.9" x2="510" y2="358.9" stroke="#2a3a55" stroke-width="1"/>
+<text x="56" y="362.9" fill="#8aa" font-size="11" text-anchor="end">$30</text>
+<line x1="64" y1="307.8" x2="510" y2="307.8" stroke="#2a3a55" stroke-width="1"/>
+<text x="56" y="311.8" fill="#8aa" font-size="11" text-anchor="end">$40</text>
+<line x1="64" y1="256.7" x2="510" y2="256.7" stroke="#2a3a55" stroke-width="1"/>
+<text x="56" y="260.7" fill="#8aa" font-size="11" text-anchor="end">$50</text>
+<line x1="64" y1="205.6" x2="510" y2="205.6" stroke="#2a3a55" stroke-width="1"/>
+<text x="56" y="209.6" fill="#8aa" font-size="11" text-anchor="end">$60</text>
+<line x1="64" y1="154.5" x2="510" y2="154.5" stroke="#2a3a55" stroke-width="1"/>
+<text x="56" y="158.5" fill="#8aa" font-size="11" text-anchor="end">$70</text>
+<line x1="64" y1="103.4" x2="510" y2="103.4" stroke="#2a3a55" stroke-width="1"/>
+<text x="56" y="107.4" fill="#8aa" font-size="11" text-anchor="end">$80</text>
+<line x1="64" y1="52.3" x2="510" y2="52.3" stroke="#2a3a55" stroke-width="1"/>
+<text x="56" y="56.3" fill="#8aa" font-size="11" text-anchor="end">$90</text>
+<line x1="64.0" y1="410" x2="64.0" y2="415" stroke="#8aa"/>
+<text x="64.0" y="430" fill="#8aa" font-size="11" text-anchor="middle">1</text>
+<line x1="113.6" y1="410" x2="113.6" y2="415" stroke="#8aa"/>
+<text x="113.6" y="430" fill="#8aa" font-size="11" text-anchor="middle">2</text>
+<line x1="163.1" y1="410" x2="163.1" y2="415" stroke="#8aa"/>
+<text x="163.1" y="430" fill="#8aa" font-size="11" text-anchor="middle">3</text>
+<line x1="212.7" y1="410" x2="212.7" y2="415" stroke="#8aa"/>
+<text x="212.7" y="430" fill="#8aa" font-size="11" text-anchor="middle">4</text>
+<line x1="262.2" y1="410" x2="262.2" y2="415" stroke="#8aa"/>
+<text x="262.2" y="430" fill="#8aa" font-size="11" text-anchor="middle">5</text>
+<line x1="311.8" y1="410" x2="311.8" y2="415" stroke="#8aa"/>
+<text x="311.8" y="430" fill="#8aa" font-size="11" text-anchor="middle">6</text>
+<line x1="361.3" y1="410" x2="361.3" y2="415" stroke="#8aa"/>
+<text x="361.3" y="430" fill="#8aa" font-size="11" text-anchor="middle">7</text>
+<line x1="410.9" y1="410" x2="410.9" y2="415" stroke="#8aa"/>
+<text x="410.9" y="430" fill="#8aa" font-size="11" text-anchor="middle">8</text>
+<line x1="460.4" y1="410" x2="460.4" y2="415" stroke="#8aa"/>
+<text x="460.4" y="430" fill="#8aa" font-size="11" text-anchor="middle">9</text>
+<line x1="510.0" y1="410" x2="510.0" y2="415" stroke="#8aa"/>
+<text x="510.0" y="430" fill="#8aa" font-size="11" text-anchor="middle">10</text>
+<text x="287" y="452" fill="#cdd7e6" font-size="12" text-anchor="middle">boards in the run</text>
+<polyline points="64.0,390.6 113.6,390.6 163.1,390.6 212.7,390.6 262.2,390.6 311.8,390.6 361.3,390.6 410.9,390.6 460.4,390.6 510.0,390.6" fill="none" stroke="#2ecc71" stroke-width="2.5"/>
+<circle cx="64.0" cy="390.6" r="2.5" fill="#2ecc71"/>
+<circle cx="113.6" cy="390.6" r="2.5" fill="#2ecc71"/>
+<circle cx="163.1" cy="390.6" r="2.5" fill="#2ecc71"/>
+<circle cx="212.7" cy="390.6" r="2.5" fill="#2ecc71"/>
+<circle cx="262.2" cy="390.6" r="2.5" fill="#2ecc71"/>
+<circle cx="311.8" cy="390.6" r="2.5" fill="#2ecc71"/>
+<circle cx="361.3" cy="390.6" r="2.5" fill="#2ecc71"/>
+<circle cx="410.9" cy="390.6" r="2.5" fill="#2ecc71"/>
+<circle cx="460.4" cy="390.6" r="2.5" fill="#2ecc71"/>
+<circle cx="510.0" cy="390.6" r="2.5" fill="#2ecc71"/>
+<rect x="526" y="44" width="12" height="12" fill="#2ecc71"/>
+<text x="542" y="55" fill="#cdd7e6" font-size="12">DigiKey DIY (parts, tariff in)</text>
+<text x="542" y="70" fill="#8aa" font-size="10">$24/bd @3 · $24/bd @10</text>
+<polyline points="64.0,209.5 113.6,296.4 163.1,325.3 212.7,339.8 262.2,348.5 311.8,354.3 361.3,358.4 410.9,361.5 460.4,364.0 510.0,365.9" fill="none" stroke="#3498db" stroke-width="2.5"/>
+<circle cx="64.0" cy="209.5" r="2.5" fill="#3498db"/>
+<circle cx="113.6" cy="296.4" r="2.5" fill="#3498db"/>
+<circle cx="163.1" cy="325.3" r="2.5" fill="#3498db"/>
+<circle cx="212.7" cy="339.8" r="2.5" fill="#3498db"/>
+<circle cx="262.2" cy="348.5" r="2.5" fill="#3498db"/>
+<circle cx="311.8" cy="354.3" r="2.5" fill="#3498db"/>
+<circle cx="361.3" cy="358.4" r="2.5" fill="#3498db"/>
+<circle cx="410.9" cy="361.5" r="2.5" fill="#3498db"/>
+<circle cx="460.4" cy="364.0" r="2.5" fill="#3498db"/>
+<circle cx="510.0" cy="365.9" r="2.5" fill="#3498db"/>
+<rect x="526" y="88" width="12" height="12" fill="#3498db"/>
+<text x="542" y="99" fill="#cdd7e6" font-size="12">PCBWay turnkey — DDP (0% duty)</text>
+<text x="542" y="114" fill="#8aa" font-size="10">$37/bd @3 · $29/bd @10</text>
+<polyline points="64.0,133.8 113.6,242.4 163.1,278.6 212.7,296.7 262.2,307.6 311.8,314.8 361.3,320.0 410.9,323.9 460.4,326.9 510.0,329.3" fill="none" stroke="#e67e22" stroke-width="2.5"/>
+<circle cx="64.0" cy="133.8" r="2.5" fill="#e67e22"/>
+<circle cx="113.6" cy="242.4" r="2.5" fill="#e67e22"/>
+<circle cx="163.1" cy="278.6" r="2.5" fill="#e67e22"/>
+<circle cx="212.7" cy="296.7" r="2.5" fill="#e67e22"/>
+<circle cx="262.2" cy="307.6" r="2.5" fill="#e67e22"/>
+<circle cx="311.8" cy="314.8" r="2.5" fill="#e67e22"/>
+<circle cx="361.3" cy="320.0" r="2.5" fill="#e67e22"/>
+<circle cx="410.9" cy="323.9" r="2.5" fill="#e67e22"/>
+<circle cx="460.4" cy="326.9" r="2.5" fill="#e67e22"/>
+<circle cx="510.0" cy="329.3" r="2.5" fill="#e67e22"/>
+<rect x="526" y="132" width="12" height="12" fill="#e67e22"/>
+<text x="542" y="143" fill="#cdd7e6" font-size="12">PCBWay turnkey — DDU 25%</text>
+<text x="542" y="158" fill="#8aa" font-size="10">$46/bd @3 · $36/bd @10</text>
+<polyline points="64.0,58.2 113.6,188.5 163.1,231.9 212.7,253.6 262.2,266.7 311.8,275.4 361.3,281.6 410.9,286.2 460.4,289.8 510.0,292.7" fill="none" stroke="#e74c3c" stroke-width="2.5"/>
+<circle cx="64.0" cy="58.2" r="2.5" fill="#e74c3c"/>
+<circle cx="113.6" cy="188.5" r="2.5" fill="#e74c3c"/>
+<circle cx="163.1" cy="231.9" r="2.5" fill="#e74c3c"/>
+<circle cx="212.7" cy="253.6" r="2.5" fill="#e74c3c"/>
+<circle cx="262.2" cy="266.7" r="2.5" fill="#e74c3c"/>
+<circle cx="311.8" cy="275.4" r="2.5" fill="#e74c3c"/>
+<circle cx="361.3" cy="281.6" r="2.5" fill="#e74c3c"/>
+<circle cx="410.9" cy="286.2" r="2.5" fill="#e74c3c"/>
+<circle cx="460.4" cy="289.8" r="2.5" fill="#e74c3c"/>
+<circle cx="510.0" cy="292.7" r="2.5" fill="#e74c3c"/>
+<rect x="526" y="176" width="12" height="12" fill="#e74c3c"/>
+<text x="542" y="187" fill="#cdd7e6" font-size="12">PCBWay turnkey — DDU 50%</text>
+<text x="542" y="202" fill="#8aa" font-size="10">$55/bd @3 · $43/bd @10</text>
+</svg>

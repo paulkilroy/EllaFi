@@ -705,6 +705,31 @@ void setupFsOtaRoute() {
 
 // ── Admin nodes ───────────────────────────────────────────────────────────────
 
+// Nodes: Omada is the source of truth. Each node's "nickname|commission" lives in its Omada client
+// name; we cache it here (refreshed ≤1×/60s) and overlay it on the sellers.json cache, so the
+// controller wins and node commissions survive a sellers.json wipe. sellers.json is only a fallback.
+static std::map<String, String> NODE_ALIAS;       // mac (colon, upper) -> "nickname|commission"
+static unsigned long NODE_ALIAS_SYNC_MS = 0;
+
+static String macColonUpper(String m) { m.replace("-", ":"); m.toUpperCase(); return m; }
+
+static void syncNodeAliases() {
+  if (!IS_MASTER) return;
+  if (NODE_ALIAS_SYNC_MS != 0 && millis() - NODE_ALIAS_SYNC_MS < 60000) return;  // throttle
+  NODE_ALIAS_SYNC_MS = millis();
+  JsonDocument all = getAllClientsJson();
+  if (all.isNull()) return;                        // Omada down — keep what we have
+  std::map<String, String> byMac;                  // colon-upper -> client name
+  for (JsonObject c : all["result"]["data"].as<JsonArray>())
+    byMac[macColonUpper(c["mac"].as<String>())] = c["name"].as<String>();
+  std::vector<String> macs = { macColonUpper(WiFi.macAddress()) };   // master + known slaves
+  for (const NodeInfo& ni : getKnownNodes()) macs.push_back(macColonUpper(ni.mac));
+  for (const String& mac : macs) {
+    auto it = byMac.find(mac);
+    if (it != byMac.end() && it->second.indexOf('|') >= 0) NODE_ALIAS[mac] = it->second;
+  }
+}
+
 esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
   if (!checkAdminAuth(request, response)) return ESP_OK;
   JsonDocument doc;
@@ -726,6 +751,14 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
       }
       f.close();
     }
+  }
+
+  // Overlay the Omada alias (source of truth for nodes) onto the sellers.json cache.
+  syncNodeAliases();
+  for (auto& kv : NODE_ALIAS) {
+    int bar = kv.second.indexOf('|');
+    nicknames[kv.first]   = kv.second.substring(0, bar);
+    commissions[kv.first] = kv.second.substring(bar + 1).toInt();
   }
 
   JsonArray nodes = doc["nodes"].to<JsonArray>();
@@ -875,36 +908,25 @@ esp_err_t handleAdminSellers(PsychicRequest* request, PsychicResponse* response)
     if (f) { deserializeJson(doc, f); f.close(); }
     if (!doc["sellers"].is<JsonArray>()) doc["sellers"].to<JsonArray>();
     if (!doc["nodes"].is<JsonArray>())   doc["nodes"].to<JsonArray>();
-    JsonArray sellers = doc["sellers"].as<JsonArray>();
-
-    // Self-heal: add any seller seen in AUTOGEN voucher groups that isn't already listed.
-    // Voucher groups live on the controller, so seller names survive a LittleFS wipe — only
-    // their commission rate (file-only metadata) is lost and re-entered.
-    std::set<String> known;
-    for (JsonObject s : sellers) known.insert(s["name"].as<String>());
-    JsonDocument vg = getVoucherGroupsJson();
-    if (!vg.isNull()) {
-      for (JsonObject g : vg["result"]["data"].as<JsonArray>()) {
-        String gname = g["name"].as<String>();
-        if (!gname.startsWith("AUTOGEN: ")) continue;
-        String rest = gname.substring(9);
-        int sp = rest.indexOf(' ');
-        String seller = sp >= 0 ? rest.substring(sp + 1) : "";
-        if (seller.isEmpty() || known.count(seller)) continue;
-        known.insert(seller);
-        sellers.add<JsonObject>()["name"] = seller;
-      }
-    }
     String json; serializeJson(doc, json);
     return response->send(200, "application/json", json.c_str());
   }
-  // POST — write sellers.json
+  // POST — write sellers.json (authoritative for SELLERS)
   JsonDocument doc;
   if (deserializeJson(doc, request->body()) || !doc["sellers"].is<JsonArray>())
     return response->send(400, "text/plain", "Bad request");
   File f = LittleFS.open("/sellers.json", "w");
   if (!f) return response->send(500, "text/plain", "Failed to write file");
   serializeJson(doc, f); f.close();
+  // Nodes: Omada is the source of truth — push each node's nickname|commission to its client alias.
+  for (JsonObject n : doc["nodes"].as<JsonArray>()) {
+    String mac = n["mac"].as<String>();
+    if (mac.isEmpty()) continue;
+    String alias = n["nickname"].as<String>() + "|" + String(n["commission"].as<int>());
+    String err;
+    if (!setClientName(mac, alias, err)) ESP_LOGW(TAG, "node alias PATCH %s failed: %s", mac.c_str(), err.c_str());
+    NODE_ALIAS[macColonUpper(mac)] = alias;   // reflect immediately, before the next sync
+  }
   return response->send(200, "application/json", "{\"ok\":true}");
 }
 
@@ -1324,6 +1346,17 @@ esp_err_t handleAdminReboot(PsychicRequest* request, PsychicResponse* response) 
   return ESP_OK;
 }
 
+// Reboot every node: broadcast to the slaves (repeated — UDP is lossy), then reboot the master.
+esp_err_t handleAdminRebootAll(PsychicRequest* request, PsychicResponse* response) {
+  if (!checkAdminAuth(request, response)) return ESP_OK;
+  ESP_LOGI(TAG, "Reboot-all requested — broadcasting to slaves");
+  for (int i = 0; i < 3; i++) { masterBroadcastReboot(); delay(100); }
+  response->send(200, "text/plain", "Rebooting all nodes...");
+  delay(200);
+  esp_restart();
+  return ESP_OK;
+}
+
 esp_err_t handleAdminClearVoucherCache(PsychicRequest* request, PsychicResponse* response) {
   if (!checkAdminAuth(request, response)) return ESP_OK;
   if (fsExists("/voucher_history.json")) LittleFS.remove("/voucher_history.json");
@@ -1492,6 +1525,7 @@ void setupWeb() {
   HTTP_SERVER.on("/admin/vouchers",    HTTP_ANY,   handleAdminVouchers);
   HTTP_SERVER.on("/admin/config",      HTTP_ANY,  handleAdminConfig);
   HTTP_SERVER.on("/admin/reboot",             HTTP_POST, handleAdminReboot);
+  HTTP_SERVER.on("/admin/reboot-all",         HTTP_POST, handleAdminRebootAll);
   HTTP_SERVER.on("/admin/clear-voucher-cache", HTTP_POST, handleAdminClearVoucherCache);
   HTTP_SERVER.on("/admin/clear-errors",        HTTP_POST, handleAdminClearErrors);
   HTTP_SERVER.on("/admin/github-check",        HTTP_GET,  handleGithubCheck);

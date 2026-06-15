@@ -417,6 +417,27 @@ class OmadaHandler(BaseHTTPRequestHandler):
             print(f"  {ts}  {RED}UNKNOWN GET{RESET}  {self.path}")
             self.send_json(404, {"errorCode": -1, "msg": "Not found"})
 
+    def do_PATCH(self):
+        ts = datetime.now().strftime("%H:%M:%S")
+        data, raw = self._read_body()
+        api, qs   = self._api_path_qs()
+        if re.match(r"^/api/v2/sites/[^/]+/clients/[^/]+$", api):       # rename / set client alias
+            if CLOUD_SESSION:                     # passthrough — the rename hits the real controller
+                self.handle_cloud_forward(ts, "PATCH", api, qs, raw.encode() if raw else None)
+            else:
+                self.handle_set_client_name(ts, api.split("/")[-1], data)
+        else:
+            print(f"  {ts}  {RED}UNKNOWN PATCH{RESET}  {self.path}  body={raw}")
+            self.send_json(404, {"errorCode": -1, "msg": "Not found"})
+
+    def handle_set_client_name(self, ts, mac, data):
+        name = data.get("name", "")
+        rec = all_clients.setdefault(mac, {"ip": "", "apMac": "", "ssid": "", "radioId": 0})
+        rec["name"] = name
+        print(f"  {ts}  {GREEN}{BOLD}SET client name{RESET}  mac={mac} name={name!r}")
+        self.send_json(200, {"errorCode": 0, "msg": "Success.",
+                             "result": {"mac": mac, "name": name, **rec}})
+
     # ── Cloud forwarding ───────────────────────────────────────────────────────
 
     def handle_cloud_forward(self, ts, method, api, qs, body_bytes):
@@ -642,7 +663,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
     def handle_all_clients(self, ts):
         time.sleep(DELAYS["query"])
         connected = [
-            {"mac": mac, "ip": info["ip"], "apMac": info["apMac"],
+            {"mac": mac, "name": info.get("name", mac), "ip": info["ip"], "apMac": info["apMac"],
              "ssid": info["ssid"], "radioId": info["radioId"]}
             for mac, info in all_clients.items()
         ]
@@ -676,6 +697,20 @@ class OmadaHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+_START_MTIME = os.path.getmtime(__file__)
+
+def _watch_staleness():
+    """Nag if this file has been edited since the process started — i.e. you're running an old copy."""
+    while True:
+        time.sleep(60)
+        try:
+            if os.path.getmtime(__file__) > _START_MTIME + 1:
+                print(f"\n  {YELLOW}{BOLD}⚠  mock_omada.py changed on disk — you're running an OLD copy. "
+                      f"Restart it (Ctrl-C, then re-run).{RESET}\n")
+        except Exception:
+            pass
+
+
 def main():
     parser = argparse.ArgumentParser(description="Mock Omada controller")
     parser.add_argument(
@@ -684,6 +719,8 @@ def main():
              "Requires omada_username, omada_password, omada_controller_id in data/config.json. "
              "extPortal/auth and hotspot session CRUD remain mocked.")
     args = parser.parse_args()
+
+    threading.Thread(target=_watch_staleness, daemon=True).start()  # nag if this file gets edited
 
     if args.cloud:
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),

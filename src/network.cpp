@@ -304,6 +304,7 @@ static void netSend(NetMsgType type) {
 
 void masterBroadcastSessionStart() { netSend(NET_MSG_SESSION_START); ESP_LOGI(TAG, "UDP broadcast session_start"); }
 void masterBroadcastSessionEnd()   { netSend(NET_MSG_SESSION_END);   ESP_LOGI(TAG, "UDP broadcast session_end"); }
+void masterBroadcastReboot()       { netSend(NET_MSG_REBOOT);        ESP_LOGI(TAG, "UDP broadcast reboot"); }
 
 void slaveSendCoinInserted() {
   CoinInsertedBody body = {};
@@ -479,6 +480,10 @@ void networkLoop() {
     } else if (type == NET_MSG_SESSION_END) {
       ESP_LOGI(TAG, "UDP session_end");
       slaveRecvCoinInsertEnd();
+    } else if (type == NET_MSG_REBOOT) {
+      ESP_LOGI(TAG, "UDP reboot — restarting");
+      delay(50);
+      esp_restart();
     }
   }
 }

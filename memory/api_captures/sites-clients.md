@@ -58,3 +58,27 @@ result:
   "authInfo": [ { "authType": 3, "info": "{voucherCode}" } ]
 }
 ```
+
+---
+
+## PATCH — rename a client / set its alias  (captured 2026-06-14)
+
+The "edit client name" call. **EllaFi uses this to stash a node's nickname+commission on the
+controller** (the node is itself a client; its `name` is the alias), so it survives a device wipe and
+syncs across nodes. Read it back for free from the all-clients list (`name` field).
+
+`PATCH /omadac/{controllerId}/api/v2/sites/{siteId}/clients/{mac}`  — mac is **dash-separated**, in the path.
+
+**Request body** (only `name` matters; `clientInfoCorrection` is optional UI metadata):
+```json
+{ "name": "{alias}", "clientInfoCorrection": { "type": "string", "vendor": "string", "model": "string" } }
+```
+
+**Response 200** — `{ "errorCode": 0, "msg": "Success.", "result": { …the full client record… } }`,
+same schema as the GET list above, with the updated `name`. Also seen on the record: `rateLimit{}`,
+`ipSetting{useFixedAddr}`, `clientLockToApSetting{enable}`.
+
+**Firmware wiring:** URL mirrors the other calls —
+`CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/sites/" + SITE_ID + "/clients/" + <mac-dashes>`,
+method `PATCH`, `Content-Type: application/json`, body `{"name": "<nickname>|<commission>"}`.
+HTTPClient: use `h.sendRequest("PATCH", body)`.

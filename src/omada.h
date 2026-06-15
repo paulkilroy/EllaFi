@@ -144,6 +144,7 @@ bool extendOmadaClient(SessionParams& session, unsigned long long durationMillis
 bool disconnectOmadaClient(SessionParams& session, String& errorDetail);
 JsonDocument getHotspotClientsJson();
 JsonDocument getAllClientsJson();
+bool setClientName(const String& mac, const String& name, String& errorDetail);  // PATCH a client's Omada alias
 JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, uint64_t nowMs);
 void refreshHotspotSessionCache();
 unsigned long getOmadaSessionAgeMs();   // ms since last Omada login; 0 if never logged in
