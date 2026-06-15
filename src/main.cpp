@@ -210,16 +210,18 @@ void setup() {
 }
 
 void loop() {
-  // Scheduled daily reboot at 3:00 AM LOCAL — MASTER ONLY. Slaves never set TZ (no controller calls),
-  // so a slave running this would fire at 3am UTC = 11am peak. Gating to the master avoids that;
-  // cycle slaves via the admin "Reboot All" button. localtime() honours the controller-set TZ (UTC+8).
+  // Scheduled daily reboot at 3:00 AM LOCAL — MASTER-DRIVEN. Slaves never set TZ (no controller calls),
+  // so a slave watching its own clock would fire at 3am UTC = 11am peak. So only the master watches the
+  // clock; at 3am local it broadcasts NET_MSG_REBOOT to cycle the slaves, then restarts itself — the whole
+  // village cycles together. localtime() honours the controller-set TZ (UTC+8).
   static unsigned long lastRebootCheck = 0;
   if (IS_MASTER && millis() - lastRebootCheck > MILLIS_PER_MINUTE) {
     lastRebootCheck = millis();
     time_t now = time(NULL);
     struct tm* t = localtime(&now);
     if (t->tm_hour == 3 && t->tm_min == 0) {
-      ESP_LOGI(TAG, "Scheduled 3am reboot");
+      ESP_LOGI(TAG, "Scheduled 3am reboot — cascading to slaves, then restarting");
+      for (int i = 0; i < 3; i++) { masterBroadcastReboot(); delay(100); }
       esp_restart();
     }
   }
