@@ -133,6 +133,11 @@ extern ControllerStatus CONTROLLER_STATUS;
 // the web server stays up so the config (e.g. a changed controller URL) can always be fixed.
 bool isServiceReady();
 
+// Re-fetch GET settings/system/status into CONTROLLER_STATUS (reachable + counters + TZ). Best-effort,
+// bounded timeout — safe to call periodically from the master service-health monitor. On failure it
+// flips reachable=false and forces a re-login on the next call so recovery is prompt.
+void refreshControllerStatus();
+
 // ---- Omada API functions ----
 // Credential management is internal — callers pass no session state.
 // Concurrent calls from different tasks are safe: each call gets a credential

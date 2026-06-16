@@ -863,6 +863,20 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
   return response->send(200, "application/json", json.c_str());
 }
 
+// POST /admin/recheck — force an immediate controller-status refresh, on demand from the dashboard's
+// "Re-check now" link on the out-of-service banner. Status is otherwise only updated on coin/session
+// events, so this lets an operator confirm a fix (or surface a drop) without waiting for one. Bounded
+// ~4s by refreshControllerStatus(); the client re-reads /admin/nodes afterward to repaint the banner.
+esp_err_t handleAdminRecheck(PsychicRequest* request, PsychicResponse* response) {
+  if (!checkAdminAuth(request, response)) return ESP_OK;
+  refreshControllerStatus();
+  JsonDocument doc;
+  doc["serviceReady"] = isServiceReady();
+  String json;
+  serializeJson(doc, json);
+  return response->send(200, "application/json", json.c_str());
+}
+
 // ── Admin log (ring buffer) ───────────────────────────────────────────────────
 
 esp_err_t handleAdminLog(PsychicRequest* request, PsychicResponse* response) {
@@ -1518,6 +1532,7 @@ void setupWeb() {
   HTTP_SERVER.on("/errors",            HTTP_GET,  handleErrors);
   HTTP_SERVER.on("/program",           HTTP_GET,  handleProgram);
   HTTP_SERVER.on("/admin/nodes",       HTTP_GET,  handleAdminNodes);
+  HTTP_SERVER.on("/admin/recheck",     HTTP_POST, handleAdminRecheck);
   HTTP_SERVER.on("/admin/log",         HTTP_GET,  handleAdminLog);
   HTTP_SERVER.on("/admin/sales",       HTTP_GET,  handleAdminSales);
   HTTP_SERVER.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard);

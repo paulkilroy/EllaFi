@@ -698,7 +698,14 @@ function renderPerformance(salesData, leaderboard, nodeRevMap) {
   }).join('');
 }
 
-async function loadDashboard() {
+async function loadDashboard(skipRecheck) {
+  // Controller status is only refreshed on coin/session events, so force one fresh check whenever the
+  // dashboard opens — otherwise a controller that died while idle wouldn't surface here. Fire-and-forget
+  // (non-blocking) so the page renders immediately from cached data, then repaints once the check lands.
+  // The skipRecheck guard prevents the follow-up repaint from re-triggering (no recursion).
+  if (!skipRecheck) {
+    fetch('/admin/recheck', { method: 'POST' }).then(() => loadDashboard(true)).catch(() => {});
+  }
   // Node health + session counts from /admin/nodes (in-memory — no Omada calls)
   try {
     const r = await fetch('/admin/nodes');
@@ -763,8 +770,18 @@ function updateServiceBanner(data) {
                : !c.reachable  ? 'controller unreachable'
                : !c.siteLoaded ? 'controller site not loaded'
                :                 'service unavailable';
-  el.innerHTML = `⚠ OUT OF SERVICE — ${reason}. Coin selling is paused. Fix the controller URL in <b>Settings</b>.`;
+  el.innerHTML = `⚠ OUT OF SERVICE — ${reason}. Coin selling is paused. Fix the controller URL in <b>Settings</b>, then `
+    + `<a href="#" onclick="recheckService(event)" style="color:#fff;text-decoration:underline;font-weight:700">Re-check now ↻</a>.`;
   el.style.display = 'block';
+}
+
+// Force an immediate controller re-check from the firmware (status is otherwise only refreshed on
+// coin/session events), then repaint the dashboard — clears the banner once service is restored.
+async function recheckService(ev) {
+  if (ev) ev.preventDefault();
+  const el = document.getElementById('service-banner');
+  if (el) el.innerHTML = '⏳ Re-checking controller…';
+  loadDashboard();   // forces a fresh /admin/recheck, then repaints (clears the banner if restored)
 }
 
 function renderSystemHealth(sys, ctrl) {

@@ -76,7 +76,7 @@ static OmadaCredentials getCredentials(String& errorDetail) {
   if (CREDS.loginMs > 0 && (millis() - CREDS.loginMs) < CONTROLLER_SESSION_MAX_AGE_MILLIS) {
     OmadaCredentials snap = CREDS;
     xSemaphoreGive(CREDS_MUTEX);
-    ESP_LOGI(TAG, "loginToController: reusing session (age %lu ms)", millis() - CREDS.loginMs);
+    ESP_LOGV(TAG, "loginToController: reusing session (age %lu ms)", millis() - CREDS.loginMs);
     return snap;
   }
 
@@ -546,7 +546,7 @@ JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, ui
   return merged;
 }
 
-static void refreshControllerStatus();  // defined below — refreshes cached controller status
+// refreshControllerStatus() is declared in omada.h (also called periodically by the master monitor).
 
 // Merges the two client lists and updates the in-memory session cache.
 // Called at startup, after any auth/extend/disconnect, and every 60s from loop().
@@ -880,13 +880,16 @@ static const IanaPosix TZ_TABLE[] = {
 // call; identity strings + timezone resolved once) and apply the controller's TZ via setenv/tzset
 // so the report-bucket helpers (localDayNum/localDayStartUtc in web.cpp) use controller-local days.
 // Best-effort: an unreachable controller leaves the last-known identity and flips reachable=false.
-static void refreshControllerStatus() {
+void refreshControllerStatus() {
   String err;
   OmadaCredentials creds = getCredentials(err);
   JsonDocument doc;
   bool ok = false;
   if (creds.loginMs != 0) {
     WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+    wc.setTimeout(4000);          // bounded — this runs in the master loop's 30s health poll
+    h.setConnectTimeout(4000);    // a dead controller must fail fast, not stall coin/UDP timing
+    h.setTimeout(4000);
     String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/settings/system/status";
     h.begin(wc, url); applyCredentials(h, creds);
     int code = h.GET();
@@ -897,7 +900,12 @@ static void refreshControllerStatus() {
   }
 
   CONTROLLER_STATUS.reachable = ok;
-  if (!ok) return;  // keep last-known identity/counters; reachable is now false
+  if (!ok) {
+    // Force a fresh login next poll. The session is cached for an hour, so without this a controller
+    // *restart* (which invalidates the session) would keep every poll failing until the 1h expiry.
+    invalidateCredentials();
+    return;  // keep last-known identity/counters; reachable is now false
+  }
 
   JsonObject r = doc["result"];
   CONTROLLER_STATUS.uptimeMillis  = r["upTime"].as<unsigned long>();
