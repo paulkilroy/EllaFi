@@ -130,6 +130,8 @@ constexpr int           COINBUTTON_PIN                = 0;   // GPIO0 — BOOT b
 //   GPIO4 ---+--- 10k resistor --- 3V3   (INPUT_PULLUP or external pull-up)
 //            |
 //           coin (open-collector: LOW = coin pulse, open = idle)
+// HW coupling: the acceptor's GND returns through Q1 (COINSLOT_POWER_PIN, low-side switch), so a coin
+// pulse only reaches this pin while COINSLOT_POWER_PIN is HIGH (acceptor enabled) — none when disabled.
 constexpr int           COINSLOT_PIN                  = 4;
 constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — gate of Q1 (IRLZ44N, logic-level): HIGH enables the coin acceptor. 2-wire panels: low-side GND switch via Q1. 3-wire panels: also drives the panel enable on J2.2 (verify it's 3.3V-logic-safe — see memory/hardware_notes.md)
 constexpr unsigned long COIN_INSERT_TIMEOUT_MILLIS    = 10000;
