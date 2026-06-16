@@ -108,6 +108,30 @@ def _assign_ip(mac):
 # Represents what Omada's /sites/{siteId}/clients endpoint returns.
 all_clients = {}
 
+# Named client records (node aliases set via the rename PATCH) are persisted here so they survive a
+# mock restart — mirroring how the real controller remembers a client's alias. Ephemeral, unnamed
+# session clients (created by auth) are NOT persisted, so a fresh run still starts at "0 connected".
+CLIENTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mock_clients.json")
+
+def _save_clients():
+    named = {mac: rec for mac, rec in all_clients.items() if rec.get("name")}
+    try:
+        with open(CLIENTS_FILE, "w") as f:
+            json.dump(named, f, indent=2)
+    except OSError as e:
+        print(f"{YELLOW}could not persist clients: {e}{RESET}")
+
+def _load_clients():
+    if not os.path.exists(CLIENTS_FILE):
+        return
+    try:
+        with open(CLIENTS_FILE) as f:
+            all_clients.update(json.load(f))
+        print(f"{GREEN}loaded {len(all_clients)} persisted client alias(es) "
+              f"from {os.path.basename(CLIENTS_FILE)}{RESET}")
+    except (OSError, ValueError) as e:
+        print(f"{YELLOW}could not load persisted clients: {e}{RESET}")
+
 # Active hotspot sessions, keyed by MAC.
 hotspot_sessions = {}
 
@@ -422,10 +446,10 @@ class OmadaHandler(BaseHTTPRequestHandler):
         data, raw = self._read_body()
         api, qs   = self._api_path_qs()
         if re.match(r"^/api/v2/sites/[^/]+/clients/[^/]+$", api):       # rename / set client alias
-            if CLOUD_SESSION:                     # passthrough — the rename hits the real controller
-                self.handle_cloud_forward(ts, "PATCH", api, qs, raw.encode() if raw else None)
-            else:
-                self.handle_set_client_name(ts, api.split("/")[-1], data)
+            # Always handled locally — client identity is faked locally (so is the all-clients list).
+            # Forwarding to real cloud only ever returned -41011 for bench nodes that aren't real
+            # controller clients, and the real rename shape is already captured in api_captures/.
+            self.handle_set_client_name(ts, api.split("/")[-1], data)
         else:
             print(f"  {ts}  {RED}UNKNOWN PATCH{RESET}  {self.path}  body={raw}")
             self.send_json(404, {"errorCode": -1, "msg": "Not found"})
@@ -434,6 +458,7 @@ class OmadaHandler(BaseHTTPRequestHandler):
         name = data.get("name", "")
         rec = all_clients.setdefault(mac, {"ip": "", "apMac": "", "ssid": "", "radioId": 0})
         rec["name"] = name
+        _save_clients()   # persist the alias so it survives a mock restart
         print(f"  {ts}  {GREEN}{BOLD}SET client name{RESET}  mac={mac} name={name!r}")
         self.send_json(200, {"errorCode": 0, "msg": "Success.",
                              "result": {"mac": mac, "name": name, **rec}})
@@ -578,7 +603,8 @@ class OmadaHandler(BaseHTTPRequestHandler):
             return
         mac = session["mac"]
         session["end"] = now_ms()
-        all_clients.pop(mac, None)
+        if all_clients.pop(mac, None) is not None:
+            _save_clients()   # drop it from the persisted store too if it was named
         print(f"  {ts}  {YELLOW}{BOLD}DISCONNECT{RESET}  mac={mac}  clientId={client_id}")
         self.send_json(200, {"errorCode": 0, "msg": "Disconnect success."})
 
@@ -721,6 +747,7 @@ def main():
     args = parser.parse_args()
 
     threading.Thread(target=_watch_staleness, daemon=True).start()  # nag if this file gets edited
+    _load_clients()   # restore persisted node aliases from a previous run
 
     if args.cloud:
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),

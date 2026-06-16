@@ -8,6 +8,7 @@ data/config.json
 .claude/
 __pycache__/
 *.pyc
+test/mock_clients.json   # mock runtime state (persisted node aliases)
 
 # Security audit — keep out of the (public) repo
 memory/code_audit.md
