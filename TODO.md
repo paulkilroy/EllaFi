@@ -58,6 +58,37 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   `handleProgram`. Design note, not a known bug.
 - TLS `setInsecure()` on the self-signed controller — **accepted** tradeoff.
 
+## 🔧 Hardware — next board revision (rev B)
+
+From the PCBWay BOM quote (Product No. **T-3P14W1063745A**, 6 units @ $211.34). The current order is
+fine to ship **as-is**; these apply to the next spin. Detail → `memory/hardware_notes.md`.
+
+Now **verified against the KiCad netlist + PCB** (`~/Documents/EllaFi-PCB/`); full review in `memory/hardware_notes.md`.
+The schematic checks out (gate pulldown, LM2596 ON/OFF, opto level, TVS placement all correct). Rev-B items:
+
+- **Widen the power-path traces.** *All 146 tracks are 0.2 mm (8 mil)* — including +12V, 5V, and the
+  switch node — but it's a 3A supply. Size +12V/5V/switch node to ≥0.5 mm (≥1.5 mm for full 3A).
+- **Stitch the ground planes.** GND pours on both layers but **0 vias** — add ground-stitching vias,
+  especially around U3 (switcher).
+- **Protect GPIO14 on J2.2 (3-wire mode).** It exposes the bare GPIO (10k pulldown only) to the panel's
+  enable input; a 12V-referenced panel back-drives 12V into GPIO14 → **kills the ESP**. Verify the panel
+  enable is 3.3V-logic-safe, else add series R + 3V3 clamp (or buffer it).
+- **Add input protection.** No **fuse** and no **reverse-polarity protection** on J2/J3 — a reversed jack
+  or a field-power fault has nothing to stop it. Add a fuse holder + series Schottky or P-FET ideal-diode.
+- **U3 thermal:** vertical TO-220 on 2-layer — needs a clip-on heatsink above ~1.5A. Measure full-load
+  trace/U3 temps first. Verify **L1 Isat ≥ ~3.5A**; consider **C2 220µF** (vs 100µF) per the datasheet.
+- **Value-engineer the cost outliers** (the 5V supply is ~$18 of the ~$30/board component cost). With
+  no design change, functional-equivalent swaps cut ~$40 across 6 boards:
+  - **C1,C2 100µF 25V** — $2.06/ea is ~6–10× normal; generic low-ESR ≈ $0.30 (~$20 saved). *Worst offender.*
+  - **J2 Phoenix 1715857** — premium; generic 5.08mm 3-pos block ≈ $0.50–1 (~$15 saved).
+  - **L1 Würth 100µH** — generic 100µH ≥3A shielded ≈ $1–1.50 (~$10 saved).
+  - **U3 LM2596T-5.0** — PCBWay's $10.25 is ~2× typical; ask them to re-source (or revisit a buck module).
+- **Verify (could be wrong as drawn):**
+  - **C2 output cap = 100µF** — LM2596 5V datasheet wants ~220µF low-ESR for clean ripple/stability at load.
+  - **J4/J5 = 1×22/side** — confirm the actual ESP32-S3-DevKitC-1 is 22 pins/side (some S3 devkits are 20);
+    and confirm 6 **customer-supplied modules** are on hand (U2 is DNP, not in the quote).
+  - **D1 P6KE6.8A** — 6.8V standoff is marginal directly across a 5V rail; confirm which node it clamps.
+
 ## 🟢 Docs / tooling
 
 - **README rewrite (NEW).** Make it so a stranger/newbie understands what EllaFi is, and can

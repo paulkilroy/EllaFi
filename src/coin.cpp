@@ -49,8 +49,9 @@ void IRAM_ATTR coinButtonPulse() {
 //
 // Anti-pitik (piezo lighter fraud) — filter by pulse WIDTH not just edge detection.
 // Piezo spikes (10-20kV) take two paths into the ESP32:
-//   GPIO5 (coin slot): PC817 provides galvanic isolation but attenuates the spike to ~5µs
-//   GPIO0 (boot button): spike couples electromagnetically; no isolation, ~100µs width
+//   GPIO4 (coin slot): the PC817 is NOT galvanically isolated here (LED anode ties to board 3V3, shared
+//                      GND) — but it still band-limits the spike, attenuating it to ~5µs
+//   GPIO0 (boot button): spike couples electromagnetically; no opto, ~100µs width
 // A P6KE6.8A TVS diode before the PC817 clamps spikes to GND for hardware protection.
 // Software rejects anything under COINSLOT_MIN_PULSE_WIDTH_MICROS (5ms) on both pins.
 // Real coin pulse = 20ms; real button press = 50-200ms — both well above the threshold.

@@ -131,7 +131,7 @@ constexpr int           COINBUTTON_PIN                = 0;   // GPIO0 — BOOT b
 //            |
 //           coin (open-collector: LOW = coin pulse, open = idle)
 constexpr int           COINSLOT_PIN                  = 4;
-constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — LOW-side switch (IRF540N gate): HIGH enables coin acceptor by connecting its GND to system GND via MOSFET
+constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — gate of Q1 (IRLZ44N, logic-level): HIGH enables the coin acceptor. 2-wire panels: low-side GND switch via Q1. 3-wire panels: also drives the panel enable on J2.2 (verify it's 3.3V-logic-safe — see memory/hardware_notes.md)
 constexpr unsigned long COIN_INSERT_TIMEOUT_MILLIS    = 10000;
 extern int              MINUTES_PER_COIN;              // minutes of access per coin — loaded from config
 extern int              PRICE_PER_COIN;                // pesos per coin (physical coin denomination) — loaded from config, default 5
