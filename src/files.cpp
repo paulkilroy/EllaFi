@@ -125,6 +125,7 @@ bool loadConfig() {
   NET_KEY               = doc["network_key"]              | 0ULL;
   MINUTES_PER_COIN      = doc["minutes_per_coin"]         | 24;
   PRICE_PER_COIN        = doc["price_per_coin"]           | 5;
+  HEALTHCHECK_URL       = doc["healthchecks_url"]         | "";   // optional; empty = disabled
   if (MANAGEMENT_SSID.isEmpty())     { ESP_LOGE(TAG, "config.json missing: wifi_ssid");           return false; }
   if (MANAGEMENT_PASSWORD.isEmpty()) { ESP_LOGE(TAG, "config.json missing: wifi_password");       return false; }
   if (CONTROLLER_BASE_URL.isEmpty()) { ESP_LOGE(TAG, "config.json missing: omada_url");           return false; }
@@ -133,6 +134,7 @@ bool loadConfig() {
   if (ADMIN_PASSWORD.isEmpty())      { ESP_LOGE(TAG, "config.json missing: omada_password");      return false; }
   if (NET_KEY == 0)                  { ESP_LOGE(TAG, "config.json missing: network_key");         return false; }
   ESP_LOGI(TAG, "Config loaded: ssid=%s url=%s", MANAGEMENT_SSID.c_str(), CONTROLLER_BASE_URL.c_str());
+  ESP_LOGI(TAG, "Healthcheck: %s", HEALTHCHECK_URL.isEmpty() ? "disabled (no healthchecks_url in config)" : "enabled");
   return true;
 }
 

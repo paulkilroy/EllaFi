@@ -78,6 +78,8 @@
 #include "network.h"
 
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include <LittleFS.h>
 #include <esp_log.h>
 #include "logger.h"
@@ -111,6 +113,7 @@ std::atomic<unsigned long>  COIN_DEADLINE_MILLIS{0};
 
 String MANAGEMENT_SSID;
 String MANAGEMENT_PASSWORD;
+String HEALTHCHECK_URL;
 
 // ── Arduino entry points ──────────────────────────────────────────────────────
 
@@ -209,6 +212,25 @@ void setup() {
   ledReady();
 }
 
+// Master dead-man's switch: POST a heartbeat to Healthchecks.io. If the master loses power, crashes, or
+// loses internet, the pings stop and Healthchecks alerts after its grace period — the one failure mode
+// the device can't report itself. Bounded timeout so a dead link can't stall the loop (and selling is
+// already off when there's no internet). Disabled when healthchecks_url is empty.
+static void pingHealthcheck() {
+  if (HEALTHCHECK_URL.isEmpty() || WiFi.status() != WL_CONNECTED) return;
+  WiFiClientSecure wc; wc.setInsecure(); wc.setTimeout(4000);
+  HTTPClient h; h.setConnectTimeout(4000); h.setTimeout(4000);
+  if (!h.begin(wc, HEALTHCHECK_URL)) return;
+  h.addHeader("Content-Type", "application/json");
+  String body = String("{\"mac\":\"") + WiFi.macAddress() +
+                "\",\"uptime_s\":" + String(millis() / 1000) +
+                ",\"active_sessions\":" + String((unsigned)HOTSPOT_SESSION_CACHE.size()) + "}";
+  int code = h.POST(body);
+  h.end();
+  if (code == 200) ESP_LOGI(TAG, "healthcheck ping ok");
+  else             ESP_LOGW(TAG, "healthcheck ping failed (HTTP %d)", code);
+}
+
 void loop() {
   // Scheduled daily reboot at 3:00 AM LOCAL — MASTER-DRIVEN. Slaves never set TZ (no controller calls),
   // so a slave watching its own clock would fire at 3am UTC = 11am peak. So only the master watches the
@@ -250,6 +272,12 @@ void loop() {
       if (time(NULL) < NTP_EPOCH_MIN)
         configTime(0, 0, "pool.ntp.org", "time.cloudflare.com", "time.google.com");  // non-blocking NTP re-trigger
       setupOmada();   // re-login + reload SITE_ID (recovers when controller is back / URL fixed)
+    }
+
+    static unsigned long lastHealthcheck = 0;
+    if (millis() - lastHealthcheck > MILLIS_PER_MINUTE) {  // dead-man's switch, master alive + online
+      lastHealthcheck = millis();
+      pingHealthcheck();
     }
   }
 

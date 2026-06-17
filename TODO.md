@@ -10,13 +10,12 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ## 🔴 Near-term (next up)
 
-- **Healthchecks.io ping (master dead-man's switch).** Master POSTs `healthchecks_url` every 60s.
-  - Add `healthchecks_url` to `config.sample.json` (empty = disabled); load in `files.cpp`.
-  - `HEALTHCHECK_TIMER` 60s repeating, created in master startup.
-  - Payload `{"mac":...,"uptime_s":...,"active_sessions":...}`; dashboard Period=1min, Grace=5min.
-  - Master-only; independent of the election refactor.
-- **Out-of-service banner: auto-recover the admin view.** Banner is passive (only updates on reload).
-  Poll `/status` every ~10s while it's showing and clear it when `serviceReady` flips; + a Retry link.
+- **Keep blocking Omada TLS off the HTTP thread (from the v1.3.10 crash).** `/admin/recheck` was
+  crash-looping the master by doing a controller-login TLS on the esp_http_server thread under
+  concurrency — fixed by offloading to the WebSocketTask. The **voucher handlers still do live Omada
+  calls on the httpd thread** (`getVoucherGroupsJson` / `createVoucherGroup` / `getVoucherHistoryJson` /
+  `getVoucherCodesJson`) — same latent risk during a controller outage. Route them through a worker task
+  (or otherwise never block on Omada TLS in an HTTP handler).
 
 ## 🟡 Resilience / ops
 
@@ -45,6 +44,12 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   `apMac`/`radioId` from auth? — was blocked by the voucher SSID (`-41501`), but the **EllaFi PisoWiFi**
   External-Portal SSID on Bakhaw is now a clean target. Run `test/auth_field_probe.py` against a
   pending client there.
+- **LittleFS browser (admin, read-only).** A "what's actually on the device" panel — would have caught
+  the stale-`config.json` confusion instantly, and exposes `sellers.json`/history files we can't see today.
+  Flat 6-file set (`config.json`, `sellers.json`, `errors.log`, `refunds.log`, `vendo_history.json`,
+  `voucher_history.json`). `GET /admin/fs` (name + size + mtime) and `GET /admin/fs/read?path=` with
+  **config.json routed through the existing password-masking** and **capped/streamed reads** (no whole-file
+  String). **Read-only** — no delete/edit (config edits stay on the validated `/admin/config` path).
 
 ## 🟡 Security — open items from the 2026-06-10 audit
 
@@ -120,7 +125,12 @@ merge reads live WiFi IP (pause `IP=null` fix) ·
 via `setClientName` PATCH on save, read back from the all-clients list — survives a `sellers.json` wipe;
 replaced the abandoned seller self-heal, voucher names being immutable) · test plan finished ·
 **build-47 batch / v1.3.7 release:** 3am reboot → master `localtime` + slaves gated + "Reboot All"
-(`NET_MSG_REBOOT`, HMAC'd), dashboard uptime fix, Device Log Clear-button removal + colored W/I/D filters.
+(`NET_MSG_REBOOT`, HMAC'd), dashboard uptime fix, Device Log Clear-button removal + colored W/I/D filters ·
+**v1.3.8** 3am reboot cascades to slaves · **v1.3.9** on-demand controller re-check (`/admin/recheck` +
+dashboard forces a check on open + banner "Re-check now" link) — *out-of-service banner auto-recover, done* ·
+**v1.3.10** Healthchecks.io master dead-man's-switch ping (60s, `healthchecks_url` config + admin Settings
+field) · fixed the v1.3.9 `/admin/recheck` crash (offloaded the controller TLS off the httpd thread) ·
+silenced the spurious `sellers.json` VFS `[E]` noise.
 
 ## ✗ Cancelled
 

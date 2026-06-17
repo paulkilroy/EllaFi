@@ -737,7 +737,7 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
   // Load node nicknames and commissions from sellers.json
   std::map<String, String> nicknames;
   std::map<String, int>    commissions;
-  {
+  if (fsExists("/sellers.json")) {       // guard: open("r") on a missing file logs a spurious VFS [E]
     File f = LittleFS.open("/sellers.json", "r");
     if (f) {
       JsonDocument sellers;
@@ -863,18 +863,18 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
   return response->send(200, "application/json", json.c_str());
 }
 
-// POST /admin/recheck — force an immediate controller-status refresh, on demand from the dashboard's
-// "Re-check now" link on the out-of-service banner. Status is otherwise only updated on coin/session
-// events, so this lets an operator confirm a fix (or surface a drop) without waiting for one. Bounded
-// ~4s by refreshControllerStatus(); the client re-reads /admin/nodes afterward to repaint the banner.
+// POST /admin/recheck — request a fresh controller refresh, on demand from the dashboard (on open and
+// from the banner's "Re-check now" link). Status is otherwise only updated on coin/session events.
+// CRITICAL: do NOT run the controller call here. A blocking TLS login on the esp_http_server thread —
+// fired on every dashboard open, concurrently with the loop's setupOmada retry and the WS-task refresh
+// — corrupts memory and trips a FreeRTOS mutex assert (xQueueGenericSend). Instead enqueue the work on
+// the WebSocketTask, which already owns the refresh, and return immediately; the client re-reads
+// /admin/nodes a moment later to pick up the result.
 esp_err_t handleAdminRecheck(PsychicRequest* request, PsychicResponse* response) {
   if (!checkAdminAuth(request, response)) return ESP_OK;
-  refreshControllerStatus();
-  JsonDocument doc;
-  doc["serviceReady"] = isServiceReady();
-  String json;
-  serializeJson(doc, json);
-  return response->send(200, "application/json", json.c_str());
+  WsJob j(JOB_REFRESH_CACHE, "");
+  xQueueSend(WEBSOCKET_JOB_QUEUE, &j, 0);
+  return response->send(200, "application/json", "{\"queued\":true}");
 }
 
 // ── Admin log (ring buffer) ───────────────────────────────────────────────────
@@ -918,8 +918,10 @@ esp_err_t handleAdminSellers(PsychicRequest* request, PsychicResponse* response)
   if (request->method() == HTTP_GET) {
     // Start from the saved file (commission rates + node nicknames live only here).
     JsonDocument doc;
-    File f = LittleFS.open("/sellers.json", "r");
-    if (f) { deserializeJson(doc, f); f.close(); }
+    if (fsExists("/sellers.json")) {       // guard: open("r") on a missing file logs a spurious VFS [E]
+      File f = LittleFS.open("/sellers.json", "r");
+      if (f) { deserializeJson(doc, f); f.close(); }
+    }
     if (!doc["sellers"].is<JsonArray>()) doc["sellers"].to<JsonArray>();
     if (!doc["nodes"].is<JsonArray>())   doc["nodes"].to<JsonArray>();
     String json; serializeJson(doc, json);

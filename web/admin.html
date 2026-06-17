@@ -441,6 +441,10 @@
         <label>Price per Coin (₱)</label>
         <input type="number" id="cfg-price_per_coin" placeholder="5" min="1">
       </div>
+      <div class="form-group">
+        <label>Healthcheck URL (optional, master)</label>
+        <input type="text" id="cfg-healthchecks_url" placeholder="https://hc-ping.com/<uuid> — blank keeps current">
+      </div>
 
     </div>
     <div class="msg" id="cfg-msg"></div>
@@ -704,7 +708,10 @@ async function loadDashboard(skipRecheck) {
   // (non-blocking) so the page renders immediately from cached data, then repaints once the check lands.
   // The skipRecheck guard prevents the follow-up repaint from re-triggering (no recursion).
   if (!skipRecheck) {
-    fetch('/admin/recheck', { method: 'POST' }).then(() => loadDashboard(true)).catch(() => {});
+    // Kick off a background controller refresh (runs on a worker task, never the HTTP thread), then
+    // re-read once it's had time to land — covers the ~4s controller-down timeout.
+    fetch('/admin/recheck', { method: 'POST' }).catch(() => {});
+    setTimeout(() => loadDashboard(true), 4000);
   }
   // Node health + session counts from /admin/nodes (in-memory — no Omada calls)
   try {
@@ -1326,7 +1333,8 @@ const CFG_FIELDS = [
   'wifi_ssid','wifi_password',
   'omada_url','omada_controller_id',
   'omada_username','omada_password',
-  'master_mac','network_key','minutes_per_coin','price_per_coin'
+  'master_mac','network_key','minutes_per_coin','price_per_coin',
+  'healthchecks_url'
 ];
 
 async function loadConfig() {
