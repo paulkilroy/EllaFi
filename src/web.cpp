@@ -865,17 +865,28 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
 
 // POST /admin/recheck — request a fresh controller refresh, on demand from the dashboard (on open and
 // from the banner's "Re-check now" link). Status is otherwise only updated on coin/session events.
-// CRITICAL: do NOT run the controller call here. A blocking TLS login on the esp_http_server thread —
-// fired on every dashboard open, concurrently with the loop's setupOmada retry and the WS-task refresh
-// — corrupts memory and trips a FreeRTOS mutex assert (xQueueGenericSend). Instead enqueue the work on
-// the WebSocketTask, which already owns the refresh, and return immediately; the client re-reads
-// /admin/nodes a moment later to pick up the result.
+// Offload the refresh onto WebSocketTask (which already owns it) and return immediately; the client
+// re-reads /admin/nodes a moment later. NOTE: this is good practice (no blocking TLS on the
+// esp_http_server thread), but it was NOT what fixed the "xQueueGenericSend queue.c:832" corruption —
+// that was setupOmada() re-creating CREDS_MUTEX on every controller-down retry (see omada.cpp). This
+// offload only narrowed the race window; the real fix is the create-once guard there.
 esp_err_t handleAdminRecheck(PsychicRequest* request, PsychicResponse* response) {
   if (!checkAdminAuth(request, response)) return ESP_OK;
   WsJob j(JOB_REFRESH_CACHE, "");
   xQueueSend(WEBSOCKET_JOB_QUEUE, &j, 0);
   return response->send(200, "application/json", "{\"queued\":true}");
 }
+
+#ifdef TEST_MODE
+// Stress endpoint: deliberately drives the controller refresh on THIS (httpd) thread AND enqueues a
+// WS-task refresh, so multiple tasks hit getCredentials concurrently — reproduces the heap-clean
+// "double owner" mutex corruption when the controller is down. Pair with test/crash_hammer.py.
+esp_err_t handleDiagHammer(PsychicRequest* request, PsychicResponse* response) {
+  { WsJob j(JOB_REFRESH_CACHE, ""); xQueueSend(WEBSOCKET_JOB_QUEUE, &j, 0); }
+  refreshControllerStatus();
+  return response->send(200, "application/json", "{\"ok\":true}");
+}
+#endif
 
 // ── Admin log (ring buffer) ───────────────────────────────────────────────────
 
@@ -1535,6 +1546,9 @@ void setupWeb() {
   HTTP_SERVER.on("/program",           HTTP_GET,  handleProgram);
   HTTP_SERVER.on("/admin/nodes",       HTTP_GET,  handleAdminNodes);
   HTTP_SERVER.on("/admin/recheck",     HTTP_POST, handleAdminRecheck);
+#ifdef TEST_MODE
+  HTTP_SERVER.on("/diag/hammer",       HTTP_GET,  handleDiagHammer);   // stress repro — see test/crash_hammer.py
+#endif
   HTTP_SERVER.on("/admin/log",         HTTP_GET,  handleAdminLog);
   HTTP_SERVER.on("/admin/sales",       HTTP_GET,  handleAdminSales);
   HTTP_SERVER.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard);

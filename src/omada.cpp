@@ -936,7 +936,11 @@ bool isServiceReady() {
 }
 
 bool setupOmada() {
-  CREDS_MUTEX = xSemaphoreCreateMutex();
+  // Create the credentials lock EXACTLY ONCE. setupOmada() is also the controller-down retry
+  // (main.loop, every 30s): re-creating CREDS_MUTEX while another task holds it swaps the global to a
+  // fresh semaphore and lets a second task enter the critical section — a heap-clean "double owner"
+  // that trips `assert failed: xQueueGenericSend queue.c:832`.
+  if (CREDS_MUTEX == nullptr) CREDS_MUTEX = xSemaphoreCreateMutex();
   String error;
   if (!loadOmadaSites(error)) {
     ESP_LOGE(TAG, "setupOmada failed: %s", error.c_str());
