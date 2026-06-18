@@ -10,15 +10,29 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ## 🔴 Near-term (next up)
 
-- **Keep blocking Omada TLS off the HTTP thread (from the v1.3.10 crash).** `/admin/recheck` was
-  crash-looping the master by doing a controller-login TLS on the esp_http_server thread under
-  concurrency — fixed by offloading to the WebSocketTask. The **voucher handlers still do live Omada
-  calls on the httpd thread** (`getVoucherGroupsJson` / `createVoucherGroup` / `getVoucherHistoryJson` /
-  `getVoucherCodesJson`) — same latent risk during a controller outage. Route them through a worker task
-  (or otherwise never block on Omada TLS in an HTTP handler).
+- *(Clear — v1.3.11 fixed the last known crash. Root cause: `setupOmada()` doubles as the 30s
+  controller-down retry in `loop()` and re-created `CREDS_MUTEX` on every call; a task holding the old
+  semaphore while the global was swapped to a fresh one let a second task into the critical section →
+  `assert failed: xQueueGenericSend queue.c:832`. The v1.3.10 "offload TLS off the httpd thread" was a
+  window-narrowing **mask**, not the cause.)*
 
 ## 🟡 Resilience / ops
 
+- **Migrate outbound HTTPS off Arduino `WiFiClientSecure` → `ESP_SSLClient` (BearSSL) + `ArduinoHttpClient` (Route A).**
+  v1.3.12 ships a *vendored, patched* copy of `WiFiClientSecure` to fix the `close(0)` fd bug (`ssl_client.cpp`
+  `stop_ssl_socket` memsets `socket` to 0, so a failed-connect double-stop does `close(0)` → frees stdin →
+  LittleFS recycles fd 0 → next `close(0)` corrupts LittleFS). Real fix = stop using that client. Move the 5
+  callers — Omada (`omada.cpp`, ~10 fns), Healthchecks ping (`main.cpp`), GitHub OTA check+download (`web.cpp`,
+  **the download needs manual 302-redirect follow**) — onto `ESP_SSLClient`+`ArduinoHttpClient`; slave→master
+  `/fw.bin` is plain HTTP (no TLS) and can stay. Then **delete `lib/WiFiClientSecure`** and drop the mbedTLS dup.
+  Cookies/CSRF stay hand-built (already are). Needs **live-controller** testing (auth/extend/disconnect/vouchers)
+  before release. `setBufferSizes()` must fit Omada's largest JSON (full client list).
+- **Move blocking Omada TLS off the HTTP thread — responsiveness, NOT a crash fix.** The voucher handlers
+  (`getVoucherGroupsJson` / `createVoucherGroup` / `getVoucherHistoryJson` / `getVoucherCodesJson`) make
+  live Omada calls on the esp_http_server thread; during a controller outage each blocks the handler for
+  the full TLS timeout, so the admin page stalls. Route them through a worker task the way `/admin/recheck`
+  does. **No longer a corruption risk** — that was the `CREDS_MUTEX` re-creation, fixed in v1.3.11; this is
+  now purely a latency/UX improvement.
 - **Auto master election + failover/takeover.** Static master = single point of failure. Full design
   (gossip HELLO 300ms, lowest-MAC self-promote after ~2s of no master heartbeat, uptime-weighted) →
   **`memory/master_election_design.md`** (status: not yet implemented — deploy config-master first).
@@ -129,8 +143,16 @@ replaced the abandoned seller self-heal, voucher names being immutable) · test 
 **v1.3.8** 3am reboot cascades to slaves · **v1.3.9** on-demand controller re-check (`/admin/recheck` +
 dashboard forces a check on open + banner "Re-check now" link) — *out-of-service banner auto-recover, done* ·
 **v1.3.10** Healthchecks.io master dead-man's-switch ping (60s, `healthchecks_url` config + admin Settings
-field) · fixed the v1.3.9 `/admin/recheck` crash (offloaded the controller TLS off the httpd thread) ·
-silenced the spurious `sellers.json` VFS `[E]` noise.
+field) · *attempted* `/admin/recheck` crash fix by offloading controller TLS off the httpd thread (turned
+out to only narrow the race window — see v1.3.11) · silenced the spurious `sellers.json` VFS `[E]` noise ·
+**v1.3.11** **real** fix for the heap-clean "double owner" mutex crash (`xQueueGenericSend queue.c:832`):
+`setupOmada()` re-created `CREDS_MUTEX` on every 30s controller-down retry → create-once guard. Verified by
+~10h of elimination (ruled out: mbedTLS, BearSSL, error-logging/LittleFS, stack overflow, cross-core PI,
+heap OOB) + `test/crash_hammer.py` against a `TEST_MODE` `/diag/hammer` endpoint ·
+**v1.3.12** the *second* outage crash — vendored+patched `WiFiClientSecure`: `stop_ssl_socket` memset left
+`socket=0`, so a failed-connect double-stop did `close(0)` (= stdin → recycled LittleFS fd 0 → LittleFS
+`lfs_mlist_isopen` assert). Caught by instrumenting `wc.fd()` (read 0, heap CLEAN); verified 6 min clean
+under the hammer, LittleFS moved off fd 0. Real fix is the BearSSL migration above (drops this vendored lib).
 
 ## ✗ Cancelled
 
