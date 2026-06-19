@@ -103,6 +103,11 @@ The schematic checks out (gate pulldown, LM2596 ON/OFF, opto level, TVS placemen
   **install, flash, configure, and test** it end-to-end. Currently assumes too much.
 - **Calibrate `mock_omada.py` DELAYS.** Replace estimates with measured p50/p90 from real device
   serial logs across a full coin auth / extend / pause / resume against the live cloud controller.
+  **Tool ready:** `test/calibrate_delays.py` pairs each op's start/finish log lines and prints the
+  p50/p90 `DELAYS` block. **Remaining (needs to be local + on the live controller):** `pio device monitor
+  | tee live_omada.log` through a coin flow (auth/extend/pause/resume + a couple 60s refreshes), then
+  `python3 test/calibrate_delays.py live_omada.log` → paste into `mock_omada.py`. (login/query can't be
+  pulled remotely — the bench is on the down mock, so it sits idle.)
 
 ## Reference docs (kept separate — referenced above)
 
