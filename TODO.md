@@ -18,15 +18,12 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ## 🟡 Resilience / ops
 
-- **Migrate outbound HTTPS off Arduino `WiFiClientSecure` → `ESP_SSLClient` (BearSSL) + `ArduinoHttpClient` (Route A).**
-  v1.3.12 ships a *vendored, patched* copy of `WiFiClientSecure` to fix the `close(0)` fd bug (`ssl_client.cpp`
-  `stop_ssl_socket` memsets `socket` to 0, so a failed-connect double-stop does `close(0)` → frees stdin →
-  LittleFS recycles fd 0 → next `close(0)` corrupts LittleFS). Real fix = stop using that client. Move the 5
-  callers — Omada (`omada.cpp`, ~10 fns), Healthchecks ping (`main.cpp`), GitHub OTA check+download (`web.cpp`,
-  **the download needs manual 302-redirect follow**) — onto `ESP_SSLClient`+`ArduinoHttpClient`; slave→master
-  `/fw.bin` is plain HTTP (no TLS) and can stay. Then **delete `lib/WiFiClientSecure`** and drop the mbedTLS dup.
-  Cookies/CSRF stay hand-built (already are). Needs **live-controller** testing (auth/extend/disconnect/vouchers)
-  before release. `setBufferSizes()` must fit Omada's largest JSON (full client list).
+- **(✗ REJECTED) BearSSL migration to drop the vendored `WiFiClientSecure`.** We fully built Route A
+  (`ESP_SSLClient` + `ArduinoHttpClient`, all callers migrated, vendored lib deleted) and it **hung hard under
+  concurrent failed connects** — the exact controller-outage case mbedTLS handles fine (verified: mbedTLS ate a
+  10-min, 2870-request, 0-error soak; BearSSL wedged at `hits=0` and needed a power-cycle). The hang is inside
+  `ESP_SSLClient`/`ArduinoHttpClient` socket handling on a failed connect. So we **keep the one-line vendored
+  `WiFiClientSecure` patch** (cheap, well-documented, platform pinned). Don't re-attempt without solving that hang.
 - **Move blocking Omada TLS off the HTTP thread — responsiveness, NOT a crash fix.** The voucher handlers
   (`getVoucherGroupsJson` / `createVoucherGroup` / `getVoucherHistoryJson` / `getVoucherCodesJson`) make
   live Omada calls on the esp_http_server thread; during a controller outage each blocks the handler for
@@ -152,7 +149,12 @@ heap OOB) + `test/crash_hammer.py` against a `TEST_MODE` `/diag/hammer` endpoint
 **v1.3.12** the *second* outage crash — vendored+patched `WiFiClientSecure`: `stop_ssl_socket` memset left
 `socket=0`, so a failed-connect double-stop did `close(0)` (= stdin → recycled LittleFS fd 0 → LittleFS
 `lfs_mlist_isopen` assert). Caught by instrumenting `wc.fd()` (read 0, heap CLEAN); verified 6 min clean
-under the hammer, LittleFS moved off fd 0. Real fix is the BearSSL migration above (drops this vendored lib).
+under the hammer, LittleFS moved off fd 0. (BearSSL replacement attempted + rejected — see above.) ·
+**v1.3.13** admin auth as a PsychicHttp **middleware** (`->addMiddleware(adminAuth)` on the 17 protected
+routes; `isAuthorized()` unchanged — policy now visible in the route table, verified 401/200 on hardware) ·
+node-health UI: offline nodes show `(down Xm)` + dashed RSSI, last-known version kept · dropped the unused
+`ESP_SSLClient` dep · boot-order fix (queues created before the web server, closing a NULL-queue crash window) ·
+platform pinned to `espressif32@6.5.0` + documented the vendored `WiFiClientSecure` patch.
 
 ## ✗ Cancelled
 

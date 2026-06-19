@@ -97,11 +97,15 @@ static bool isAuthorized(PsychicRequest* request) {
   return false;
 }
 
-static bool checkAdminAuth(PsychicRequest* request, PsychicResponse* response) {
-  if (isAuthorized(request)) return true;
-  response->send(401, "application/json", "{\"error\":\"auth required\"}");  // client renders its own login
-  return false;
-}
+// Admin gate as a pipeline middleware — attach with ->addMiddleware(adminAuth) on protected routes.
+// Runs before the handler; 401s unauthenticated requests so the policy lives in the route table (not
+// scattered through handler bodies). Auth model unchanged: isAuthorized() (cookie token, IP-bound, TTL).
+static PsychicMiddlewareCallback adminAuth =
+  [](PsychicRequest* request, PsychicResponse* response, PsychicMiddlewareNext next) -> esp_err_t {
+    if (!isAuthorized(request))
+      return response->send(401, "application/json", "{\"error\":\"auth required\"}");  // client renders its own login
+    return next();
+  };
 
 static esp_err_t handleAdminChallenge(PsychicRequest* request, PsychicResponse* response) {
   uint32_t now = millis();
@@ -266,7 +270,6 @@ esp_err_t handleNotFound(PsychicRequest* request, PsychicResponse* response) {
 }
 
 esp_err_t handleProgram(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   COINSLOT_PROGRAM_MODE = true;
   digitalWrite(COINSLOT_POWER_PIN, HIGH);
   ESP_LOGI(TAG, "Coin slot program mode enabled — relay held HIGH until restart");
@@ -282,7 +285,6 @@ static String formatTimestamp(long ts) {
 }
 
 esp_err_t handleRefunds(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   if (!fsExists("/refunds.log")) return response->send(200, "text/plain", "No refunds logged.");
   File f = LittleFS.open("/refunds.log", FILE_READ);
   if (!f) return response->send(500, "text/plain", "Could not open refunds.log");
@@ -305,7 +307,6 @@ esp_err_t handleRefunds(PsychicRequest* request, PsychicResponse* response) {
 }
 
 esp_err_t handleErrors(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   if (!fsExists("/errors.log")) return response->send(200, "text/plain", "No errors logged.");
 
   // Render only the most recent entries. The file can hold hundreds; assembling them all into one
@@ -731,7 +732,6 @@ static void syncNodeAliases() {
 }
 
 esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   JsonDocument doc;
 
   // Load node nicknames and commissions from sellers.json
@@ -808,7 +808,9 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
     n["uptimeSec"] = ni.uptimeSec;
     n["freeHeap"]  = ni.freeHeap;
     n["rssi"]      = (int)ni.rssi;
-    n["online"]       = (now - ni.lastSeenMs) < 60000;
+    unsigned long downForMs = now - ni.lastSeenMs;
+    n["online"]       = downForMs < 60000;
+    n["downForSec"]   = (uint32_t)(downForMs / 1000UL);   // seconds since last heartbeat — for the "down for" display
     n["otaSentCount"] = ni.otaSentCount;
     n["lastOtaSentMs"] = ni.lastOtaSentMs;
   }
@@ -871,7 +873,6 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
 // that was setupOmada() re-creating CREDS_MUTEX on every controller-down retry (see omada.cpp). This
 // offload only narrowed the race window; the real fix is the create-once guard there.
 esp_err_t handleAdminRecheck(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   WsJob j(JOB_REFRESH_CACHE, "");
   xQueueSend(WEBSOCKET_JOB_QUEUE, &j, 0);
   return response->send(200, "application/json", "{\"queued\":true}");
@@ -891,7 +892,6 @@ esp_err_t handleDiagHammer(PsychicRequest* request, PsychicResponse* response) {
 // ── Admin log (ring buffer) ───────────────────────────────────────────────────
 
 esp_err_t handleAdminLog(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   uint32_t sinceSeq = request->hasParam("since")
     ? (uint32_t)atoi(request->getParam("since")->value().c_str()) : 0;
 
@@ -924,7 +924,6 @@ esp_err_t handleAdminLog(PsychicRequest* request, PsychicResponse* response) {
 // ── Admin sellers ─────────────────────────────────────────────────────────────
 
 esp_err_t handleAdminSellers(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   response->addHeader("Cache-Control", "no-store");
   if (request->method() == HTTP_GET) {
     // Start from the saved file (commission rates + node nicknames live only here).
@@ -960,7 +959,6 @@ esp_err_t handleAdminSellers(PsychicRequest* request, PsychicResponse* response)
 // ── Admin vouchers ────────────────────────────────────────────────────────────
 
 esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   response->addHeader("Cache-Control", "no-store");
 
   if (request->method() == HTTP_GET) {
@@ -1103,7 +1101,6 @@ static time_t localDayStartUtc(long dayNum) {
 }
 
 esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   response->addHeader("Cache-Control", "no-store");
 
   time_t now      = time(NULL);
@@ -1248,7 +1245,6 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
 // ── Admin leaderboard ─────────────────────────────────────────────────────────
 
 esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   response->addHeader("Cache-Control", "no-store");
 
   time_t now    = time(NULL);
@@ -1319,7 +1315,6 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
 // ── Admin config ──────────────────────────────────────────────────────────────
 
 esp_err_t handleAdminConfig(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   response->addHeader("Cache-Control", "no-store");
   if (request->method() == HTTP_GET) {
     File f = LittleFS.open("/config.json", "r");
@@ -1366,7 +1361,6 @@ esp_err_t handleAdminConfig(PsychicRequest* request, PsychicResponse* response) 
 // ── Admin reboot ──────────────────────────────────────────────────────────────
 
 esp_err_t handleAdminReboot(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   response->send(200, "text/plain", "Rebooting...");
   delay(200);
   esp_restart();
@@ -1375,7 +1369,6 @@ esp_err_t handleAdminReboot(PsychicRequest* request, PsychicResponse* response) 
 
 // Reboot every node: broadcast to the slaves (repeated — UDP is lossy), then reboot the master.
 esp_err_t handleAdminRebootAll(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   ESP_LOGI(TAG, "Reboot-all requested — broadcasting to slaves");
   for (int i = 0; i < 3; i++) { masterBroadcastReboot(); delay(100); }
   response->send(200, "text/plain", "Rebooting all nodes...");
@@ -1385,14 +1378,12 @@ esp_err_t handleAdminRebootAll(PsychicRequest* request, PsychicResponse* respons
 }
 
 esp_err_t handleAdminClearVoucherCache(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   if (fsExists("/voucher_history.json")) LittleFS.remove("/voucher_history.json");
   ESP_LOGI(TAG, "Voucher cache cleared by admin");
   return response->send(200, "text/plain", "OK");
 }
 
 esp_err_t handleAdminClearErrors(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   if (fsExists("/errors.log")) LittleFS.remove("/errors.log");
   ESP_LOGI(TAG, "Error log cleared by admin");  // INFO → not re-logged to errors.log
   return response->send(200, "text/plain", "OK");
@@ -1500,7 +1491,6 @@ static void githubOtaTask(void*) {
 // GET /admin/github-check → device queries the GitHub Releases API (server-side, avoiding the
 // browser CORS block) and compares the latest release's firmware-<BUILD>.bin to its own build.
 esp_err_t handleGithubCheck(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   LatestRelease rel = fetchLatestRelease();
   JsonDocument out;
   out["current"]         = (uint32_t)FIRMWARE_BUILD;
@@ -1515,7 +1505,6 @@ esp_err_t handleGithubCheck(PsychicRequest* request, PsychicResponse* response) 
 
 // POST /admin/update-github → kick off the pull-and-flash in a background task.
 esp_err_t handleGithubUpdate(PsychicRequest* request, PsychicResponse* response) {
-  if (!checkAdminAuth(request, response)) return ESP_OK;
   if (xTaskCreate(githubOtaTask, "GithubOTA", 16384, NULL, 5, NULL) != pdPASS)
     return response->send(500, "text/plain", "Could not start update");
   return response->send(200, "application/json", "{\"ok\":true}");
@@ -1541,26 +1530,26 @@ void setupWeb() {
   WEBSOCKET_HANDLER.onClose(handleWsClose);
   HTTP_SERVER.on("/ws", &WEBSOCKET_HANDLER);
 
-  HTTP_SERVER.on("/refunds",           HTTP_GET,  handleRefunds);
-  HTTP_SERVER.on("/errors",            HTTP_GET,  handleErrors);
-  HTTP_SERVER.on("/program",           HTTP_GET,  handleProgram);
-  HTTP_SERVER.on("/admin/nodes",       HTTP_GET,  handleAdminNodes);
-  HTTP_SERVER.on("/admin/recheck",     HTTP_POST, handleAdminRecheck);
+  HTTP_SERVER.on("/refunds",           HTTP_GET,  handleRefunds)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/errors",            HTTP_GET,  handleErrors)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/program",           HTTP_GET,  handleProgram)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/nodes",       HTTP_GET,  handleAdminNodes)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/recheck",     HTTP_POST, handleAdminRecheck)->addMiddleware(adminAuth);
 #ifdef TEST_MODE
   HTTP_SERVER.on("/diag/hammer",       HTTP_GET,  handleDiagHammer);   // stress repro — see test/crash_hammer.py
 #endif
-  HTTP_SERVER.on("/admin/log",         HTTP_GET,  handleAdminLog);
-  HTTP_SERVER.on("/admin/sales",       HTTP_GET,  handleAdminSales);
-  HTTP_SERVER.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard);
-  HTTP_SERVER.on("/admin/sellers",     HTTP_ANY,  handleAdminSellers);
-  HTTP_SERVER.on("/admin/vouchers",    HTTP_ANY,   handleAdminVouchers);
-  HTTP_SERVER.on("/admin/config",      HTTP_ANY,  handleAdminConfig);
-  HTTP_SERVER.on("/admin/reboot",             HTTP_POST, handleAdminReboot);
-  HTTP_SERVER.on("/admin/reboot-all",         HTTP_POST, handleAdminRebootAll);
-  HTTP_SERVER.on("/admin/clear-voucher-cache", HTTP_POST, handleAdminClearVoucherCache);
-  HTTP_SERVER.on("/admin/clear-errors",        HTTP_POST, handleAdminClearErrors);
-  HTTP_SERVER.on("/admin/github-check",        HTTP_GET,  handleGithubCheck);
-  HTTP_SERVER.on("/admin/update-github",       HTTP_POST, handleGithubUpdate);
+  HTTP_SERVER.on("/admin/log",         HTTP_GET,  handleAdminLog)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/sales",       HTTP_GET,  handleAdminSales)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/sellers",     HTTP_ANY,  handleAdminSellers)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/vouchers",    HTTP_ANY,   handleAdminVouchers)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/config",      HTTP_ANY,  handleAdminConfig)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/reboot",             HTTP_POST, handleAdminReboot)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/reboot-all",         HTTP_POST, handleAdminRebootAll)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/clear-voucher-cache", HTTP_POST, handleAdminClearVoucherCache)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/clear-errors",        HTTP_POST, handleAdminClearErrors)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/github-check",        HTTP_GET,  handleGithubCheck)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/update-github",       HTTP_POST, handleGithubUpdate)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin",             HTTP_GET,  handleAdminPage);
   HTTP_SERVER.on("/admin/challenge",   HTTP_GET,  handleAdminChallenge);  // unauthenticated — login flow
   HTTP_SERVER.on("/admin/login",       HTTP_POST, handleAdminLogin);      // unauthenticated — login flow

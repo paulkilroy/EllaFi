@@ -634,8 +634,11 @@ function renderNodeHealth(nodes) {
     const statusClass = n.online ? 'online' : 'offline';
     const dot      = `<span class="node-dot ${statusClass}"></span>`;
     const role     = `<span class="tag ${n.role === 'master' ? 'tag-coin' : 'tag-vchr'}">${n.role.toUpperCase()}</span>`;
-    const rssi     = n.rssi ? `<span style="color:${rssiColor(n.rssi)}">${n.rssi} dBm</span>` : '<span class="muted">—</span>';
+    const rssi     = (n.online && n.rssi) ? `<span style="color:${rssiColor(n.rssi)}">${n.rssi} dBm</span>` : '<span class="muted">—</span>';
     const ver      = n.version ? `<span class="mono" style="font-size:11px;letter-spacing:1px">${n.version}</span><span class="muted" style="font-size:11px"> (${n.build ?? '?'})</span>` : '<span class="muted">—</span>';
+    // Online: uptime. Offline: how long it's been silent, in parens (last-known version/uptime are frozen).
+    const uptime   = n.online ? fmtUptime(n.uptimeSec * 1000)
+                              : `(down ${fmtUptime((n.downForSec || 0) * 1000)})`;
     const nickname = nodeNicknames[n.mac]
       ? nodeNicknames[n.mac]
       : `<a href="#" onclick="goToSettings();return false;" style="color:#5dade2;font-size:12px">Add nickname →</a>`;
@@ -646,7 +649,7 @@ function renderNodeHealth(nodes) {
       <td>${nickname}</td>
       <td>${comm}</td>
       <td class="col-ip" style="font-family:monospace;font-size:12px">${n.ip || '—'}</td>
-      <td class="col-uptime muted">${fmtUptime(n.uptimeSec * 1000)}</td>   <!-- fmtUptime takes ms; uptimeSec is seconds -->
+      <td class="col-uptime muted">${uptime}</td>
       <td>${ver}</td>
       <td>${rssi}</td>
     </tr>`;

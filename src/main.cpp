@@ -163,19 +163,23 @@ static bool setupNtp() {
   return true;
 }
 
-static void setupTasks() {
+// Queues must exist BEFORE setupWeb() — its handlers (/admin/recheck, /diag/hammer) enqueue to
+// WEBSOCKET_JOB_QUEUE, so a request arriving before the queue is created would xQueueSend(NULL) → crash.
+// Consumer tasks come later (setupTasks); enqueuing before the consumer exists just buffers.
+static void setupQueues() {
   WEBSOCKET_JOB_QUEUE = xQueueCreate(8,                     sizeof(WsJob));
   COIN_PULSE_QUEUE    = xQueueCreate(COIN_PULSE_QUEUE_SIZE,  sizeof(CoinPulse));
   if (IS_MASTER) {
     COIN_SESSION_QUEUE = xQueueCreate(16, sizeof(CoinSessionEvent));
   }
-
   if (COIN_PULSE_QUEUE == NULL || WEBSOCKET_JOB_QUEUE == NULL ||
       (IS_MASTER && COIN_SESSION_QUEUE == NULL)) {
     ESP_LOGE(TAG, "Failed to create synchronization primitives");
     ledHalt();
   }
+}
 
+static void setupTasks() {
   xTaskCreatePinnedToCore(coinPulseTask, "CoinPulseTask", 4096, NULL, 6, NULL, 1);
   if (IS_MASTER) {
     xTaskCreatePinnedToCore(coinSessionTask,  "CoinSessionTask",  8192, NULL, 5, NULL,               1);
@@ -204,6 +208,7 @@ void setup() {
   setupNetwork();
   setupNtp();          // best-effort — never block the admin; loop() retries until synced
   setupLogs();
+  setupQueues();       // before setupWeb so its handlers never enqueue to a not-yet-created queue
   if (IS_MASTER) {
     setupWeb();        // ALWAYS up first, so /admin is reachable even if NTP/Omada are down
     setupOmada();      // best-effort — loop() retries login + site-load in the background
