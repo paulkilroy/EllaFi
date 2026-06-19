@@ -10,20 +10,10 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ## 🔴 Near-term (next up)
 
-- *(Clear — v1.3.11 fixed the last known crash. Root cause: `setupOmada()` doubles as the 30s
-  controller-down retry in `loop()` and re-created `CREDS_MUTEX` on every call; a task holding the old
-  semaphore while the global was swapped to a fresh one let a second task into the critical section →
-  `assert failed: xQueueGenericSend queue.c:832`. The v1.3.10 "offload TLS off the httpd thread" was a
-  window-narrowing **mask**, not the cause.)*
+- *Clear — no pre-launch blockers. The crash saga is closed (v1.3.11–13, see Done).*
 
 ## 🟡 Resilience / ops
 
-- **(✗ REJECTED) BearSSL migration to drop the vendored `WiFiClientSecure`.** We fully built Route A
-  (`ESP_SSLClient` + `ArduinoHttpClient`, all callers migrated, vendored lib deleted) and it **hung hard under
-  concurrent failed connects** — the exact controller-outage case mbedTLS handles fine (verified: mbedTLS ate a
-  10-min, 2870-request, 0-error soak; BearSSL wedged at `hits=0` and needed a power-cycle). The hang is inside
-  `ESP_SSLClient`/`ArduinoHttpClient` socket handling on a failed connect. So we **keep the one-line vendored
-  `WiFiClientSecure` patch** (cheap, well-documented, platform pinned). Don't re-attempt without solving that hang.
 - **Move blocking Omada TLS off the HTTP thread — responsiveness, NOT a crash fix.** The voucher handlers
   (`getVoucherGroupsJson` / `createVoucherGroup` / `getVoucherHistoryJson` / `getVoucherCodesJson`) make
   live Omada calls on the esp_http_server thread; during a controller outage each blocks the handler for
@@ -39,7 +29,7 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ## 🟡 Features
 
-- **Omada config helper + analyzer** (NEW). Help operators set up Omada, and have the firmware
+- **Omada config helper + analyzer.** Help operators set up Omada, and have the firmware
   **inspect the controller config and report/repair** whether it's deployment-ready:
   - detect whether there's a **router** and that **VLAN segmentation** is in place (customers off the
     management VLAN/SSID);
@@ -69,7 +59,9 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   flashed **without signature verification**. Sign at release, verify against an embedded key before
   `Update.end()` (master serve + slave pull). High value once OTA is load-bearing.
 - **`/fw.bin` is unauthenticated (S5).** Accept (HMAC-gated trigger reduces risk) or gate it.
-- **LittleFS multi-task writes (C5).** Relies on `esp_littlefs`'s internal lock — confirm under load.
+- **LittleFS multi-task writes (C5) — ✓ resolved.** The v1.3.12/13 soaks flooded `appendErrorLog` from
+  httpd/WS/loop tasks for 10+ min with zero corruption; the LittleFS asserts we chased were the `close(0)`
+  fd bug (fixed v1.3.12), not concurrency. `esp_littlefs`'s lock holds under load.
 - **Coin-acceptor power relay has no single owner** — written from `ledTask`/`ledHalt`/`setup`/
   `handleProgram`. Design note, not a known bug.
 - TLS `setInsecure()` on the self-signed controller — **accepted** tradeoff.
@@ -107,7 +99,7 @@ The schematic checks out (gate pulldown, LM2596 ON/OFF, opto level, TVS placemen
 
 ## 🟢 Docs / tooling
 
-- **README rewrite (NEW).** Make it so a stranger/newbie understands what EllaFi is, and can
+- **README rewrite.** Make it so a stranger/newbie understands what EllaFi is, and can
   **install, flash, configure, and test** it end-to-end. Currently assumes too much.
 - **Calibrate `mock_omada.py` DELAYS.** Replace estimates with measured p50/p90 from real device
   serial logs across a full coin auth / extend / pause / resume against the live cloud controller.
@@ -158,6 +150,10 @@ platform pinned to `espressif32@6.5.0` + documented the vendored `WiFiClientSecu
 
 ## ✗ Cancelled
 
+- **BearSSL migration** (`ESP_SSLClient` + `ArduinoHttpClient`, to drop the vendored `WiFiClientSecure`)
+  — fully built, then **rejected**: it hung hard under concurrent failed connects (the controller-outage
+  case mbedTLS handles fine). Keep the one-line vendored patch + pinned platform. Don't re-attempt without
+  first solving the BearSSL/ArduinoHttpClient socket hang.
 - **Alt UI** (`index_alt3.html`) — dropped.
 - **Seller self-heal** — abandoned (voucher group names are immutable; too problematic). The node
   nickname/commission storage above is the surviving controller-backed-storage feature.
