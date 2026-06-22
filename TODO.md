@@ -96,6 +96,9 @@ The schematic checks out (gate pulldown, LM2596 ON/OFF, opto level, TVS placemen
   - **J4/J5 = 1×22/side** — confirm the actual ESP32-S3-DevKitC-1 is 22 pins/side (some S3 devkits are 20);
     and confirm 6 **customer-supplied modules** are on hand (U2 is DNP, not in the quote).
   - **D1 P6KE6.8A** — 6.8V standoff is marginal directly across a 5V rail; confirm which node it clamps.
+- **Board shape / form-factor improvements** — reference layout to crib from (terminal placement, outline,
+  mounting): https://s.alicdn.com/@sc04/kf/H56d01305253044b59730e6da2d08d7ceB.jpg?avif=close&webp=close
+  (commercial piso-WiFi vendo board; also worth studying for the 12V/3A power path + USB-5V-out layout).
 
 ## 🟢 Docs / tooling
 
