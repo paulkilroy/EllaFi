@@ -1,0 +1,24 @@
+openapi: 3.1.0
+info:
+  title: "Captured API \u2014 use1-api-id.tplinkcloud.com"
+  version: '1.0'
+  description: "Auto-generated from a sanitized HAR. Schemas are inferred (types only \u2014 no captured values). IDs templated."
+servers:
+- url: https://use1-api-id.tplinkcloud.com
+paths:
+  /logout:
+    post:
+      summary: POST /logout
+      responses:
+        '200':
+          description: captured
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                clientId:
+                  type: string

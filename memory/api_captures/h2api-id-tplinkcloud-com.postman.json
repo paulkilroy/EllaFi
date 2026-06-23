@@ -1,0 +1,151 @@
+{
+  "info": {
+    "name": "Captured \u2014 h2api-id.tplinkcloud.com",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://h2api-id.tplinkcloud.com"
+    }
+  ],
+  "item": [
+    {
+      "name": "GET /api/v1/client/custom/login-page-info",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/client/custom/login-page-info",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "client",
+            "custom",
+            "login-page-info"
+          ],
+          "query": [
+            {
+              "key": "sessionCode",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/client/custom/login-page-info",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/client/custom/login-page-info",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "client",
+            "custom",
+            "login-page-info"
+          ],
+          "query": [
+            {
+              "key": "sessionCode",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/logged",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/logged",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "logged"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/logged",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/logged",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "logged"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/login",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "login"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/login",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "login"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"\",\n  \"password\": \"\",\n  \"terminalUUID\": \"\",\n  \"privatePolicyChecked\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

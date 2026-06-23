@@ -1,0 +1,67 @@
+openapi: 3.1.0
+info:
+  title: "Captured API \u2014 h2api-id.tplinkcloud.com"
+  version: '1.0'
+  description: "Auto-generated from a sanitized HAR. Schemas are inferred (types only \u2014 no captured values). IDs templated."
+servers:
+- url: https://h2api-id.tplinkcloud.com
+paths:
+  /api/v1/client/custom/login-page-info:
+    get:
+      summary: GET /api/v1/client/custom/login-page-info
+      responses:
+        '200':
+          description: captured
+      parameters:
+      - name: sessionCode
+        in: query
+        required: false
+        schema:
+          type: string
+    options:
+      summary: OPTIONS /api/v1/client/custom/login-page-info
+      responses:
+        '200':
+          description: captured
+      parameters:
+      - name: sessionCode
+        in: query
+        required: false
+        schema:
+          type: string
+  /api/v1/logged:
+    options:
+      summary: OPTIONS /api/v1/logged
+      responses:
+        '200':
+          description: captured
+    post:
+      summary: POST /api/v1/logged
+      responses:
+        '200':
+          description: captured
+  /api/v1/login:
+    options:
+      summary: OPTIONS /api/v1/login
+      responses:
+        '200':
+          description: captured
+    post:
+      summary: POST /api/v1/login
+      responses:
+        '200':
+          description: captured
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+                terminalUUID:
+                  type: string
+                privatePolicyChecked:
+                  type: boolean

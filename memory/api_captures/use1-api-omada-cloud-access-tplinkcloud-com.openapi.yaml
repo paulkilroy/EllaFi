@@ -181,3 +181,29 @@ paths:
                   type: array
                   items:
                     type: string
+  /api/v1/cloudaccess/organizations/upgrade/statistic:
+    get:
+      summary: GET /api/v1/cloudaccess/organizations/upgrade/statistic
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      batchUpgradeStatus:
+                        type: integer
+                      upgradingCount:
+                        type: integer
+                      interruptedCount:
+                        type: integer
+                      completedCount:
+                        type: integer

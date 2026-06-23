@@ -55,7 +55,7 @@ import time
 import uuid
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 
 # Silence urllib3's InsecureRequestWarning — cloud forwarding uses verify=False by design
 # (same as the firmware's setInsecure for the Omada cloud connector). urllib3 is only present
@@ -210,39 +210,40 @@ def _do_cloud_auth(config):
     if not data.get("success") and data.get("errorCode", 0) != 0:
         raise RuntimeError(f"TP-Link login failed: {data.get('msg', data)}")
     result      = data.get("result", {})
-    rp_raw      = result.get("redirectParams", "")
-    rp          = parse_qs(rp_raw)
-    state       = rp.get("state",    [""])[0]
     service_url = result.get("serviceUrl", "https://use1-api-id.tplinkcloud.com")
+    print(f"[cloud] step2 login ok — serviceUrl={service_url}  accountId={result.get('accountId', '?')}")
 
-    # Step 3: OAuth2 authorize → extract code from 302 Location
-    r = s.get(f"{service_url}/oauth/authorize?{rp_raw}",
-              cookies={c.name: c.value for c in s.cookies},
-              headers={**_BROWSER_HEADERS,
-                       "Origin": "https://id.tplinkcloud.com",
-                       "Referer": "https://id.tplinkcloud.com/",
-                       "Sec-Fetch-Mode": "navigate"},
+    # Step 3: OAuth2 authorize for the omada-cloud-portal client. The login response's redirectParams
+    # is the inner unified-ID SSO handshake (clientId=unified_id) — minting the code under THAT client
+    # is what login-with-uid-code rejects as -52054. The portal authorizes with its own client and a
+    # self-generated state nonce, which the authorize echoes back paired with the code.
+    state = uuid.uuid4().hex[:6]
+    r = s.get(f"{service_url}/oauth/authorize?" + urlencode({
+                  "responseType": "code", "clientId": "omada-cloud-portal",
+                  "redirectUri": "https://omada.tplinkcloud.com/#/loginRedirect",
+                  "scope": "openid", "state": state, "redirectParamsJson": "{}"}),
+              headers={**_BROWSER_HEADERS, "Referer": "https://id.tplinkcloud.com/",
+                       "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document"},
               allow_redirects=False)
-    code = None
+    auth = {}
     if r.status_code in (301, 302, 303, 307, 308):
-        loc   = r.headers.get("Location", "")
-        parts = loc.split("#", 1)
-        qsd   = parse_qs(urlparse(parts[0]).query)
-        if "code" in qsd:
-            code = qsd["code"][0]
-        elif len(parts) > 1 and "?" in parts[1]:
-            fqs = parse_qs(parts[1].split("?", 1)[1])
-            if "code" in fqs:
-                code = fqs["code"][0]
+        head, _, frag = r.headers.get("Location", "").partition("#")
+        auth = parse_qs(frag.split("?", 1)[1]) if "?" in frag else parse_qs(urlparse(head).query)
+    code        = (auth.get("code")       or [None])[0]
+    state       = (auth.get("state")      or [state])[0]            # echoed nonce, paired with code
+    service_url = (auth.get("serviceUrl") or [service_url])[0]      # region that issued the code
+    print(f"[cloud] step3 authorize -> HTTP {r.status_code}  redirect={urlparse(r.headers.get('Location','')).netloc or '(no Location)'}  code={'found' if code else 'MISSING'}")
     if not code:
         raise RuntimeError("OAuth2: no code= found in authorize redirect")
 
-    # Step 4: exchange code for TPEC_SID + csrfToken
+    # Step 4: exchange code for TPEC_SID + csrfToken. code/state/uidServiceUrl all come from the
+    # authorize redirect above so the code matches its issued state and region.
     r = s.post(f"{_CLOUD_MANAGER}/api/v1/central/account/login-with-uid-code",
                json={"code": code, "state": state,
-                     "uidServiceUrl": "https://use1-api-id.tplinkcloud.com", "canary": True})
+                     "uidServiceUrl": service_url, "canary": True})
     data = r.json()
     if data.get("errorCode", -1) != 0:
+        print(f"[cloud] step4 login-with-uid-code FAILED -> {data}")
         raise RuntimeError(f"login-with-uid-code failed: {data.get('msg', data)}")
     csrf_token = data.get("result", {}).get("csrfToken", "")
     if csrf_token:

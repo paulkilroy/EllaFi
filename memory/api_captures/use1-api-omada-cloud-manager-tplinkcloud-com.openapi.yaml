@@ -1,0 +1,387 @@
+openapi: 3.1.0
+info:
+  title: "Captured API \u2014 use1-api-omada-cloud-manager.tplinkcloud.com"
+  version: '1.0'
+  description: "Auto-generated from a sanitized HAR. Schemas are inferred (types only \u2014 no captured values). IDs templated."
+servers:
+- url: https://use1-api-omada-cloud-manager.tplinkcloud.com
+paths:
+  /api/v1/central/account/addons:
+    get:
+      summary: GET /api/v1/central/account/addons
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      showPro:
+                        type: boolean
+                      showRssDialog:
+                        type: boolean
+                      showPurchaseLicense:
+                        type: boolean
+                      showCountryCodeDialog:
+                        type: boolean
+                      showEssential:
+                        type: boolean
+                      showCentral:
+                        type: boolean
+                      showAccountManager:
+                        type: boolean
+                      showGuardDownload:
+                        type: boolean
+                      showDesignCenterJump:
+                        type: boolean
+                      showAccountOpenApi:
+                        type: boolean
+    options:
+      summary: OPTIONS /api/v1/central/account/addons
+      responses:
+        '200':
+          description: captured
+  /api/v1/central/account/detail:
+    get:
+      summary: GET /api/v1/central/account/detail
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      username:
+                        type: string
+                      nickname:
+                        type: string
+                      email:
+                        type: string
+                      countryCode:
+                        type: string
+                      region:
+                        type: string
+                      accountId:
+                        type: string
+                      redirectToUIDAccount:
+                        type: boolean
+                      avatar:
+                        type: string
+    options:
+      summary: OPTIONS /api/v1/central/account/detail
+      responses:
+        '200':
+          description: captured
+  /api/v1/central/account/devicemodelimg:
+    get:
+      summary: GET /api/v1/central/account/devicemodelimg
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      imgInfos:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            compoundModel:
+                              type: string
+                            model:
+                              type: string
+                            type:
+                              type: string
+                            imgBucketPathMap:
+                              type: object
+                              properties: {}
+                      imgPathMap:
+                        type: object
+                        properties:
+                          bigImg:
+                            type: string
+                          heatmapImg:
+                            type: string
+                          smallImg:
+                            type: string
+      parameters:
+      - name: cloudAccess
+        in: query
+        required: false
+        schema:
+          type: string
+    options:
+      summary: OPTIONS /api/v1/central/account/devicemodelimg
+      responses:
+        '200':
+          description: captured
+      parameters:
+      - name: cloudAccess
+        in: query
+        required: false
+        schema:
+          type: string
+  /api/v1/central/account/interface:
+    get:
+      summary: GET /api/v1/central/account/interface
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      language:
+                        type: integer
+                      nickname:
+                        type: string
+                      theme:
+                        type: integer
+                      use24hour:
+                        type: boolean
+                      fixedMenu:
+                        type: boolean
+                      needFeedback:
+                        type: boolean
+    options:
+      summary: OPTIONS /api/v1/central/account/interface
+      responses:
+        '200':
+          description: captured
+  /api/v1/central/account/last-access:
+    get:
+      summary: GET /api/v1/central/account/last-access
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      space:
+                        type: integer
+                      regionType:
+                        type: integer
+    options:
+      summary: OPTIONS /api/v1/central/account/last-access
+      responses:
+        '200':
+          description: captured
+  /api/v1/central/account/login-status:
+    get:
+      summary: GET /api/v1/central/account/login-status
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      login:
+                        type: boolean
+                      csrfToken:
+                        type: string
+                      isSsoUser:
+                        type: boolean
+                      region:
+                        type: integer
+                      redirectUrl:
+                        type: string
+                      serverUrl:
+                        type: string
+                      uidServerUrl:
+                        type: string
+    options:
+      summary: OPTIONS /api/v1/central/account/login-status
+      responses:
+        '200':
+          description: captured
+  /api/v1/central/account/login-with-uid-code:
+    options:
+      summary: OPTIONS /api/v1/central/account/login-with-uid-code
+      responses:
+        '200':
+          description: captured
+    post:
+      summary: POST /api/v1/central/account/login-with-uid-code
+      responses:
+        '200':
+          description: captured
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code:
+                  type: string
+                state:
+                  type: string
+                uidServiceUrl:
+                  type: string
+                canary:
+                  type: boolean
+  /api/v1/central/account/organization-counts:
+    get:
+      summary: GET /api/v1/central/account/organization-counts
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      centralNum:
+                        type: integer
+                      proNetworkNum:
+                        type: integer
+      parameters:
+      - name: showPro
+        in: query
+        required: false
+        schema:
+          type: string
+    options:
+      summary: OPTIONS /api/v1/central/account/organization-counts
+      responses:
+        '200':
+          description: captured
+      parameters:
+      - name: showPro
+        in: query
+        required: false
+        schema:
+          type: string
+  /api/v1/central/account/session/idle-timeout:
+    get:
+      summary: GET /api/v1/central/account/session/idle-timeout
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      remainTime:
+                        type: integer
+                      showDialog:
+                        type: boolean
+  /api/v1/central/account/surveillance-enable:
+    get:
+      summary: GET /api/v1/central/account/surveillance-enable
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      showSurveillance:
+                        type: boolean
+    options:
+      summary: OPTIONS /api/v1/central/account/surveillance-enable
+      responses:
+        '200':
+          description: captured
+  /api/v1/central/account/system-enable:
+    get:
+      summary: GET /api/v1/central/account/system-enable
+      responses:
+        '200':
+          description: captured
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  errorCode:
+                    type: integer
+                  msg:
+                    type: string
+                  result:
+                    type: object
+                    properties:
+                      showFusion:
+                        type: boolean
+                      apiUrl:
+                        type: string
+                      showOnPremise:
+                        type: boolean
+    options:
+      summary: OPTIONS /api/v1/central/account/system-enable
+      responses:
+        '200':
+          description: captured

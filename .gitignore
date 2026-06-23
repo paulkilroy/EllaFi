@@ -13,3 +13,6 @@ test/mock_clients.json
 
 # Security audit — keep out of the (public) repo
 memory/code_audit.md
+
+# HAR captures — contain raw credentials/cookies; process via test/har_to_catalog.py instead
+*.har

@@ -1,0 +1,470 @@
+{
+  "info": {
+    "name": "Captured \u2014 use1-api-omada-cloud-manager.tplinkcloud.com",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://use1-api-omada-cloud-manager.tplinkcloud.com"
+    }
+  ],
+  "item": [
+    {
+      "name": "GET /api/v1/central/account/addons",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/addons",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "addons"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/central/account/addons",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/addons",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "addons"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/central/account/detail",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/detail",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "detail"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/central/account/detail",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/detail",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "detail"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/central/account/devicemodelimg",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/devicemodelimg",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "devicemodelimg"
+          ],
+          "query": [
+            {
+              "key": "cloudAccess",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/central/account/devicemodelimg",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/devicemodelimg",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "devicemodelimg"
+          ],
+          "query": [
+            {
+              "key": "cloudAccess",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/central/account/interface",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/interface",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "interface"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/central/account/interface",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/interface",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "interface"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/central/account/last-access",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/last-access",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "last-access"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/central/account/last-access",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/last-access",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "last-access"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/central/account/login-status",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/login-status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "login-status"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/central/account/login-status",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/login-status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "login-status"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/central/account/login-with-uid-code",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/login-with-uid-code",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "login-with-uid-code"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "POST /api/v1/central/account/login-with-uid-code",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/login-with-uid-code",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "login-with-uid-code"
+          ],
+          "query": []
+        },
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"code\": \"\",\n  \"state\": \"\",\n  \"uidServiceUrl\": \"\",\n  \"canary\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/central/account/organization-counts",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/organization-counts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "organization-counts"
+          ],
+          "query": [
+            {
+              "key": "showPro",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/central/account/organization-counts",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/organization-counts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "organization-counts"
+          ],
+          "query": [
+            {
+              "key": "showPro",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/central/account/session/idle-timeout",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/session/idle-timeout",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "session",
+            "idle-timeout"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/central/account/surveillance-enable",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/surveillance-enable",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "surveillance-enable"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/central/account/surveillance-enable",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/surveillance-enable",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "surveillance-enable"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "GET /api/v1/central/account/system-enable",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/system-enable",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "system-enable"
+          ],
+          "query": []
+        }
+      }
+    },
+    {
+      "name": "OPTIONS /api/v1/central/account/system-enable",
+      "request": {
+        "method": "OPTIONS",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/central/account/system-enable",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "central",
+            "account",
+            "system-enable"
+          ],
+          "query": []
+        }
+      }
+    }
+  ]
+}

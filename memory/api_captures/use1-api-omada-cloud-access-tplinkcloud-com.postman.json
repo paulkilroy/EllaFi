@@ -76,6 +76,27 @@
           }
         }
       }
+    },
+    {
+      "name": "GET /api/v1/cloudaccess/organizations/upgrade/statistic",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/cloudaccess/organizations/upgrade/statistic",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "cloudaccess",
+            "organizations",
+            "upgrade",
+            "statistic"
+          ],
+          "query": []
+        }
+      }
     }
   ]
 }

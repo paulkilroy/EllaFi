@@ -30,7 +30,10 @@ static const char* TAG = "EllaFi";
 // need no lock. All state is RAM and clears on the daily reboot.
 
 static const uint32_t ADMIN_NONCE_TTL_MS     = 60000UL;        // 1 min to finish a login
-static const uint32_t ADMIN_SESSION_TTL_MS   = 30UL * 60000UL; // 30 min session
+static const uint32_t ADMIN_SESSION_TTL_MS   = 30UL * 60000UL; // session-slot reclaim window (NOT a logout
+                                                              // timeout — the session itself never expires;
+                                                              // this just lets a stale slot be reused so 4
+                                                              // never-expiring tokens can't fill the array)
 static const int      ADMIN_MAX_FAILS        = 5;              // failed logins per IP before cooldown
 static const uint32_t ADMIN_FAIL_COOLDOWN_MS = 60000UL;        // lockout window once tripped
 
@@ -87,13 +90,14 @@ static String cookieValue(PsychicRequest* request, const char* name) {
   return v;
 }
 
-// True if the request carries a live session cookie bound to its own IP.
+// True if the request carries a session cookie bound to its own IP.
+// No timeout: a session lives until the browser closes (session cookie) or the daily reboot wipes RAM.
 static bool isAuthorized(PsychicRequest* request) {
   String token = cookieValue(request, "ellafi_admin");
   if (token.isEmpty()) return false;
-  uint32_t ip = reqIpU32(request), now = millis();
+  uint32_t ip = reqIpU32(request);
   for (auto& s : ADMIN_SESSIONS)
-    if (!s.token.isEmpty() && s.token == token && s.ip == ip && ttlLive(s.expiresMs, now)) return true;
+    if (!s.token.isEmpty() && s.token == token && s.ip == ip) return true;
   return false;
 }
 
@@ -165,7 +169,8 @@ static esp_err_t handleAdminLogin(PsychicRequest* request, PsychicResponse* resp
   }
   ADMIN_SESSIONS[slot] = { token, ip, now + ADMIN_SESSION_TTL_MS };
 
-  String cookie = "ellafi_admin=" + token + "; Path=/; Max-Age=" + String(ADMIN_SESSION_TTL_MS / 1000) + "; HttpOnly; SameSite=Strict";
+  // Session cookie (no Max-Age) — the browser clears it on close; no time-based logout.
+  String cookie = "ellafi_admin=" + token + "; Path=/; HttpOnly; SameSite=Strict";
   response->addHeader("Set-Cookie", cookie.c_str());
   return response->send(200, "application/json", "{\"ok\":true}");
 }
