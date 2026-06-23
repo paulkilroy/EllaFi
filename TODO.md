@@ -24,10 +24,24 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   (gossip HELLO 300ms, lowest-MAC self-promote after ~2s of no master heartbeat, uptime-weighted) →
   **`memory/master_election_design.md`** (status: not yet implemented — deploy config-master first).
 - **Field WiFi re-provisioning** (change SSID/pw without serial when the node falls off the network).
-  Use Espressif `WiFiProv` (BLE + SoftAP), armed on sustained join-failure, gated. Apps: "ESP BLE
-  Provisioning" / "ESP SoftAP Provisioning". Cheap companion: backup-SSID list in config.
+  Full design → **`memory/field_reprovisioning_design.md`** (status: agreed, not yet built). Summary:
+  bespoke SoftAP (not BLE); solid-red LED on disconnect → hold internal GPIO0 boot button ~3s →
+  SoftAP for a 5-min window; locked-box physical gate, so no PoP (security1/NULL — encrypted channel,
+  optional `provisioning_pop`); creds → config.json → reboot. Cheap companion: backup-SSID list in config.
 
 ## 🟡 Features
+
+- **AP coverage map (live up/down) on the screen.** Render a small, abstract per-village map (Bakhaw
+  first; generalize to Daram/Samar) with a marker per Omada EAP, colored by live up/down status.
+  - **Data source:** Omada admin API device/EAP status (we already hold an admin session) — NOT the
+    coin-node `nodeMap` heartbeats (that's the 3 coin acceptors, not the EAPs). Need to find the EAP
+    device-status endpoint; poll + push to the page over the existing `/ws` + `/status` (live, not cached).
+  - **Rendering:** lightweight inline SVG traced from a real map — village outline / key roads, AP
+    markers placed from lat/lon normalized into the SVG viewbox. No heavy map lib; only marker colors
+    update live. Keep the response small (no whole-file String builds).
+  - **Inputs needed from operator:** Google Map screenshot of each village (tracing ref), AP lat/lon,
+    and the exact EAP names as they appear in Omada (to bind markers to status).
+  - **Open:** which screen — customer-facing captive page vs. admin/ops view? (drives placement + auth)
 
 - **Omada config helper + analyzer.** Help operators set up Omada, and have the firmware
   **inspect the controller config and report/repair** whether it's deployment-ready:
