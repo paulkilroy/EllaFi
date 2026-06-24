@@ -76,6 +76,7 @@
 #include "log_buffer.h"
 #include "led.h"
 #include "network.h"
+#include "reprovision.h"
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -201,7 +202,7 @@ void setup() {
   RETRY_ON_FAIL(setupFilesystem());
   RETRY_ON_FAIL(setupConfig());
   RETRY_ON_FAIL(setupPins());
-  RETRY_ON_FAIL(setupWifi());
+  if (!setupWifi()) runWifiRecovery();  // solid red + BOOT-button → SoftAP re-provisioning; never returns
   RUNNING_IMAGE_SIZE = ESP.getSketchSize();  // our true image size, for serving slave OTA
   ESP_LOGI(TAG, "Running firmware: build %d (%s), image %u bytes",
            FIRMWARE_BUILD, FIRMWARE_VERSION, (unsigned)RUNNING_IMAGE_SIZE);

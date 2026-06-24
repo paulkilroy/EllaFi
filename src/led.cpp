@@ -57,6 +57,21 @@ void ledHalt() {
 #endif
 }
 
+void ledTakeOver() {
+#ifdef HAS_RGB_LED
+  if (LED_TASK) vTaskSuspend(LED_TASK);  // stop the task fighting us for the strip
+  LED_STRIP.begin();
+  LED_STRIP.setBrightness(80);
+#endif
+}
+
+void ledShow(uint8_t r, uint8_t g, uint8_t b) {
+#ifdef HAS_RGB_LED
+  LED_STRIP.setPixelColor(0, LED_STRIP.Color(r, g, b));
+  LED_STRIP.show();
+#endif
+}
+
 // Notify LED_TASK with LED_NOTIFY_START to begin blinking, LED_NOTIFY_STOP to end.
 // Duplicate signals are naturally idempotent — value overwrites any pending notification.
 void ledTask(void*) {

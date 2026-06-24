@@ -6,6 +6,13 @@
 bool fsExists(const char* path);  // stat()-based check — no vfs error on missing files
 bool loadConfig();
 
+// Current config.json with passwords masked (••••••••) — for pre-filling config forms. "" on error.
+String maskedConfigJson();
+// Merge a posted JSON object onto the current config (skipping masked password placeholders),
+// validate required fields, and write it back. false + sets err on bad JSON / missing field / write
+// failure. Does NOT restart — caller decides. Shared by the admin page and the SoftAP recovery portal.
+bool mergeAndSaveConfig(const String& body, String& err);
+
 bool setupFilesystem();       // mounts LittleFS; halts on failure
 bool setupConfig();           // loads config.json; provisioning loop if absent
 void setupLogs();             // purges old log entries

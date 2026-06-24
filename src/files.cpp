@@ -138,6 +138,53 @@ bool loadConfig() {
   return true;
 }
 
+String maskedConfigJson() {
+  File f = LittleFS.open("/config.json", "r");
+  if (!f) return "";
+  JsonDocument doc;
+  if (deserializeJson(doc, f)) { f.close(); return ""; }
+  f.close();
+  for (const char* k : {"wifi_password", "omada_password", "network_key"})
+    if (!doc[k].isNull()) doc[k] = "••••••••";
+  String json; serializeJson(doc, json);
+  return json;
+}
+
+bool mergeAndSaveConfig(const String& body, String& err) {
+  JsonDocument doc;
+  if (deserializeJson(doc, body)) { err = "Bad JSON"; return false; }
+
+  // Start from the current config so omitted/blank fields (e.g. unchanged passwords) survive.
+  JsonDocument merged;
+  { File rf = LittleFS.open("/config.json", "r"); if (rf) { deserializeJson(merged, rf); rf.close(); } }
+  for (JsonPair kv : doc.as<JsonObject>()) {
+    // Never overwrite a secret with the masked placeholder posted back unchanged.
+    if (kv.value().is<const char*>() && String(kv.value().as<const char*>()) == "••••••••") continue;
+    // HTML form fields arrive as strings; preserve the type of an existing numeric field (e.g.
+    // network_key) so a digit-string doesn't turn it into a string and brick loadConfig().
+    JsonVariant cur = merged[kv.key()];
+    if (kv.value().is<const char*>() && (cur.is<long long>() || cur.is<unsigned long long>())) {
+      String s = kv.value().as<String>();
+      bool numeric = s.length() > 0;
+      for (size_t i = 0; i < s.length(); i++) if (!isdigit((unsigned char)s[i])) { numeric = false; break; }
+      if (numeric) { merged[kv.key()] = (uint64_t)strtoull(s.c_str(), nullptr, 10); continue; }
+    }
+    merged[kv.key()] = kv.value();
+  }
+
+  // Refuse to write a config that would brick the device (can't join WiFi / reach Omada).
+  for (const char* k : {"wifi_ssid", "wifi_password", "omada_url", "omada_controller_id",
+                        "omada_username", "omada_password", "network_key"}) {
+    bool emptyStr = merged[k].is<const char*>() && String(merged[k].as<const char*>()).isEmpty();
+    if (merged[k].isNull() || emptyStr) { err = String("Missing required field: ") + k; return false; }
+  }
+
+  File f = LittleFS.open("/config.json", "w");
+  if (!f) { err = "Failed to write"; return false; }
+  serializeJson(merged, f); f.close();
+  return true;
+}
+
 // ── Paused session file helpers ───────────────────────────────────────────────
 
 String macToFilename(const String& mac) {

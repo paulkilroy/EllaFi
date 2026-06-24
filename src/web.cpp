@@ -1322,41 +1322,14 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
 esp_err_t handleAdminConfig(PsychicRequest* request, PsychicResponse* response) {
   response->addHeader("Cache-Control", "no-store");
   if (request->method() == HTTP_GET) {
-    File f = LittleFS.open("/config.json", "r");
-    if (!f) return response->send(404, "text/plain", "Not found");
-    JsonDocument doc;
-    if (deserializeJson(doc, f)) { f.close(); return response->send(500, "text/plain", "Parse error"); }
-    f.close();
-    // Mask passwords
-    for (const char* k : {"wifi_password", "omada_password", "network_key"})
-      if (!doc[k].isNull()) doc[k] = "••••••••";
-    String json; serializeJson(doc, json);
+    String json = maskedConfigJson();
+    if (json.isEmpty()) return response->send(500, "text/plain", "Config unreadable");
     return response->send(200, "application/json", json.c_str());
   }
-  // POST — merge onto existing config, validate, then write and restart
-  JsonDocument doc;
-  if (deserializeJson(doc, request->body())) return response->send(400, "text/plain", "Bad JSON");
-
-  // Start from the current config so omitted/blank fields (e.g. unchanged passwords) survive.
-  JsonDocument merged;
-  { File rf = LittleFS.open("/config.json", "r"); if (rf) { deserializeJson(merged, rf); rf.close(); } }
-  for (JsonPair kv : doc.as<JsonObject>()) {
-    // Ignore masked placeholders posted back unchanged — never overwrite a secret with "••••••••".
-    if (kv.value().is<const char*>() && String(kv.value().as<const char*>()) == "••••••••") continue;
-    merged[kv.key()] = kv.value();
-  }
-
-  // Refuse to write a config that would brick the device (can't join WiFi / reach Omada).
-  for (const char* k : {"wifi_ssid", "wifi_password", "omada_url", "omada_controller_id",
-                        "omada_username", "omada_password", "network_key"}) {
-    bool emptyStr = merged[k].is<const char*>() && String(merged[k].as<const char*>()).isEmpty();
-    if (merged[k].isNull() || emptyStr)
-      return response->send(400, "text/plain", (String("Missing required field: ") + k).c_str());
-  }
-
-  File f = LittleFS.open("/config.json", "w");
-  if (!f) return response->send(500, "text/plain", "Failed to write");
-  serializeJson(merged, f); f.close();
+  // POST — merge onto existing config, validate, then write and restart (shared with SoftAP recovery).
+  String err;
+  if (!mergeAndSaveConfig(request->body(), err))
+    return response->send(err.startsWith("Failed") ? 500 : 400, "text/plain", err.c_str());
   response->send(200, "text/plain", "Saved — restarting...");
   delay(500);
   esp_restart();

@@ -17,3 +17,8 @@ void ledReady();       // end boot blink → solid idle; call at end of setup()
 void ledError();       // begin red blink — cleared by ledReady() on recovery
 void ledTask(void*);
 void ledHalt();        // fast red blink forever — never returns
+
+// Direct strip control for a blocking owner (e.g. WiFi recovery). ledTakeOver() suspends LED_TASK
+// so it stops fighting for the strip; ledShow() then drives the single pixel. No-ops without RGB.
+void ledTakeOver();
+void ledShow(uint8_t r, uint8_t g, uint8_t b);
