@@ -22,7 +22,8 @@ static constexpr unsigned long PROVISION_MAX_MILLIS        = 15UL * 60000UL;  //
 static String provisionFormHtml() {
   JsonDocument doc;
   deserializeJson(doc, maskedConfigJson());
-  String html = F("<!DOCTYPE html><html><head><meta name=viewport content='width=device-width,initial-scale=1'>"
+  String html = F("<!DOCTYPE html><html><head><meta charset='utf-8'>"
+                  "<meta name=viewport content='width=device-width,initial-scale=1'>"
                   "<title>EllaFi Setup</title></head>"
                   "<body style='font-family:sans-serif;max-width:480px;margin:auto;padding:1em'>"
                   "<h2>EllaFi Node Setup</h2><p>Update the fields that changed, then Save.</p>"
