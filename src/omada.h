@@ -152,6 +152,8 @@ JsonDocument getAllClientsJson();
 bool setClientName(const String& mac, const String& name, String& errorDetail);  // PATCH a client's Omada alias
 JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, uint64_t nowMs);
 void refreshHotspotSessionCache();
+void refreshDeviceStatus();             // poll Omada device list → {mac:status} snapshot (captive AP map)
+String deviceStatusJson();              // current {mac:status} snapshot for /status & /ws ("{}" if none)
 unsigned long getOmadaSessionAgeMs();   // ms since last Omada login; 0 if never logged in
 unsigned long getLastCacheRefreshMs();  // ms since last refreshHotspotSessionCache(); 0 if never run
 

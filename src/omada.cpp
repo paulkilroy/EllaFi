@@ -28,6 +28,7 @@
 
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <freertos/semphr.h>
 #include <esp_log.h>
 #include <stdlib.h>   // setenv
 #include <time.h>     // tzset
@@ -432,6 +433,69 @@ JsonDocument getHotspotClientsJson() {
 
 // Fetches and parses the all-clients (WiFi) list.
 // Returns a JsonDocument on success; empty document on failure (non-fatal).
+// Captive-page AP coverage map: snapshot EVERY Omada device as {mac:status} (2=online 1=issue
+// 0=offline). The page (which has /map.svg with data-mac dots) colours the ones it has dots for.
+// Gated on /map.svg existing — no map, no poll. The snapshot string is mutex-guarded: written here
+// (refresh path), read by buildStatusJson (web/ws tasks).
+// statusCategory enum (standard Omada): 1=CONNECTED, 0=DISCONNECTED, others=transitional. Confirm
+// with the live controller (build_site_map.py / a probe) and adjust the mapping if it differs.
+static String            DEVICE_STATUS_JSON = "{}";
+static SemaphoreHandle_t DEVICE_STATUS_MUTEX = nullptr;
+
+String deviceStatusJson() {
+  if (!DEVICE_STATUS_MUTEX) return "{}";
+  xSemaphoreTake(DEVICE_STATUS_MUTEX, portMAX_DELAY);
+  String copy = DEVICE_STATUS_JSON;
+  xSemaphoreGive(DEVICE_STATUS_MUTEX);
+  return copy;
+}
+
+void refreshDeviceStatus() {
+  if (!fsExists("/map.svg")) return;   // feature off — no coverage map on this node
+  if (!DEVICE_STATUS_MUTEX) DEVICE_STATUS_MUTEX = xSemaphoreCreateMutex();
+
+  String errorDetail;
+  OmadaCredentials creds = getCredentials(errorDetail);
+  if (creds.loginMs == 0) { ESP_LOGW(TAG, "refreshDeviceStatus: login failed: %s", errorDetail.c_str()); return; }
+
+  WiFiClientSecure wc; wc.setInsecure();
+  HTTPClient h;
+  String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
+               "/api/v2/sites/" + SITE_ID + "/grid/devices";
+  h.begin(wc, url);
+  applyCredentials(h, creds);
+  int code = h.GET();
+  String body = (code > 0) ? h.getString() : "";
+  h.end();
+  if (code != 200 || body.isEmpty()) {
+    ESP_LOGW(TAG, "refreshDeviceStatus: HTTP %d (%d bytes)", code, body.length());
+    return;
+  }
+  JsonDocument doc;
+  if (deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0) {
+    ESP_LOGW(TAG, "refreshDeviceStatus: parse/API error: %.200s", body.c_str());
+    return;
+  }
+
+  String out = "{";
+  int n = 0;
+  for (JsonObject dev : doc["result"]["data"].as<JsonArray>()) {
+    String mac = dev["mac"] | "";
+    if (mac.isEmpty()) continue;
+    mac.replace(":", "-"); mac.toUpperCase();          // normalize to match data-mac in map.svg
+    int cat = dev["statusCategory"] | -1;
+    uint8_t st = (cat == 1) ? 2 : (cat == 0) ? 0 : 1;  // connected / disconnected / transitional
+    if (n++) out += ",";
+    out += "\"" + mac + "\":" + String(st);
+  }
+  out += "}";
+
+  xSemaphoreTake(DEVICE_STATUS_MUTEX, portMAX_DELAY);
+  DEVICE_STATUS_JSON = out;
+  xSemaphoreGive(DEVICE_STATUS_MUTEX);
+  ESP_LOGI(TAG, "refreshDeviceStatus: %d device(s)", n);
+}
+
 JsonDocument getAllClientsJson() {
   String errorDetail;
   OmadaCredentials creds = getCredentials(errorDetail);
@@ -637,6 +701,7 @@ void refreshHotspotSessionCache() {
   LAST_CACHE_REFRESH_MILLIS = millis();
 
   refreshControllerStatus();  // refresh cached controller status (reachable, AP count, TZ)
+  refreshDeviceStatus();      // refresh AP up/down for the captive-page coverage map
 }
 
 // ---- Voucher API ----

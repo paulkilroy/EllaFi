@@ -114,8 +114,8 @@ constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
 
 // ── Firmware version ─────────────────────────────────────────────────────────
 
-#define FIRMWARE_VERSION "1.3.15"
-#define FIRMWARE_BUILD   55       // increment on every release; used for slave version comparison
+#define FIRMWARE_VERSION "1.4.0"
+#define FIRMWARE_BUILD   56       // increment on every release; used for slave version comparison
 
 // True byte size of the running firmware image, computed once at boot (ESP.getSketchSize()).
 // This is what the master serves to slaves for OTA — derived from the running partition, so it's
@@ -138,6 +138,7 @@ constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — gate 
 constexpr unsigned long COIN_INSERT_TIMEOUT_MILLIS    = 10000;
 extern int              MINUTES_PER_COIN;              // minutes of access per coin — loaded from config
 extern int              PRICE_PER_COIN;                // pesos per coin (physical coin denomination) — loaded from config, default 5
+
 constexpr unsigned long COIN_DEBOUNCE_MILLIS              = 300;
 constexpr unsigned long COINSLOT_MIN_PULSE_INTERVAL_MILLIS = 100; // PSK got 116ms in testing .. lets use 100mb us a baseline 120;  // fast mode: 20ms pulse + 100ms gap
 constexpr unsigned long COINSLOT_MIN_PULSE_WIDTH_MICROS    = 3000; // piezo spike ~100µs, real coin 20,000µs — reject anything shorter than 3ms (seen 3828µs on real coins)

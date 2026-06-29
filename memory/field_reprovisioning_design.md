@@ -93,8 +93,15 @@ the master already tracks heartbeats in nodeMap — surface "node X missing, may
 re-provisioning" on the admin page / Healthchecks, **with a 1–2 min debounce** so it doesn't
 fire on every AP reboot. (The immediate solid-red LED is a separate, undebounced layer.)
 
-## Open / to confirm
+## Status
 
-- Confirm GPIO0 boot button is exposed *inside* the locked box on the rev-B board.
-- Tunables: 3 s hold, 5 min idle / 15 min cap — all adjustable after field feel.
-- Scope: ship backup-SSID tier with v1, or button-SoftAP flow first?
+Built & shipped in **v1.3.15** (boot-path recovery: solid red → BOOT-hold → SoftAP captive
+portal serving the full config form). Bench-tested OK. GPIO0 internal-button placement
+**confirmed** — the no-PoP (physical-gate) model holds.
+
+## Open / deferred
+
+- **Increment 3 (optional, not built):** (A) backup-SSID list in config, tried before going red —
+  recovers a swapped AP with no one on site; (B) escalate to red/SoftAP on a *sustained mid-run*
+  disconnect, not just at boot (today a running node only enters recovery via reboot / the 3 AM cycle).
+- Tunables: 3 s hold, 5 min idle / 15 min cap — adjustable after field feel.

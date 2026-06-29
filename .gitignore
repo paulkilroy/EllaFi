@@ -3,7 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
-data/config.json
+data/config.json*
 .DS_Store
 .claude/
 __pycache__/
@@ -16,3 +16,5 @@ memory/code_audit.md
 
 # HAR captures — contain raw credentials/cookies; process via test/har_to_catalog.py instead
 *.har
+web/map.svg
+data/map.svg

@@ -465,6 +465,7 @@ String buildStatusJson(const SessionParams& session, const char* type) {
   json += "\"clientMac\":\"" + session.clientMac + "\",";
   json += "\"clientIp\":\"" + session.clientIp + "\",";
   json += "\"minutesPerCoin\":" + String(MINUTES_PER_COIN);
+  json += ",\"devices\":" + deviceStatusJson();   // AP coverage map: {mac:status} (2=online 1=issue 0=offline)
   json += "}";
 
   return json;
@@ -1041,7 +1042,11 @@ esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response
 
   int qty          = pages * 130;
   int durationHrs  = durationMin / 60;
-  String name      = "AUTOGEN: " + String(price) + "P" + String(durationHrs) + "H " + seller;
+  // Short hex tag (low 24 bits of epoch, ≤6 chars) keeps each batch's name unique so the same
+  // price/duration/seller can be re-stocked — the controller rejects duplicate group names (-42059).
+  // Goes INSIDE the first space-free token; seller is still parsed as everything after the first space.
+  String tag       = String((uint32_t)time(NULL) & 0xFFFFFFUL, HEX);
+  String name      = "AUTOGEN: " + String(price) + "P" + String(durationHrs) + "H-" + tag + " " + seller;
   String desc      = "{\"price\":" + String(price) + "}";
 
   String groupId, errorDetail;
@@ -1538,6 +1543,20 @@ void setupWeb() {
   });
   HTTP_SERVER.on("/status",     HTTP_GET, handleGetStatus);
   HTTP_SERVER.on("/index.html", HTTP_GET, handleRoot);
+  // Per-node brand assets from LittleFS (fall back to baked defaults). Map is 404 when absent →
+  // the page just hides the coverage card. theme.css 404→empty so the baked dark theme stays.
+  HTTP_SERVER.on("/map.svg", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+    res->addHeader("Cache-Control", "no-store");
+    if (!fsExists("/map.svg")) return res->send(404, "text/plain", "");
+    File f = LittleFS.open("/map.svg", "r"); String s = f.readString(); f.close();
+    return res->send(200, "image/svg+xml", s.c_str());
+  });
+  HTTP_SERVER.on("/theme.css", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
+    res->addHeader("Cache-Control", "no-store");
+    if (!fsExists("/theme.css")) return res->send(200, "text/css", "");
+    File f = LittleFS.open("/theme.css", "r"); String s = f.readString(); f.close();
+    return res->send(200, "text/css", s.c_str());
+  });
   setupOtaRoute();
   setupFsOtaRoute();
   HTTP_SERVER.on("/fw.bin", HTTP_GET, handleFwBin);
@@ -1553,6 +1572,13 @@ void setupWeb() {
   });
   HTTP_SERVER.on("/EllaFi.webp", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {
     res->addHeader("Cache-Control", "max-age=86400");
+    if (fsExists("/logo.webp")) {                 // per-node brand override (binary → read whole; send is synchronous)
+      File f = LittleFS.open("/logo.webp", "r");
+      size_t n = f.size();
+      uint8_t* buf = (uint8_t*)malloc(n);
+      if (buf) { f.read(buf, n); f.close(); esp_err_t e = res->send(200, "image/webp", buf, n); free(buf); return e; }
+      f.close();
+    }
     return res->send(200, "image/webp", (const uint8_t*)web_EllaFi_webp_start, web_EllaFi_webp_end - web_EllaFi_webp_start);
   });
   HTTP_SERVER.on("/favicon.ico", HTTP_GET, [](PsychicRequest* req, PsychicResponse* res) {

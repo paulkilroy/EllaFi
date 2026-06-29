@@ -1,0 +1,6 @@
+/* EllaFi light theme — copy to data/theme.css (flashed as /theme.css) to activate.
+   The page exposes background vars; text is overridden by selector since buttons keep white text. */
+:root{ --bg:#eef1f5; --card:#ffffff; --card2:#f6f8fb; --panel:#eef1f5; }
+.container,.info,.status-box,.status-holder,.info-title,.modal-content{ color:#1a2330; }
+.container{ border-color:#d7dde6; }
+.status-box,.info-title{ border-color:#cdd5df; }

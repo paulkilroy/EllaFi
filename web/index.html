@@ -6,14 +6,20 @@
   <link rel="preconnect" href="http://ellafi.local">
   <title>Coin WiFi</title>
   <style>
-    body {
+    :root{
+      --bg:#3d4044;      /* page background */
+      --card:#191e2d;    /* main container / modals */
+      --card2:#1e272e;   /* sub-cards (status-holder) */
+      --panel:#2d3436;   /* status box */
+    }
+        body {
       font-family: Arial, sans-serif;
       margin: 0;
       padding: 10px;
-      background-color: #3d4044;
+      background-color: var(--bg);
     }
     .container {
-      background-color: #191e2d;
+      background-color: var(--card);
       padding: 20px;
       max-width: 500px;
       margin: 20px auto;
@@ -26,7 +32,7 @@
     .status-box {
       color: #fff; border: 2px solid #576574; padding: 15px;
       border-radius: 10px; margin: 15px 0; font-weight: bold;
-      text-align: center; font-size: 18px; background-color: #2d3436;
+      text-align: center; font-size: 18px; background-color: var(--panel);
     }
     .blinking-red { animation: blinkRed 1.2s infinite; }
     @keyframes blinkRed { 0%, 49% { color: #e74c3c; } 60%, 99% { color: transparent; } }
@@ -38,7 +44,7 @@
     @keyframes blinkBlue { 0%, 49% { color: #3498db; } 60%, 99% { color: transparent; } }
     .status-holder {
       padding: 15px 10px; color: #fff; box-shadow: 0px 1px 5px #000;
-      margin: 10px 0; border-radius: 3px; background-color: #1e272e;
+      margin: 10px 0; border-radius: 3px; background-color: var(--card2);
     }
     .info-title {
       padding: 8px; margin-bottom: 10px; color: #fff;
@@ -66,7 +72,7 @@
     }
     .modal-overlay.show { display: flex; }
     .modal-content {
-      background-color: #191e2d; border: 2px solid #57606f;
+      background-color: var(--card); border: 2px solid #57606f;
       border-radius: 5px; padding: 10px 20px; max-width: 500px; width: 90%; color: #fff;
     }
     .modal-header {
@@ -166,12 +172,24 @@
       from { opacity: 0; transform: translate(-50%, -60%); }
       to { opacity: 1; transform: translate(-50%, -50%); }
     }
+  
+    /* AP coverage map */
+    #apMapCard svg { width: 56%; height: auto; display: block; margin: 4px auto 0; border-radius: 5px; }
+    #apMapCard .dot { fill:#7a7f87; transition: fill .3s; }
+    #apMapCard .dot.up   { fill:#4cd137; filter: drop-shadow(0 0 4px #4cd137); }
+    #apMapCard .dot.down { fill:#e74c3c; filter: drop-shadow(0 0 4px #e74c3c); }
+    #apMapCard .dot.warn { fill:#f39c12; filter: drop-shadow(0 0 4px #f39c12); animation: apPulse 1.1s infinite; }
+    @keyframes apPulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .ap-legend { display:flex; gap:12px; justify-content:center; margin-top:9px; font-size:11px; color:#aeb6c2; }
+    .ap-legend span { display:flex; align-items:center; gap:5px; }
+    .ap-legend i { width:9px; height:9px; border-radius:50%; }
   </style>
+  <link rel="stylesheet" href="theme.css">
 </head>
 <body>
   <div class="container" id="mainContainer">
     <div class="logo-container">
-      <img src="EllaFi.webp" alt="EllaFi Logo">
+      <img src="EllaFi.webp" alt="logo">
     </div>
     <div class="status-box status-loading" id="statusBox">
       Status: <span id="statusText" class="blinking-red">Disconnected</span>
@@ -194,6 +212,13 @@
     <button class="btn btn-warning" id="pauseBtn" style="display: none;" onclick="pauseSession()">PAUSE</button>
     <button class="btn btn-success" id="resumeBtn" style="display: none;" onclick="resumeSession()">RESUME</button>
     <button class="btn btn-success" id="insertBtn" style="display: block;" onclick="insertCoins()">INSERT COINS</button>
+
+        <div class="status-holder" id="apMapCard" style="display:none;">
+      <div class="info-title" style="font-size:13px;letter-spacing:.06em">NETWORK</div>
+      <div id="mapHolder"></div>
+      <div class="ap-legend"><span><i style="background:#4cd137"></i>Online</span><span><i style="background:#f39c12"></i>Issue</span><span><i style="background:#e74c3c"></i>Offline</span></div>
+    </div>
+
 
     <div class="info">
       <div class="info-ip">
@@ -259,6 +284,22 @@
   <div class="error-popup" id="errorPopup"></div>
 
   <script>
+    // ── Local-preview shim ──────────────────────────────────────────────────────
+    // Active ONLY when opened as a file:// (inert on the device, which is http://). Browsers block
+    // fetch() of file:// URLs and there's no server here, so fake the runtime layer: canned /status
+    // (so the UI leaves its "loading" blur and renders) and a no-op WebSocket. The map still loads
+    // via the <object> fallback in loadMap(). Lets you double-click web/index.html and see the page.
+    if (location.protocol === 'file:') {
+      const SAMPLE = { type: 'status', clientMac: 'AA:BB:CC:DD:EE:FF', clientIp: '192.168.0.142',
+        sessionStartMillis: 0, sessionEndMillis: 0, pausedRemainingMillis: 0,
+        coinCount: 0, coinInsertTimeLeft: 0, minutesPerCoin: 24, devices: {} };
+      const realFetch = window.fetch.bind(window);
+      window.fetch = (url, ...a) => String(url).includes('status')
+        ? Promise.resolve(new Response(JSON.stringify(SAMPLE), { headers: { 'Content-Type': 'application/json' } }))
+        : realFetch(url, ...a);
+      window.WebSocket = function () { return { close() {}, send() {} }; };
+    }
+
     let ws = null;
     let pendingAction = null;
     let expiryTimer = null;
@@ -386,6 +427,33 @@
       setTimeout(connectWebSocket, 1000);
     }
 
+    // Coverage map: load /map.svg once (card stays hidden if none); color dots by MAC each update.
+    function loadMap() {
+      // device: fetch + inline so the dots live in the page DOM and color live.
+      // file:// preview: browsers block fetch of local files → fall back to <object>, which still
+      // renders the map (dots stay grey, since they're in the object's own document).
+      fetch('map.svg')
+        .then(r => r.ok ? r.text() : Promise.reject('nomap'))
+        .then(svg => {
+          document.getElementById('mapHolder').innerHTML = svg;
+          document.getElementById('apMapCard').style.display = 'block';
+        })
+        .catch(err => {
+          if (err === 'nomap') return;   // genuinely no /map.svg → keep the card hidden
+          document.getElementById('mapHolder').innerHTML =
+            '<object type="image/svg+xml" data="map.svg" style="width:56%;display:block;margin:4px auto 0"></object>';
+          document.getElementById('apMapCard').style.display = 'block';
+        });
+    }
+    function updateAps(devices) {
+      const cls = ['down','warn','up'];
+      for (const mac in devices) {
+        const d = document.querySelector('#apMapCard .dot[data-mac="' + mac + '"]');
+        if (d) d.setAttribute('class', 'dot ' + (cls[devices[mac]] || ''));
+      }
+    }
+    window.addEventListener('load', loadMap);
+
     function fetchStatus() {
       fetch('/status')
         .then(r => r.json())
@@ -394,6 +462,7 @@
     }
 
     function handleServerMessage(data) {
+      if (data.devices) updateAps(data.devices);
       if (data.type === 'authenticated') {
         window.location.reload();
       } else if (data.type === 'status') {

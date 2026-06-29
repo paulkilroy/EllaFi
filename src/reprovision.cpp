@@ -29,6 +29,7 @@ static String provisionFormHtml() {
                   "<h2>EllaFi Node Setup</h2><p>Update the fields that changed, then Save.</p>"
                   "<form method=POST action=/save>");
   for (JsonPair kv : doc.as<JsonObject>()) {
+    if (kv.value().is<JsonObject>() || kv.value().is<JsonArray>()) continue;  // skip environments{} etc.
     String key = kv.key().c_str(), val = kv.value().as<String>();
     html += "<label>" + key + "</label><br>"
             "<input name=\"" + key + "\" value=\"" + val + "\" style='width:100%;margin-bottom:.7em'><br>";

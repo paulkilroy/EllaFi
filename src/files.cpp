@@ -115,17 +115,32 @@ bool loadConfig() {
     ESP_LOGE(TAG, "Failed to parse config.json: %s", err.c_str());
     return false;
   }
-  MANAGEMENT_SSID       = doc["wifi_ssid"]               | "";
-  MANAGEMENT_PASSWORD   = doc["wifi_password"]            | "";
-  CONTROLLER_BASE_URL   = doc["omada_url"]                | "";
-  CONTROLLER_ID         = doc["omada_controller_id"]      | "";
-  ADMIN_USERNAME        = doc["omada_username"]           | "";
-  ADMIN_PASSWORD        = doc["omada_password"]           | "";
-  MASTER_MAC            = doc["master_mac"]               | "";
-  NET_KEY               = doc["network_key"]              | 0ULL;
-  MINUTES_PER_COIN      = doc["minutes_per_coin"]         | 24;
-  PRICE_PER_COIN        = doc["price_per_coin"]           | 5;
-  HEALTHCHECK_URL       = doc["healthchecks_url"]         | "";   // optional; empty = disabled
+  // Optional dev convenience: an `environments` block + `active_env` selector. When set, keys in the
+  // chosen env override the base keys — so a bench device flips dev↔prod by one field. Normal admins
+  // omit both → pure flat config. Every field below is read through cfg() so any key can be overridden.
+  JsonObject env;
+  const char* active = doc["active_env"] | "";
+  if (active[0]) env = doc["environments"][active].as<JsonObject>();
+  if (active[0] && env.isNull()) {   // typo'd active_env: fail loudly instead of silently using base
+    ESP_LOGE(TAG, "config.json: active_env \"%s\" not found in environments", active);
+    return false;
+  }
+  auto cfg = [&](const char* k) -> JsonVariant {
+    if (!env.isNull() && !env[k].isNull()) return env[k];
+    return doc[k];
+  };
+
+  MANAGEMENT_SSID       = cfg("wifi_ssid")               | "";
+  MANAGEMENT_PASSWORD   = cfg("wifi_password")            | "";
+  CONTROLLER_BASE_URL   = cfg("omada_url")                | "";
+  CONTROLLER_ID         = cfg("omada_controller_id")      | "";
+  ADMIN_USERNAME        = cfg("omada_username")           | "";
+  ADMIN_PASSWORD        = cfg("omada_password")           | "";
+  MASTER_MAC            = cfg("master_mac")               | "";
+  NET_KEY               = cfg("network_key")              | 0ULL;
+  MINUTES_PER_COIN      = cfg("minutes_per_coin")         | 24;
+  PRICE_PER_COIN        = cfg("price_per_coin")           | 5;
+  HEALTHCHECK_URL       = cfg("healthchecks_url")         | "";   // optional; empty = disabled
   if (MANAGEMENT_SSID.isEmpty())     { ESP_LOGE(TAG, "config.json missing: wifi_ssid");           return false; }
   if (MANAGEMENT_PASSWORD.isEmpty()) { ESP_LOGE(TAG, "config.json missing: wifi_password");       return false; }
   if (CONTROLLER_BASE_URL.isEmpty()) { ESP_LOGE(TAG, "config.json missing: omada_url");           return false; }
@@ -138,14 +153,28 @@ bool loadConfig() {
   return true;
 }
 
+// Mask any password-ish key, at any depth — so secrets inside environments{} are masked too.
+static void maskSecrets(JsonVariant v) {
+  if (v.is<JsonObject>()) {
+    for (JsonPair kv : v.as<JsonObject>()) {
+      String k = kv.key().c_str(); k.toLowerCase();
+      if (k.indexOf("password") >= 0 || k.indexOf("secret") >= 0 || k == "network_key")
+        kv.value().set("••••••••");
+      else
+        maskSecrets(kv.value());
+    }
+  } else if (v.is<JsonArray>()) {
+    for (JsonVariant e : v.as<JsonArray>()) maskSecrets(e);
+  }
+}
+
 String maskedConfigJson() {
   File f = LittleFS.open("/config.json", "r");
   if (!f) return "";
   JsonDocument doc;
   if (deserializeJson(doc, f)) { f.close(); return ""; }
   f.close();
-  for (const char* k : {"wifi_password", "omada_password", "network_key"})
-    if (!doc[k].isNull()) doc[k] = "••••••••";
+  maskSecrets(doc.as<JsonVariant>());
   String json; serializeJson(doc, json);
   return json;
 }
@@ -172,11 +201,18 @@ bool mergeAndSaveConfig(const String& body, String& err) {
     merged[kv.key()] = kv.value();
   }
 
-  // Refuse to write a config that would brick the device (can't join WiFi / reach Omada).
+  // Refuse to write a config that would brick the device. Validate the EFFECTIVE config (base
+  // overlaid with the active environment, mirroring loadConfig) — so a config that keeps its
+  // omada_* only inside environments{} still passes.
+  JsonObject env;
+  const char* active = merged["active_env"] | "";
+  if (active[0]) env = merged["environments"][active].as<JsonObject>();
+  if (active[0] && env.isNull()) { err = String("active_env \"") + active + "\" not found in environments"; return false; }
   for (const char* k : {"wifi_ssid", "wifi_password", "omada_url", "omada_controller_id",
                         "omada_username", "omada_password", "network_key"}) {
-    bool emptyStr = merged[k].is<const char*>() && String(merged[k].as<const char*>()).isEmpty();
-    if (merged[k].isNull() || emptyStr) { err = String("Missing required field: ") + k; return false; }
+    JsonVariant v = (!env.isNull() && !env[k].isNull()) ? env[k].as<JsonVariant>() : merged[k].as<JsonVariant>();
+    bool emptyStr = v.is<const char*>() && String(v.as<const char*>()).isEmpty();
+    if (v.isNull() || emptyStr) { err = String("Missing required field: ") + k; return false; }
   }
 
   File f = LittleFS.open("/config.json", "w");

@@ -445,6 +445,10 @@
         <label>Healthcheck URL (optional, master)</label>
         <input type="text" id="cfg-healthchecks_url" placeholder="https://hc-ping.com/<uuid> — blank keeps current">
       </div>
+      <div class="form-group">
+        <label>Active environment (dev override; blank = production / base)</label>
+        <select id="cfg-active_env"><option value="">— production (base) —</option></select>
+      </div>
 
     </div>
     <div class="msg" id="cfg-msg"></div>
@@ -1337,7 +1341,7 @@ const CFG_FIELDS = [
   'omada_url','omada_controller_id',
   'omada_username','omada_password',
   'master_mac','network_key','minutes_per_coin','price_per_coin',
-  'healthchecks_url'
+  'healthchecks_url','active_env'
 ];
 
 async function loadConfig() {
@@ -1347,6 +1351,10 @@ async function loadConfig() {
     const r = await fetch('/admin/config');
     if (!r.ok) { msg.textContent = 'Could not load config from device.'; return; }
     const cfg = await r.json();
+    // Populate the environment switcher from environments{} (base option is always present).
+    const sel = document.getElementById('cfg-active_env');
+    sel.length = 1;
+    Object.keys(cfg.environments || {}).forEach(name => sel.add(new Option(name, name)));
     CFG_FIELDS.forEach(k => {
       const el = document.getElementById('cfg-' + k);
       // Leave password fields blank — the GET returns masked values, and posting those
@@ -1363,7 +1371,9 @@ async function saveConfig() {
   const cfg = {};
   CFG_FIELDS.forEach(k => {
     const el = document.getElementById('cfg-' + k);
-    if (el && el.value.trim()) cfg[k] = el.type === 'number' ? Number(el.value) : el.value.trim();
+    if (!el) return;
+    if (k === 'active_env') { cfg[k] = el.value; return; }   // always send (blank = revert to base)
+    if (el.value.trim()) cfg[k] = el.type === 'number' ? Number(el.value) : el.value.trim();
   });
   msg.textContent = 'Saving...';
   try {
