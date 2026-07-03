@@ -233,8 +233,26 @@
     </div>
   </div>
   <div class="section">
-    <div class="section-title">Transactions</div>
-    <div class="tbl-wrap">
+    <div class="section-title">Revenue by Month — Last 12 Months</div>
+    <div class="chart-wrap" id="chart-monthly"></div>
+    <div class="chart-legend">
+      <span><span class="legend-dot" style="background:#5dade2"></span>Vendo (₱)</span>
+      <span><span class="legend-dot" style="background:#2ecc71"></span>Vouchers (₱)</span>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title" style="cursor:pointer" onclick="toggleExpand(this)">▸ Monthly Detail</div>
+    <div class="tbl-wrap" style="display:none">
+      <table>
+        <thead><tr><th>Month</th><th>Coins</th><th>Vouchers</th><th>Vendo ₱</th><th>Voucher ₱</th><th>Total</th></tr></thead>
+        <tbody id="monthly-tbody"></tbody>
+        <tfoot id="monthly-tfoot"></tfoot>
+      </table>
+    </div>
+  </div>
+  <div class="section">
+    <div class="section-title" style="cursor:pointer" onclick="toggleExpand(this)">▸ Transactions — Last 30 Days</div>
+    <div class="tbl-wrap" style="display:none">
       <table>
         <thead>
           <tr><th>Date</th><th>Vendo</th><th>Vouchers</th><th>Total Minutes</th><th>Revenue</th><th>Commission</th><th>Net</th><th>Leader</th></tr>
@@ -439,7 +457,7 @@
       </div>
       <div class="form-group">
         <label>Price per Coin (₱)</label>
-        <input type="number" id="cfg-price_per_coin" placeholder="5" min="1">
+        <input type="number" id="cfg-price_per_coin" placeholder="1" min="1">
       </div>
       <div class="form-group">
         <label>Healthcheck URL (optional, master)</label>
@@ -664,28 +682,35 @@ function renderPerformance(salesData, leaderboard, nodeRevMap) {
   leaderboard = leaderboard || [];
   nodeRevMap  = nodeRevMap  || {};
   const nodeCoinTotals = {};
-  for (const d of salesData) {
+  for (const d of salesData)
     for (const [mac, coins] of Object.entries(d.nodes || {}))
       nodeCoinTotals[mac] = (nodeCoinTotals[mac] || 0) + coins;
-  }
+
+  // Week-over-week: last 7 FULL days (ending yesterday) vs the 7 before. Excludes today (partial).
+  // Vendo Δ from per-node daily coins; seller Δ from the leaderboard's wowCur/wowPrev (same rolling weeks).
+  const thisWk = salesData.slice(-8, -1), prevWk = salesData.slice(-15, -8);
+  const wkCoins = (days, mac) => days.reduce((s, d) => s + ((d.nodes || {})[mac] || 0), 0);
+  const deltaPct = (cur, prev) => {
+    if (!prev && !cur) return '<span class="muted">—</span>';
+    if (!prev)         return '<span style="color:#2ecc71">▲ new</span>';
+    const p = Math.round((cur - prev) / prev * 100);
+    return p >= 0 ? `<span style="color:#2ecc71">▲ ${p}%</span>`
+                  : `<span style="color:#e74c3c">▼ ${Math.abs(p)}%</span>`;
+  };
+
   const rows = [
     ...liveNodes.map(n => ({
-      name:       nodeName(n),
-      typeCls:    'tag-coin',
-      typeLabel:  'Vendo',
-      activity:   (nodeCoinTotals[n.mac] || 0) > 0 ? nodeCoinTotals[n.mac] + ' coins' : '<span class="muted">—</span>',
-      revenue:    nodeRevMap[n.mac] || 0,
-      commPct:    nodeCommissions[n.mac] || 0,
-      delta:      0
+      name:      nodeName(n), typeCls: 'tag-coin', typeLabel: 'Vendo',
+      activity:  (nodeCoinTotals[n.mac] || 0) > 0 ? nodeCoinTotals[n.mac] + ' coins' : '<span class="muted">—</span>',
+      revenue:   nodeRevMap[n.mac] || 0, commPct: nodeCommissions[n.mac] || 0,
+      deltaHtml: deltaPct(wkCoins(thisWk, n.mac), wkCoins(prevWk, n.mac))
     })),
     ...leaderboard.map(s => ({
-      name:       s.seller + (s.registered ? '' : ' <span class="muted" style="font-size:10px">(new)</span>'),
-      typeCls:    'tag-vchr',
-      typeLabel:  'Voucher',
-      activity:   s.vouchers > 0 ? s.vouchers + ' vouchers' : '<span class="muted">—</span>',
-      revenue:    s.revenue || 0,
-      commPct:    s.commission || 0,
-      delta:      0
+      name:      s.seller + (s.registered ? '' : ' <span class="muted" style="font-size:10px">(new)</span>'),
+      typeCls:   'tag-vchr', typeLabel: 'Voucher',
+      activity:  s.vouchers > 0 ? s.vouchers + ' vouchers' : '<span class="muted">—</span>',
+      revenue:   s.revenue || 0, commPct: s.commission || 0,
+      deltaHtml: deltaPct(s.wowCur || 0, s.wowPrev || 0)
     }))
   ];
 
@@ -697,15 +722,8 @@ function renderPerformance(salesData, leaderboard, nodeRevMap) {
       ? r.commPct + '%' + (r.revenue > 0 ? ' <span class="muted">(₱' + comm + ')</span>' : '')
       : '<span class="muted">—</span>';
     const netHtml  = r.revenue > 0 ? '₱' + net : '<span class="muted">—</span>';
-    return `<tr>
-      <td>${r.name}</td>
-      <td><span class="tag ${r.typeCls}">${r.typeLabel}</span></td>
-      <td>${r.activity}</td>
-      <td>${revHtml}</td>
-      <td>${commHtml}</td>
-      <td>${netHtml}</td>
-      <td>${deltaHtml(r.delta)}</td>
-    </tr>`;
+    return `<tr><td>${r.name}</td><td><span class="tag ${r.typeCls}">${r.typeLabel}</span></td>`
+         + `<td>${r.activity}</td><td>${revHtml}</td><td>${commHtml}</td><td>${netHtml}</td><td>${r.deltaHtml}</td></tr>`;
   }).join('');
 }
 
@@ -835,7 +853,7 @@ function renderSystemHealth(sys, ctrl) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Stacked bar chart
 // ─────────────────────────────────────────────────────────────────────────────
-function renderStackedChart(containerId, data) {
+function renderStackedChart(containerId, data, showAvg = true) {
   const el = document.getElementById(containerId);
   const W = el.clientWidth || 600, H = 160;
   const pL = 40, pB = 26, pT = 10, pR = 8;
@@ -862,21 +880,74 @@ function renderStackedChart(containerId, data) {
     if (i % labelStep === 0) svg += `<text x="${(x+barW/2).toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10">${d.date}</text>`;
   });
 
-  // 7-day trailing rolling average line
-  const avgPts = data.map((_, i) => {
-    const win = data.slice(Math.max(0, i - 6), i + 1);
-    const avg = win.reduce((s, d) => s + d.coinRev + d.voucherRev, 0) / win.length;
-    const cx = pL + slotW * i + slotW / 2;
-    const cy = pT + cH - (avg / max) * cH;
-    return `${cx.toFixed(1)},${cy.toFixed(1)}`;
-  });
-  svg += `<polyline points="${avgPts.join(' ')}" fill="none" stroke="#f39c12" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
-  avgPts.forEach(pt => {
-    const [cx, cy] = pt.split(',');
-    svg += `<circle cx="${cx}" cy="${cy}" r="2" fill="#f39c12" opacity="0.9"/>`;
-  });
+  if (showAvg) {   // 7-window trailing rolling average line (daily chart only)
+    const avgPts = data.map((_, i) => {
+      const win = data.slice(Math.max(0, i - 6), i + 1);
+      const avg = win.reduce((s, d) => s + d.coinRev + d.voucherRev, 0) / win.length;
+      const cx = pL + slotW * i + slotW / 2;
+      const cy = pT + cH - (avg / max) * cH;
+      return `${cx.toFixed(1)},${cy.toFixed(1)}`;
+    });
+    svg += `<polyline points="${avgPts.join(' ')}" fill="none" stroke="#f39c12" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>`;
+    avgPts.forEach(pt => {
+      const [cx, cy] = pt.split(',');
+      svg += `<circle cx="${cx}" cy="${cy}" r="2" fill="#f39c12" opacity="0.9"/>`;
+    });
+  }
 
   el.innerHTML = `<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}">${svg}</svg>`;
+
+  // Hover tooltip — ₱ and $ (÷56) per bar
+  const tip = chartTip();
+  el.onmousemove = e => {
+    const r = el.getBoundingClientRect();
+    const i = Math.floor(((e.clientX - r.left) / r.width * W - pL) / slotW);
+    if (i < 0 || i >= data.length) { tip.style.display = 'none'; return; }
+    const d = data[i], usd = v => '$' + Math.round(v / 56);
+    tip.innerHTML = `<b>${d.label || d.date}</b>`
+      + `<br><span style="color:#5dade2">Vendo</span> ₱${d.coinRev} · ${usd(d.coinRev)}`
+      + `<br><span style="color:#2ecc71">Vouchers</span> ₱${d.voucherRev} · ${usd(d.voucherRev)}`
+      + `<br>Total ₱${d.coinRev + d.voucherRev} · ${usd(d.coinRev + d.voucherRev)}`;
+    tip.style.display = 'block';
+    tip.style.left = (e.clientX + 14) + 'px';
+    tip.style.top  = (e.clientY + 14) + 'px';
+  };
+  el.onmouseleave = () => { chartTip().style.display = 'none'; };
+}
+
+function chartTip() {
+  let t = document.getElementById('chart-tip');
+  if (!t) {
+    t = document.createElement('div');
+    t.id = 'chart-tip';
+    t.style.cssText = 'position:fixed;pointer-events:none;display:none;background:#0f1626;border:1px solid #2e3f58;'
+      + 'border-radius:5px;padding:6px 9px;font-size:12px;color:#dde3ee;z-index:2000;box-shadow:0 4px 12px rgba(0,0,0,.5);line-height:1.55';
+    document.body.appendChild(t);
+  }
+  return t;
+}
+
+function toggleExpand(el) {
+  const body = el.nextElementSibling;
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  el.textContent = (hidden ? '▾ ' : '▸ ') + el.textContent.replace(/^[▸▾]\s*/, '');
+}
+
+function renderMonthlyTable(months) {
+  const tbody = document.getElementById('monthly-tbody');
+  const tfoot = document.getElementById('monthly-tfoot');
+  if (!tbody) return;
+  const dash = '<span class="muted">—</span>';
+  let tc = 0, tv = 0, tvr = 0, tcr = 0;
+  tbody.innerHTML = months.slice().reverse().map(m => {
+    const total = m.coinRev + m.voucherRev;
+    tc += m.coins; tv += m.vouchers; tvr += m.coinRev; tcr += m.voucherRev;
+    return `<tr><td>${m.label}</td><td>${m.coins || dash}</td><td>${m.vouchers || dash}</td>`
+         + `<td>${m.coinRev ? '₱' + m.coinRev : dash}</td><td>${m.voucherRev ? '₱' + m.voucherRev : dash}</td>`
+         + `<td>${total ? '₱' + total : dash}</td></tr>`;
+  }).join('');
+  tfoot.innerHTML = `<tr><td>12-mo total</td><td>${tc}</td><td>${tv}</td><td>₱${tvr}</td><td>₱${tcr}</td><td>₱${tvr + tcr}</td></tr>`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -886,6 +957,7 @@ async function loadSales() {
   const loadingEl = document.getElementById('sales-loading');
   loadingEl.style.display = 'block';
   let data = [];
+  let monthsData = [];
   let pricePerCoin = 5;
   let leaderboard  = [];
   try {
@@ -901,6 +973,11 @@ async function loadSales() {
         vouchers:   d.vouchers || 0,
         voucherRev: d.voucherRev || 0,
         nodes:      d.nodes || {}
+      }));
+      monthsData = (resp.months || []).map(m => ({   // reshape for renderStackedChart + the detail table
+        label: m.label, coins: m.coins, vouchers: m.vouchers,
+        coinRev: m.coins * pricePerCoin, voucherRev: m.voucherRev,
+        date: m.label.split(' ')[0]                  // short "Apr" label for the x-axis
       }));
     }
     if (lbR.ok) leaderboard = await lbR.json();
@@ -919,6 +996,8 @@ async function loadSales() {
 
   renderPerformance(data, leaderboard, nodeRevMap);
   renderStackedChart('chart-sales', data);
+  renderStackedChart('chart-monthly', monthsData, false);
+  renderMonthlyTable(monthsData);
 
   document.getElementById('hdr-status').textContent = 'Online · ' + new Date().toLocaleTimeString();
 
@@ -931,12 +1010,20 @@ async function loadSales() {
   const avgNodeComm  = nodeCommVals.length ? nodeCommVals.reduce((a,b)=>a+b,0)/nodeCommVals.length : 0;
   const avgVchrComm  = vchrCommVals.length ? vchrCommVals.reduce((a,b)=>a+b,0)/vchrCommVals.length : 20;
 
-  tbody.innerHTML = data.slice().reverse().map(d => {
+  tbody.innerHTML = data.slice(-30).reverse().map(d => {
     const dayMin  = d.minutes !== undefined ? d.minutes : (d.coins * 24 + d.vouchers * 720);
     const dayRev  = d.coinRev + d.voucherRev;
     const dayComm = Math.round(d.coinRev * avgNodeComm / 100) + Math.round(d.voucherRev * avgVchrComm / 100);
     const dayNet  = dayRev - dayComm;
     tc += d.coins; tv += d.vouchers; tm += dayMin; tr += dayRev; tcomm += dayComm;
+    // Leader = the vendo with the most coins that day (voucher sales aren't attributed per-day).
+    let leaderHtml = '<span class="muted">—</span>';
+    const ne = Object.entries(d.nodes || {});
+    if (ne.length) {
+      const [topMac, topCoins] = ne.reduce((a, b) => b[1] > a[1] ? b : a);
+      if (topCoins > 0) leaderHtml = (nodeNicknames[topMac] || topMac) +
+        ' <span class="muted">(' + topCoins + ')</span>';
+    }
     return `<tr>
       <td>${d.date}</td>
       <td>${d.coins    || '<span class="muted">—</span>'}</td>
@@ -945,7 +1032,7 @@ async function loadSales() {
       <td>${dayRev  ? '₱' + dayRev  : '<span class="muted">—</span>'}</td>
       <td>${dayComm ? '₱' + dayComm : '<span class="muted">—</span>'}</td>
       <td>${dayNet  ? '₱' + dayNet  : '<span class="muted">—</span>'}</td>
-      <td></td>
+      <td>${leaderHtml}</td>
     </tr>`;
   }).join('');
 

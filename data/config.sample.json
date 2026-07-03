@@ -5,6 +5,8 @@
   "master_mac": "AA:BB:CC:DD:EE:FF",
   "network_key": a number between 1 and 9007199254740991,
   "minutes_per_coin": 24,
+  "price_per_coin": 1,
+  "fallback_price_per_voucher": 5,
   "healthchecks_url": "https://hc-ping.com/<your-check-uuid>  (master dead-man's switch; omit or leave empty to disable)",
 
   "omada_url": "Settings -> Controller -> Controller URL  |  Cloud US-East: https://use1-api-omada-essential-controller.tplinkcloud.com  |  Local: https://<controller-ip>:8043",

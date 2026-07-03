@@ -1120,6 +1120,17 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   long   todayDay = localDayNum(now);
   static const int DAYS = 90;
 
+  // Monthly rollup (last 12 months) — same logs, aggregated by calendar month for the month chart.
+  static const int MONTHS = 12;
+  int monthCoins[MONTHS] = {}, monthMin[MONTHS] = {}, monthVchr[MONTHS] = {}, monthVchrRev[MONTHS] = {};
+  int mkNow; { time_t mid = (time_t)(todayDay * 86400 + 43200); struct tm* tm = gmtime(&mid);
+               mkNow = (tm->tm_year + 1900) * 12 + tm->tm_mon; }
+  auto monthSlot = [&](long dayNum) -> int {   // 0..MONTHS-1 (0=oldest, MONTHS-1=current); -1 if outside
+    time_t mid = (time_t)(dayNum * 86400 + 43200); struct tm* tm = gmtime(&mid);
+    int mi = mkNow - ((tm->tm_year + 1900) * 12 + tm->tm_mon);
+    return (mi >= 0 && mi < MONTHS) ? (MONTHS - 1 - mi) : -1;
+  };
+
   // ── Vendo history ──────────────────────────────────────────────────────────
   int dayCoinTotals[DAYS] = {};
   int dayMinTotals[DAYS]  = {};
@@ -1134,9 +1145,11 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
         JsonDocument doc;
         if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
         long day = localDayNum((time_t)(doc["ts"] | 0L));
+        int  coins = doc["coins"] | 0;
+        int  ms = monthSlot(day);                       // 12-month rollup (all history, not just DAYS)
+        if (ms >= 0) { monthCoins[ms] += coins; monthMin[ms] += doc["min"] | 0; }
         int  idx = (int)(todayDay - day);
         if (idx < 0 || idx >= DAYS) continue;
-        int coins = doc["coins"] | 0;
         dayCoinTotals[DAYS - 1 - idx] += coins;
         dayMinTotals [DAYS - 1 - idx] += doc["min"] | 0;
         String node = doc["node"] | "";
@@ -1191,7 +1204,7 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
         long day = localDayNum((time_t)(b["time"].as<long long>() / 1000) - 1);
         if (!missingDays.count(day)) continue;
         vchrCache[day].first  += b["count"].as<int>();
-        vchrCache[day].second += voucherBucketRevenue(b, PRICE_PER_COIN);
+        vchrCache[day].second += voucherBucketRevenue(b, FALLBACK_PRICE_PER_VOUCHER);
       }
       // Write one entry per missing day (days with no API response get cached as 0)
       File cacheFile = LittleFS.open("/voucher_history.json", FILE_APPEND);
@@ -1226,14 +1239,33 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
         long day = localDayNum((time_t)(b["time"].as<long long>() / 1000) - 1);
         if (day != todayDay) continue;
         dayVoucherTotals[DAYS - 1] += b["count"].as<int>();
-        dayVchrRevTotals[DAYS - 1] += voucherBucketRevenue(b, PRICE_PER_COIN);
+        dayVchrRevTotals[DAYS - 1] += voucherBucketRevenue(b, FALLBACK_PRICE_PER_VOUCHER);
       }
     }
   }
 
+  // Voucher monthly rollup: cached past days (365 kept) + today's live partial (not cached).
+  for (auto& kv : vchrCache) {
+    int ms = monthSlot(kv.first);
+    if (ms >= 0) { monthVchr[ms] += kv.second.first; monthVchrRev[ms] += kv.second.second; }
+  }
+  { int ms = monthSlot(todayDay);
+    if (ms >= 0) { monthVchr[ms] += dayVoucherTotals[DAYS - 1]; monthVchrRev[ms] += dayVchrRevTotals[DAYS - 1]; } }
+
   // ── Build response ─────────────────────────────────────────────────────────
+  static const char* MN[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
   JsonDocument out;
   out["pricePerCoin"] = PRICE_PER_COIN;
+  JsonArray months = out["months"].to<JsonArray>();
+  for (int i = 0; i < MONTHS; i++) {
+    int mkey = mkNow - (MONTHS - 1 - i);                 // i=0 oldest … MONTHS-1 current
+    JsonObject m = months.add<JsonObject>();
+    m["label"]      = String(MN[mkey % 12]) + " " + String(mkey / 12);
+    m["coins"]      = monthCoins[i];
+    m["minutes"]    = monthMin[i];
+    m["vouchers"]   = monthVchr[i];
+    m["voucherRev"] = monthVchrRev[i];
+  }
   JsonArray days = out["days"].to<JsonArray>();
   for (int i = 0; i < DAYS; i++) {
     time_t   dayTs = (time_t)((todayDay - (DAYS - 1 - i)) * 86400 + 43200);
@@ -1280,15 +1312,19 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
     }
   }
 
-  // Aggregate usedCount per seller from AUTOGEN groups created within the period
-  std::map<String, std::pair<int,int>> totals;  // seller → {vouchers, revenue}
+  // Aggregate usedCount per seller from AUTOGEN groups. Main totals use the `days` window; WoW uses
+  // two rolling COMPLETE 7-day windows ending YESTERDAY. Buy-and-use is same-day here, so a group's
+  // usedCount settles the day it's created → creation date ≈ redemption date, which makes creation-time
+  // week-over-week honest (excluding today's in-progress day). All from the single groups call.
+  long todayDay = localDayNum(now);
+  std::map<String, std::pair<int,int>> totals;   // seller → {vouchers, revenue}
+  std::map<String, int> wowCur, wowPrev;         // seller → vouchers this-week / prior-week
   JsonDocument groupsDoc = getVoucherGroupsJson();
   if (!groupsDoc.isNull()) {
     for (JsonObject g : groupsDoc["result"]["data"].as<JsonArray>()) {
       String name = g["name"].as<String>();
       if (!name.startsWith("AUTOGEN: ")) continue;
       long long createdMs = g["createdTime"].as<long long>();
-      if (createdMs > 0 && (time_t)(createdMs / 1000) < cutoff) continue;
       String rest   = name.substring(9);
       int    space  = rest.indexOf(' ');
       String seller = space >= 0 ? rest.substring(space + 1) : rest;
@@ -1297,6 +1333,12 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
       if (deserializeJson(descDoc, g["description"].as<String>()) == DeserializationError::Ok)
         price = descDoc["price"] | PRICE_PER_COIN;
       int used = g["usedCount"].as<int>();
+      if (createdMs > 0) {
+        long cd = localDayNum((time_t)(createdMs / 1000));
+        if      (cd >= todayDay - 7  && cd <= todayDay - 1) wowCur[seller]  += used;   // last 7 full days
+        else if (cd >= todayDay - 14 && cd <= todayDay - 8) wowPrev[seller] += used;   // the 7 before
+      }
+      if (createdMs > 0 && (time_t)(createdMs / 1000) < cutoff) continue;   // main `days` window
       totals[seller].first  += used;
       totals[seller].second += used * price;
     }
@@ -1320,6 +1362,8 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
     s["commission"] = comm;
     s["net"]        = kv.second.second - (kv.second.second * comm / 100);
     s["registered"] = reg;
+    s["wowCur"]     = wowCur.count(kv.first)  ? wowCur[kv.first]  : 0;   // vouchers, last 7 full days
+    s["wowPrev"]    = wowPrev.count(kv.first) ? wowPrev[kv.first] : 0;   // vouchers, the 7 before
   }
   String json; serializeJson(out, json);
   return response->send(200, "application/json", json.c_str());

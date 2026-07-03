@@ -137,7 +137,8 @@ constexpr int           COINSLOT_PIN                  = 4;
 constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — gate of Q1 (IRLZ44N, logic-level): HIGH enables the coin acceptor. 2-wire panels: low-side GND switch via Q1. 3-wire panels: also drives the panel enable on J2.2 (verify it's 3.3V-logic-safe — see memory/hardware_notes.md)
 constexpr unsigned long COIN_INSERT_TIMEOUT_MILLIS    = 10000;
 extern int              MINUTES_PER_COIN;              // minutes of access per coin — loaded from config
-extern int              PRICE_PER_COIN;                // pesos per coin (physical coin denomination) — loaded from config, default 5
+extern int              PRICE_PER_COIN;                // currency value of one coin pulse — revenue multiplier for reports only; from config, default 1 (1 pulse = 1 unit). Bump if the acceptor is set to N pulses/coin.
+extern int              FALLBACK_PRICE_PER_VOUCHER;    // voucher revenue fallback when Omada returns a bucket with no amount: revenue = count * this. Reports only; from config, default 5.
 
 constexpr unsigned long COIN_DEBOUNCE_MILLIS              = 300;
 constexpr unsigned long COINSLOT_MIN_PULSE_INTERVAL_MILLIS = 100; // PSK got 116ms in testing .. lets use 100mb us a baseline 120;  // fast mode: 20ms pulse + 100ms gap

@@ -139,7 +139,8 @@ bool loadConfig() {
   MASTER_MAC            = cfg("master_mac")               | "";
   NET_KEY               = cfg("network_key")              | 0ULL;
   MINUTES_PER_COIN      = cfg("minutes_per_coin")         | 24;
-  PRICE_PER_COIN        = cfg("price_per_coin")           | 5;
+  PRICE_PER_COIN        = cfg("price_per_coin")           | 1;
+  FALLBACK_PRICE_PER_VOUCHER = cfg("fallback_price_per_voucher") | 5;
   HEALTHCHECK_URL       = cfg("healthchecks_url")         | "";   // optional; empty = disabled
   if (MANAGEMENT_SSID.isEmpty())     { ESP_LOGE(TAG, "config.json missing: wifi_ssid");           return false; }
   if (MANAGEMENT_PASSWORD.isEmpty()) { ESP_LOGE(TAG, "config.json missing: wifi_password");       return false; }
