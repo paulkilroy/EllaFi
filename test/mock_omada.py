@@ -15,6 +15,7 @@ Implements all API endpoints the firmware calls:
     POST /{cid}/api/v2/login
     GET  /{cid}/api/v2/user/sites
     GET  /{cid}/api/v2/sites/{siteId}/clients
+    GET  /{cid}/api/v2/sites/{siteId}/grid/devices   (AP up/down for the coverage map)
     GET  /{cid}/api/v2/settings/system/status   (timeZone etc.; forwarded to cloud in --cloud)
 
   Voucher management (admin session, forwarded to real cloud if --cloud):
@@ -88,6 +89,29 @@ OPERATOR_CSRF_TOKEN = "mock-operator-csrf-abc123"
 ADMIN_CSRF_TOKEN    = "mock-admin-csrf-def456"
 MOCK_SITE_ID        = "mock-site-id-001"
 MOCK_SITE_NAME      = "MockSite"
+
+# APs for the coverage-map poller (GET /sites/{id}/grid/devices → refreshDeviceStatus).
+# MACs match the data-mac dots in data/map.svg so the captive-page map lights up locally.
+# statusCategory: 1 = connected (green dot), 0 = disconnected (red), anything else = transitional (orange).
+MOCK_DEVICES = [
+    {"mac": "8C-86-DD-E3-77-F6", "name": "Negra AP",    "statusCategory": 1},
+    {"mac": "8C-86-DD-E3-76-52", "name": "Grandma AP",  "statusCategory": 1},
+    {"mac": "6C-4C-BC-E4-39-80", "name": "House Big AP", "statusCategory": 0},
+    {"mac": "8C-86-DD-E3-77-B4", "name": "Darna AP",    "statusCategory": 2},
+]
+
+_MAP_MACS_CACHE = None
+def _map_svg_macs():
+    """MACs baked into data/map.svg (data-mac dots), normalized to DASH-UPPER. [] if no map. Cached."""
+    global _MAP_MACS_CACHE
+    if _MAP_MACS_CACHE is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data/map.svg")
+        try:
+            found = re.findall(r'data-mac="([0-9A-Fa-f:\-]{17})"', open(path).read())
+            _MAP_MACS_CACHE = [m.upper().replace(":", "-") for m in found]
+        except Exception:
+            _MAP_MACS_CACHE = []
+    return _MAP_MACS_CACHE
 
 # MAC → IP mapping for known test clients. Auth calls don't include an IP
 # (the AP knows it, not the portal), so we look it up here. Unknown MACs get
@@ -176,6 +200,24 @@ _BROWSER_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
 }
+
+
+def _apply_env_overlay(config, env_name=None):
+    """Flatten config.json the way the firmware's loadConfig does: overlay one environment onto the
+    base keys (env wins). env_name selects which environment (default: active_env). Without this,
+    omada_controller_id/omada_url — which now live inside environments{} — are invisible at the top
+    level and cloud auth KeyErrors."""
+    active = env_name or config.get("active_env")
+    if not active:
+        return config
+    env = config.get("environments", {}).get(active)
+    if env is None:
+        available = ", ".join(config.get("environments", {}).keys()) or "(none defined)"
+        raise SystemExit(f"{RED}environment '{active}' not found in data/config.json environments{{}}. "
+                         f"Available: {available}{RESET}")
+    merged = {k: v for k, v in config.items() if k != "environments"}
+    merged.update(env)
+    return merged
 
 
 def _do_cloud_auth(config):
@@ -268,15 +310,20 @@ def _do_cloud_auth(config):
     data = r.json()
     if data.get("errorCode") != 0:
         raise RuntimeError(f"organizations API failed: {data.get('msg', data)}")
+    entries = data.get("result", {}).get("data", [])
     device_id = connector_url = None
-    for entry in data.get("result", {}).get("data", []):
+    for entry in entries:
         if entry.get("omadacId") == controller_id:
             device_id     = entry["deviceId"]
             connector_url = entry.get("connectorUrl",
                                       "https://use1-api-omada-controller-connector.tplinkcloud.com")
             break
     if not device_id:
-        raise RuntimeError(f"No organization entry for controller_id={controller_id}")
+        registered = "\n".join(f"     {e.get('name', '?')}  omadacId={e.get('omadacId', '?')}"
+                               for e in entries) or "     (none — no cloud-access controllers on this account)"
+        raise RuntimeError(f"controller_id {controller_id} is not registered for cloud access on this "
+                           f"account.\n   Controllers the cloud DID return:\n{registered}\n"
+                           f"   Pick a matching omadacId with --cloud-env (or enable Cloud Access on the controller).")
 
     return {"tpec_sid": tpec_sid, "csrf": csrf_token,
             "device_id": device_id, "connector_url": connector_url}
@@ -428,6 +475,11 @@ class OmadaHandler(BaseHTTPRequestHandler):
                 self.handle_voucher_history(ts, qs)
         elif api == "/api/v2/user/sites":
             self.handle_sites(ts)
+        elif re.match(r"^/api/v2/sites/[^/]+/grid/devices$", api):
+            if CLOUD_SESSION:
+                self.handle_cloud_forward(ts, "GET", api, qs, None)
+            else:
+                self.handle_grid_devices(ts)
         elif re.match(r"^/api/v2/sites/[^/]+/clients$", api):
             self.handle_all_clients(ts)
         elif re.match(r"^/api/v2/hotspot/sites/[^/]+/clients$", api):
@@ -464,6 +516,27 @@ class OmadaHandler(BaseHTTPRequestHandler):
         self.send_json(200, {"errorCode": 0, "msg": "Success.",
                              "result": {"mac": mac, "name": name, **rec}})
 
+    def _dump_grid_devices(self, body):
+        """Diagnostic for the AP coverage map: print what grid/devices returned and whether each MAC
+        matches a data-mac dot in data/map.svg. A map dot with no matching device stays grey."""
+        try:
+            devs = json.loads(body).get("result", {}).get("data", [])
+        except Exception as e:
+            print(f"       {RED}grid/devices: unparseable body ({e}){RESET}")
+            return
+        want = set(_map_svg_macs())
+        print(f"       {BOLD}grid/devices → {len(devs)} device(s); map.svg has {len(want)} dot(s):{RESET}")
+        seen = set()
+        for dv in devs:
+            mac = (dv.get("mac") or "?").upper().replace(":", "-")
+            seen.add(mac)
+            hit = f"{GREEN}✓ colors a dot{RESET}" if mac in want else f"{YELLOW}(not on map){RESET}"
+            print(f"         {mac}  statusCategory={dv.get('statusCategory')}  "
+                  f"{dv.get('type','?')}  {dv.get('name','?')!r}  {hit}")
+        missing = want - seen
+        if missing:
+            print(f"       {RED}map dots with NO matching device (stay grey): {', '.join(sorted(missing))}{RESET}")
+
     # ── Cloud forwarding ───────────────────────────────────────────────────────
 
     def handle_cloud_forward(self, ts, method, api, qs, body_bytes):
@@ -497,6 +570,8 @@ class OmadaHandler(BaseHTTPRequestHandler):
         cbad = status >= 400 or (cec not in (0, None))
         cdetail = f"  errorCode={cec} msg={cmsg!r}" if (cec not in (0, None) or cmsg) else ""
         print(f"  {ts}  {(RED if cbad else GREEN)}← cloud HTTP {status}{RESET}  {api}{cdetail}")
+        if api.endswith("/grid/devices"):
+            self._dump_grid_devices(body)
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -670,6 +745,8 @@ class OmadaHandler(BaseHTTPRequestHandler):
         cbad = status >= 400 or (cec not in (0, None))
         cdetail = f"  errorCode={cec} msg={cmsg!r}" if (cec not in (0, None) or cmsg) else ""
         print(f"  {ts}  {(RED if cbad else GREEN)}← cloud HTTP {status}{RESET}  {api}{cdetail}")
+        if api.endswith("/grid/devices"):
+            self._dump_grid_devices(body)
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -701,6 +778,18 @@ class OmadaHandler(BaseHTTPRequestHandler):
             "result": {
                 "totalRows": len(connected), "currentPage": 1, "currentSize": len(connected),
                 "data": connected
+            }
+        })
+
+    def handle_grid_devices(self, ts):
+        time.sleep(DELAYS["query"])
+        summary = "  ".join(f"{d['name']}={d['statusCategory']}" for d in MOCK_DEVICES) or "none"
+        print(f"  {ts}  {BLUE}GET grid devices{RESET}  → {len(MOCK_DEVICES)} AP(s)  {summary}")
+        self.send_json(200, {
+            "errorCode": 0,
+            "result": {
+                "totalRows": len(MOCK_DEVICES), "currentPage": 1, "currentSize": len(MOCK_DEVICES),
+                "data": MOCK_DEVICES
             }
         })
 
@@ -745,6 +834,11 @@ def main():
         help="Proxy admin login, user/sites, and voucher calls to the real TP-Link cloud. "
              "Requires omada_username, omada_password, omada_controller_id in data/config.json. "
              "extPortal/auth and hotspot session CRUD remain mocked.")
+    parser.add_argument(
+        "--cloud-env", metavar="NAME", default=None,
+        help="Which environments{} block in data/config.json to pull cloud credentials from "
+             "(default: active_env). Pick an env whose omada_url is a tplinkcloud.com URL — a local "
+             "controller id is not cloud-registered and cloud auth will fail (-52054).")
     args = parser.parse_args()
 
     threading.Thread(target=_watch_staleness, daemon=True).start()  # nag if this file gets edited
@@ -754,8 +848,24 @@ def main():
         config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                    "../data/config.json")
         with open(config_path) as f:
-            cloud_config = json.load(f)
-        print(f"{BOLD}Authenticating with TP-Link cloud (5-step OAuth)...{RESET}")
+            raw = json.load(f)
+        env_name = args.cloud_env or raw.get("active_env")
+        cloud_config = _apply_env_overlay(raw, args.cloud_env)
+
+        missing = [k for k in ("omada_controller_id", "omada_username", "omada_password")
+                   if not cloud_config.get(k)]
+        if missing:
+            where = f"environment '{env_name}'" if env_name else "the top level"
+            sys.exit(f"{RED}--cloud needs {', '.join(missing)} in data/config.json ({where}). "
+                     f"Add them there, or point at a different env with --cloud-env NAME.{RESET}")
+
+        # NB: omada_url is NOT used in cloud mode — routing is by controller_id, which the cloud matches
+        # to a registered controller (omadacId) and hands back a connector URL. So a LAN omada_url here is
+        # normal for a cloud-proxied onsite controller; the only thing that matters is that this
+        # controller_id is registered to the account. Step 5 reports clearly (with the registered list)
+        # if it isn't.
+        print(f"{BOLD}Authenticating with TP-Link cloud (5-step OAuth) as env '{env_name}' "
+              f"(controller {cloud_config['omada_controller_id'][:8]}…)...{RESET}")
         global CLOUD_SESSION
         try:
             CLOUD_SESSION = _do_cloud_auth(cloud_config)
