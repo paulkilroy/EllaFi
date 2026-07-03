@@ -258,8 +258,11 @@ esp_err_t handleGetStatus(PsychicRequest* request, PsychicResponse* response) {
   String clientIp = request->client()->remoteIP().toString();
 #endif
   SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(clientIp);
+  // AP status is global, not per-session — include it even when this client has no session, or the
+  // coverage-map dots stay grey for anyone who hasn't paid yet (i.e. most captive-page viewers).
   String json = session ? buildStatusJson(*session)
-    : "{\"type\":\"status\",\"sessionEndMillis\":0,\"pausedRemainingMillis\":0,\"coinInsertTimeLeft\":0}";
+    : "{\"type\":\"status\",\"sessionEndMillis\":0,\"pausedRemainingMillis\":0,\"coinInsertTimeLeft\":0,\"devices\":"
+      + deviceStatusJson() + "}";
   response->addHeader("Cache-Control", "no-store");
   return response->send(200, "application/json", json.c_str());
 }

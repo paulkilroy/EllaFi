@@ -428,6 +428,7 @@
     }
 
     // Coverage map: load /map.svg once (card stays hidden if none); color dots by MAC each update.
+    let lastDevices = null;   // last {mac:status} seen, so a map that loads AFTER /status still colors
     function loadMap() {
       // device: fetch + inline so the dots live in the page DOM and color live.
       // file:// preview: browsers block fetch of local files → fall back to <object>, which still
@@ -437,6 +438,7 @@
         .then(svg => {
           document.getElementById('mapHolder').innerHTML = svg;
           document.getElementById('apMapCard').style.display = 'block';
+          if (lastDevices) updateAps(lastDevices);   // /status may have arrived before the dots existed
         })
         .catch(err => {
           if (err === 'nomap') return;   // genuinely no /map.svg → keep the card hidden
@@ -446,6 +448,7 @@
         });
     }
     function updateAps(devices) {
+      lastDevices = devices;   // remember so loadMap can re-apply if the SVG wasn't in the DOM yet
       const cls = ['down','warn','up'];
       for (const mac in devices) {
         const d = document.querySelector('#apMapCard .dot[data-mac="' + mac + '"]');
