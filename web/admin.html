@@ -241,6 +241,24 @@
     </div>
   </div>
   <div class="section">
+    <div class="section-title">Income Statement (PDF)</div>
+    <p class="muted" style="font-size:12px;margin:.2rem 0 .6rem">Income statement for substantiation: one page per month (last 3 complete months) — income (vendo + voucher), expenses (seller commissions + Starlink), and net profit. Figures come from recorded transactions and each seller's commission rate. Generating it makes one controller call.</p>
+    <div class="form-group" style="max-width:340px;margin-bottom:.5rem">
+      <label style="font-size:12px">Business / legal name (prints on the statement)</label>
+      <input type="text" id="stmt-name" placeholder="EllaFi">
+    </div>
+    <div class="form-group" style="max-width:340px;margin-bottom:.5rem">
+      <label style="font-size:12px">Internet cost / month, ₱ (Starlink) — an expense line</label>
+      <input type="number" id="stmt-internet" placeholder="4099" min="0">
+    </div>
+    <div class="form-group" style="max-width:340px;margin-bottom:.5rem">
+      <label style="font-size:12px">Extra equipment (routers/switches/APs are pulled from the controller automatically — add off-controller gear here, one per line)</label>
+      <textarea id="stmt-equipment" rows="3" placeholder="Starlink dish (internet uplink)&#10;UPS / battery backup" style="width:100%;font:inherit;font-size:12px"></textarea>
+    </div>
+    <button class="btn btn-primary" onclick="downloadStatement()">Download statement PDF</button>
+    <span id="stmt-msg" class="muted" style="margin-left:.6rem;font-size:12px"></span>
+  </div>
+  <div class="section">
     <div class="section-title" style="cursor:pointer" onclick="toggleExpand(this)">▸ Monthly Detail</div>
     <div class="tbl-wrap" style="display:none">
       <table>
@@ -999,6 +1017,13 @@ async function loadSales() {
   renderStackedChart('chart-monthly', monthsData, false);
   renderMonthlyTable(monthsData);
 
+  const sn = document.getElementById('stmt-name');   // income-statement inputs — prefill from last use
+  if (sn && !sn.value) sn.value = localStorage.getItem('stmtName') || '';
+  const si = document.getElementById('stmt-internet');
+  if (si && !si.value) si.value = localStorage.getItem('stmtInternet') || '';
+  const se = document.getElementById('stmt-equipment');
+  if (se && !se.value) se.value = localStorage.getItem('stmtEquip') || '';
+
   document.getElementById('hdr-status').textContent = 'Online · ' + new Date().toLocaleTimeString();
 
   const tbody = document.getElementById('sales-tbody');
@@ -1245,6 +1270,179 @@ async function makeVoucherPDF(cards, filename) {
     doc.text(c.seller, tx, y + 9.6);
   }
   doc.save(filename);
+}
+
+// Monthly income statement for income substantiation (visa/government): one page per month, INCOME
+// (vendo + voucher) → EXPENSES (per-seller commissions + Starlink) → NET PROFIT. Data: /admin/statement
+// (last 3 complete months; 1 voucher-groups call). Reuses the voucher PDF's jsPDF + logo. Amounts print
+// as plain figures with a "PHP" note (jsPDF's core font lacks the ₱ glyph).
+const _STMT_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+// Rasterize an SVG string to a PNG data URL (jsPDF can't embed SVG). Returns {url, ratio} or null.
+async function rasterizeSvg(svg) {
+  try {
+    const img = new Image();
+    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
+    await img.decode();
+    const w = img.naturalWidth || 600, h = img.naturalHeight || 400, s = 3;
+    const cv = document.createElement('canvas'); cv.width = w * s; cv.height = h * s;
+    const g = cv.getContext('2d'); g.fillStyle = '#222b22'; g.fillRect(0, 0, cv.width, cv.height);
+    g.drawImage(img, 0, 0, cv.width, cv.height);
+    return { url: cv.toDataURL('image/png'), ratio: w / h };
+  } catch { return null; }
+}
+
+async function downloadStatement() {
+  const msg  = document.getElementById('stmt-msg');
+  const name = (document.getElementById('stmt-name').value.trim() || 'EllaFi');
+  const starlink  = Math.max(0, parseInt(document.getElementById('stmt-internet').value, 10) || 4099);
+  const equipment = document.getElementById('stmt-equipment').value.trim();
+  localStorage.setItem('stmtName', name);
+  localStorage.setItem('stmtInternet', String(starlink));
+  localStorage.setItem('stmtEquip', equipment);
+  msg.textContent = 'Building statement…';
+  try {
+    const stmtR = await fetch('/admin/statement');
+    if (!stmtR.ok) throw new Error('statement data unavailable');
+    const stmt = await stmtR.json();
+    if (!stmt.months || !stmt.months.length) throw new Error('no sales history yet');
+    // Coverage map (local file, no controller call) → image + AP names for the Network page.
+    let mapImg = null, apNames = [];
+    try {
+      const r = await fetch('/map.svg');
+      if (r.ok) { let svg = await r.text();
+        apNames = [...svg.matchAll(/data-name="([^"]*)"/g)].map(x => x[1]).filter(Boolean);
+        svg = svg.replace('</svg>', '<style>.dot{fill:#4cd137}</style></svg>');   // colour the dots green for the PDF
+        mapImg = await rasterizeSvg(svg); }
+    } catch {}
+    await makeStatementPDF(name, stmt, starlink, { equipment, apNames, mapImg });
+    msg.textContent = '✓ Statement ready — check your downloads';
+  } catch (e) { msg.textContent = '✗ ' + e.message; }
+}
+
+async function makeStatementPDF(bizName, stmt, starlink, net = {}) {
+  await ensureJsPDF();
+  const logo = await logoPng();
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
+  const fmt = n => Math.round(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const M = 20, rT = 190;                         // left margin, right edge (amounts)
+  const now = new Date();
+  const prepared = `${now.getDate()} ${_STMT_FULL[now.getMonth()]} ${now.getFullYear()}`;
+  let y = 0;
+  const row = (label, val, o = {}) => {           // one labelled line; val null = heading only
+    doc.setFont('helvetica', o.bold ? 'bold' : 'normal'); doc.setFontSize(o.size || 10.5);
+    doc.setTextColor(o.color != null ? o.color : 40);
+    doc.text(label, M + (o.indent || 0), y);
+    if (val != null) doc.text(fmt(val), rT, y, { align: 'right' });
+    y += o.gap || 6.6;
+  };
+  const subtotalRule = () => { doc.setDrawColor(150); doc.setLineWidth(0.2); doc.line(rT - 48, y - 4.4, rT, y - 4.4); };
+
+  stmt.months.forEach((m, mi) => {
+    if (mi > 0) doc.addPage();
+    // Letterhead
+    const logoH = 15, logoW = logoH * logo.ratio;
+    try { doc.addImage(logo.url, 'PNG', M, 13, logoW, logoH); } catch {}
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor(20);
+    doc.text(bizName, M + logoW + 5, 21);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(110);
+    doc.text('Coin-operated WiFi hotspot', M + logoW + 5, 27);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(25);
+    doc.text('INCOME STATEMENT', rT, 20, { align: 'right' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(90);
+    doc.text(`${m.label} ${m.year}`, rT, 27, { align: 'right' });
+    doc.setDrawColor(25); doc.setLineWidth(0.6); doc.line(M, 33, rT, 33);
+
+    // INCOME
+    y = 47;
+    row('INCOME', null, { bold: true, size: 10, color: 95, gap: 7.5 });
+    row('Vendo (coin) sales', m.vendo, { indent: 5 });
+    row('Voucher sales', m.voucher, { indent: 5 });
+    const gross = m.vendo + m.voucher;
+    subtotalRule();
+    row('Gross income', gross, { indent: 5, bold: true, gap: 11 });
+
+    // EXPENSES
+    row('EXPENSES', null, { bold: true, size: 10, color: 95, gap: 7.5 });
+    row('Seller commissions', null, { indent: 5, color: 70 });
+    let commTotal = 0;
+    (m.sellers || []).forEach(s => { commTotal += s.commission || 0;
+      row(s.name || '—', s.commission || 0, { indent: 10, size: 10, color: 70 }); });
+    if (!(m.sellers || []).length) row('(no seller activity)', 0, { indent: 10, size: 10, color: 150 });
+    row('Internet (Starlink)', starlink, { indent: 5 });
+    const totalExp = commTotal + starlink;
+    subtotalRule();
+    row('Total expenses', totalExp, { indent: 5, bold: true, gap: 12 });
+
+    // NET PROFIT
+    const net = gross - totalExp;
+    doc.setDrawColor(25); doc.setLineWidth(0.6); doc.line(M, y - 6, rT, y - 6);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(net >= 0 ? 20 : 190);
+    doc.text('NET PROFIT', M, y);
+    doc.text(fmt(net), rT, y, { align: 'right' });
+
+    // Footer note
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(140);
+    doc.text(`Amounts in Philippine pesos (PHP). Prepared ${prepared} from the EllaFi hotspot system's transaction ` +
+             `records (coin sales & voucher redemptions); seller commissions at each seller's agreed rate. ` +
+             `System-generated summary of the business's own records — not an audited financial statement.`,
+             M, 285, { maxWidth: rT - M });
+  });
+
+  // Network Infrastructure page — equipment list + coverage map (legitimizes the operation).
+  // Equipment = real controller inventory (grouped by model+type) + any operator-declared extras.
+  const typeLabel = t => ({ ap: 'Access Point', switch: 'Switch', gateway: 'Gateway / Router' }[t] || (t || 'Device'));
+  const ORD = { gateway: 0, switch: 1, ap: 2 };
+  const groups = {};
+  (stmt.equipment || []).forEach(d => {
+    const key = (d.model || '') + '|' + (d.type || '');
+    (groups[key] = groups[key] || { model: d.model || '', type: d.type || '', count: 0 }).count++;
+  });
+  const autoLines = Object.values(groups)
+    .sort((a, b) => (ORD[a.type] ?? 9) - (ORD[b.type] ?? 9))
+    .map(g => `${g.count}× ${g.model ? g.model + ' — ' + typeLabel(g.type) : typeLabel(g.type)}`);
+  const manualLines = (net.equipment || '').split('\n').map(s => s.trim()).filter(Boolean);
+  const equipLines = [...autoLines, ...manualLines];
+  if (equipLines.length || net.mapImg || (net.apNames || []).length) {
+    doc.addPage();
+    const logoH = 15, logoW = logoH * logo.ratio;
+    try { doc.addImage(logo.url, 'PNG', M, 13, logoW, logoH); } catch {}
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(17); doc.setTextColor(20);
+    doc.text(bizName, M + logoW + 5, 21);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(25);
+    doc.text('NETWORK INFRASTRUCTURE', rT, 20, { align: 'right' });
+    doc.setDrawColor(25); doc.setLineWidth(0.6); doc.line(M, 33, rT, 33);
+    y = 47;
+    if (equipLines.length) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(95);
+      doc.text('EQUIPMENT', M, y); y += 7.5;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(45);
+      equipLines.forEach(l => { doc.text('•  ' + l, M + 5, y); y += 6.6; });
+      y += 3;
+    }
+    if ((net.apNames || []).length) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(95);
+      doc.text(`ACCESS POINTS (${net.apNames.length})`, M, y); y += 7;
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(45);
+      doc.text(doc.splitTextToSize(net.apNames.join(' · '), rT - M - 5), M + 5, y);
+      y += 6 * Math.ceil(net.apNames.join(' · ').length / 90) + 4;
+    }
+    if (net.mapImg) {
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(95);
+      doc.text('COVERAGE MAP', M, y); y += 4;
+      const maxW = rT - M, maxH = 270 - y;                 // fit remaining page
+      let w = maxW, h = w / net.mapImg.ratio;
+      if (h > maxH) { h = maxH; w = h * net.mapImg.ratio; }
+      try { doc.addImage(net.mapImg.url, 'PNG', M, y + 2, w, h); } catch {}
+    }
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(140);
+    doc.text(`Access-point names and coverage are taken from the ${bizName} network's site map. Equipment as declared by the operator.`,
+             M, 288, { maxWidth: rT - M });
+  }
+
+  const l = stmt.months[stmt.months.length - 1];
+  doc.save(`${bizName.replace(/[^\w]+/g, '-')}-income-statement-${stmt.months[0].label.slice(0,3)}-${l.label.slice(0,3)}-${l.year}.pdf`);
 }
 
 async function printGroup(i) {

@@ -1287,6 +1287,114 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   return response->send(200, "application/json", json.c_str());
 }
 
+// ── Income statement (last 3 COMPLETE calendar months) ────────────────────────
+// Per-month gross income by source (vendo from local coin logs; voucher = usedCount×price of AUTOGEN
+// groups created that month) and per-seller commission expense (voucher revenue × that seller's rate
+// in sellers.json). ONE Omada call (voucher groups). The client adds the fixed internet (Starlink)
+// expense and computes net profit. Buy-and-use is same-day here, so attributing a group's usedCount to
+// its creation month matches redemption (same basis the leaderboard's WoW relies on).
+esp_err_t handleAdminStatement(PsychicRequest* request, PsychicResponse* response) {
+  response->addHeader("Cache-Control", "no-store");
+  time_t now = time(NULL);
+  int mkNow; { struct tm lt; localtime_r(&now, &lt); mkNow = (lt.tm_year + 1900) * 12 + lt.tm_mon; }
+  int mkStart = mkNow - 3;                           // 3 complete months: mkStart .. mkNow-1
+  auto monthSlot = [&](long day) -> int {            // dayNum → 0..2 relative to mkStart, else -1
+    time_t mid = (time_t)(day * 86400 + 43200); struct tm* t = gmtime(&mid);
+    int s = ((t->tm_year + 1900) * 12 + t->tm_mon) - mkStart;
+    return (s >= 0 && s < 3) ? s : -1;
+  };
+
+  // Vendo income per month — local coin logs, no controller call
+  long vendo[3] = {}, voucher[3] = {};
+  if (fsExists("/vendo_history.json")) {
+    File f = LittleFS.open("/vendo_history.json", FILE_READ);
+    if (f) {
+      while (f.available()) {
+        String line = f.readStringUntil('\n'); line.trim();
+        if (line.isEmpty()) continue;
+        JsonDocument doc;
+        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+        int s = monthSlot(localDayNum((time_t)(doc["ts"] | 0L)));
+        if (s >= 0) vendo[s] += (long)(doc["coins"] | 0) * PRICE_PER_COIN;
+      }
+      f.close();
+    }
+  }
+
+  // Seller commission rates
+  std::map<String,int> commRate;
+  if (fsExists("/sellers.json")) {
+    File f = LittleFS.open("/sellers.json", "r");
+    if (f) {
+      JsonDocument doc;
+      if (deserializeJson(doc, f) == DeserializationError::Ok)
+        for (JsonObject s : doc["sellers"].as<JsonArray>()) {
+          String name = s["name"].as<String>();
+          if (!name.isEmpty()) commRate[name] = s["commission"] | 0;
+        }
+      f.close();
+    }
+  }
+
+  // Voucher income + per-seller commission per month — one voucher-groups call
+  std::map<String, std::vector<long>> sellerComm;    // seller → per-month commission (size 3)
+  JsonDocument groups = getVoucherGroupsJson();
+  if (!groups.isNull()) {
+    for (JsonObject g : groups["result"]["data"].as<JsonArray>()) {
+      String name = g["name"].as<String>();
+      if (!name.startsWith("AUTOGEN: ")) continue;
+      long long createdMs = g["createdTime"].as<long long>();
+      if (createdMs <= 0) continue;
+      int s = monthSlot(localDayNum((time_t)(createdMs / 1000)));
+      if (s < 0) continue;
+      String rest = name.substring(9); int sp = rest.indexOf(' ');
+      String seller = sp >= 0 ? rest.substring(sp + 1) : rest;
+      int price = PRICE_PER_COIN;
+      JsonDocument dd;
+      if (deserializeJson(dd, g["description"].as<String>()) == DeserializationError::Ok)
+        price = dd["price"] | PRICE_PER_COIN;
+      long rev = (long)g["usedCount"].as<int>() * price;
+      voucher[s] += rev;
+      auto& v = sellerComm[seller];                  // include every active seller (roster), 0 if no rate
+      if (v.empty()) v.assign(3, 0);
+      v[s] += rev * (commRate.count(seller) ? commRate[seller] : 0) / 100;
+    }
+  }
+
+  static const char* MN[] = {"January","February","March","April","May","June",
+                             "July","August","September","October","November","December"};
+  JsonDocument out;
+  JsonArray months = out["months"].to<JsonArray>();
+  for (int k = 0; k < 3; k++) {
+    int mk = mkStart + k;
+    JsonObject mo = months.add<JsonObject>();
+    mo["label"]   = MN[mk % 12];
+    mo["year"]    = mk / 12;
+    mo["vendo"]   = vendo[k];
+    mo["voucher"] = voucher[k];
+    JsonArray sl = mo["sellers"].to<JsonArray>();
+    for (auto& kv : sellerComm) {                    // same roster every month (0 where none) → consistent
+      JsonObject so = sl.add<JsonObject>();
+      so["name"]       = kv.first;
+      so["commission"] = kv.second[k];
+    }
+  }
+
+  // Real equipment inventory for the Network page (one more controller call — grid/devices)
+  JsonArray equip = out["equipment"].to<JsonArray>();
+  JsonDocument devDoc = getDeviceGridJson();
+  if (!devDoc.isNull())
+    for (JsonObject d : devDoc["result"]["data"].as<JsonArray>()) {
+      JsonObject e = equip.add<JsonObject>();
+      e["type"]  = d["type"]  | "";
+      e["model"] = d["model"] | d["showModel"] | "";
+      e["name"]  = d["name"]  | "";
+    }
+
+  String json; serializeJson(out, json);
+  return response->send(200, "application/json", json.c_str());
+}
+
 // ── Admin leaderboard ─────────────────────────────────────────────────────────
 
 esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* response) {
@@ -1570,6 +1678,7 @@ void setupWeb() {
 #endif
   HTTP_SERVER.on("/admin/log",         HTTP_GET,  handleAdminLog)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/sales",       HTTP_GET,  handleAdminSales)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/statement",   HTTP_GET,  handleAdminStatement)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/sellers",     HTTP_ANY,  handleAdminSellers)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/vouchers",    HTTP_ANY,   handleAdminVouchers)->addMiddleware(adminAuth);

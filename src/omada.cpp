@@ -450,32 +450,30 @@ String deviceStatusJson() {
   return copy;
 }
 
+// GET the site's device grid (EAPs/switches/gateways). Returns the parsed doc, or a null JsonDocument
+// on any login/HTTP/parse error. Shared by the AP-map poller and the income-statement equipment list.
+JsonDocument getDeviceGridJson() {
+  String errorDetail;
+  OmadaCredentials creds = getCredentials(errorDetail);
+  if (creds.loginMs == 0) { ESP_LOGW(TAG, "getDeviceGridJson: login failed: %s", errorDetail.c_str()); return JsonDocument(); }
+  WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+  String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/sites/" + SITE_ID + "/grid/devices";
+  h.begin(wc, url); applyCredentials(h, creds);
+  int code = h.GET();
+  String body = (code > 0) ? h.getString() : "";
+  h.end();
+  if (code != 200 || body.isEmpty()) { ESP_LOGW(TAG, "getDeviceGridJson: HTTP %d (%d bytes)", code, body.length()); return JsonDocument(); }
+  JsonDocument doc;
+  if (deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0) { ESP_LOGW(TAG, "getDeviceGridJson: parse/API error: %.200s", body.c_str()); return JsonDocument(); }
+  return doc;
+}
+
 void refreshDeviceStatus() {
   if (!fsExists("/map.svg")) return;   // feature off — no coverage map on this node
   if (!DEVICE_STATUS_MUTEX) DEVICE_STATUS_MUTEX = xSemaphoreCreateMutex();
 
-  String errorDetail;
-  OmadaCredentials creds = getCredentials(errorDetail);
-  if (creds.loginMs == 0) { ESP_LOGW(TAG, "refreshDeviceStatus: login failed: %s", errorDetail.c_str()); return; }
-
-  WiFiClientSecure wc; wc.setInsecure();
-  HTTPClient h;
-  String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
-               "/api/v2/sites/" + SITE_ID + "/grid/devices";
-  h.begin(wc, url);
-  applyCredentials(h, creds);
-  int code = h.GET();
-  String body = (code > 0) ? h.getString() : "";
-  h.end();
-  if (code != 200 || body.isEmpty()) {
-    ESP_LOGW(TAG, "refreshDeviceStatus: HTTP %d (%d bytes)", code, body.length());
-    return;
-  }
-  JsonDocument doc;
-  if (deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0) {
-    ESP_LOGW(TAG, "refreshDeviceStatus: parse/API error: %.200s", body.c_str());
-    return;
-  }
+  JsonDocument doc = getDeviceGridJson();
+  if (doc.isNull()) return;
 
   String out = "{";
   int n = 0;
