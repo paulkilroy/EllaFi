@@ -1288,16 +1288,18 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
 }
 
 // ── Income statement (last 3 COMPLETE calendar months) ────────────────────────
-// Per-month gross income by source (vendo from local coin logs; voucher = usedCount×price of AUTOGEN
-// groups created that month) and per-seller commission expense (voucher revenue × that seller's rate
-// in sellers.json). ONE Omada call (voucher groups). The client adds the fixed internet (Starlink)
-// expense and computes net profit. Buy-and-use is same-day here, so attributing a group's usedCount to
-// its creation month matches redemption (same basis the leaderboard's WoW relies on).
+// Income by source, per month: vendo from local coin logs; voucher from the REDEMPTION history (every
+// voucher sold, named or not) so months before the AUTOGEN naming convention still count. Seller
+// commissions come ONLY from AUTOGEN groups × the seller's sellers.json rate — so they naturally begin
+// the month naming started. Calls: voucher history (income) + voucher groups (commissions) + grid/devices
+// (equipment). The client adds the fixed Starlink expense and computes net profit.
 esp_err_t handleAdminStatement(PsychicRequest* request, PsychicResponse* response) {
   response->addHeader("Cache-Control", "no-store");
   time_t now = time(NULL);
   int mkNow; { struct tm lt; localtime_r(&now, &lt); mkNow = (lt.tm_year + 1900) * 12 + lt.tm_mon; }
   int mkStart = mkNow - 3;                           // 3 complete months: mkStart .. mkNow-1
+  auto monthFirstDay = [](int mk) -> long { return daysFromCivil(mk / 12, mk % 12 + 1, 1); };
+  long winStart = monthFirstDay(mkStart), winEnd = monthFirstDay(mkNow);
   auto monthSlot = [&](long day) -> int {            // dayNum → 0..2 relative to mkStart, else -1
     time_t mid = (time_t)(day * 86400 + 43200); struct tm* t = gmtime(&mid);
     int s = ((t->tm_year + 1900) * 12 + t->tm_mon) - mkStart;
@@ -1321,6 +1323,45 @@ esp_err_t handleAdminStatement(PsychicRequest* request, PsychicResponse* respons
     }
   }
 
+  // Voucher INCOME per month — redemption history (all vouchers, named or not). Cache + one fetch.
+  std::map<long, std::pair<int,int>> vchr;           // day → {count, revenue}
+  if (fsExists("/voucher_history.json")) {
+    File f = LittleFS.open("/voucher_history.json", FILE_READ);
+    if (f) {
+      while (f.available()) {
+        String line = f.readStringUntil('\n'); line.trim();
+        if (line.isEmpty()) continue;
+        JsonDocument doc;
+        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+        long day = localDayNum((time_t)(doc["ts"] | 0L));
+        if (day >= winStart && day < winEnd) vchr[day] = {doc["count"] | 0, doc["revenue"] | 0};
+      }
+      f.close();
+    }
+  }
+  std::set<long> missing;
+  for (long d = winStart; d < winEnd; d++) if (!vchr.count(d)) missing.insert(d);
+  if (!missing.empty()) {
+    JsonDocument hist = getVoucherHistoryJson(localDayStartUtc(*missing.begin()),
+                                              localDayStartUtc(*missing.rbegin() + 2));
+    if (!hist.isNull()) {
+      for (JsonObject b : voucherBuckets(hist)) {
+        long day = localDayNum((time_t)(b["time"].as<long long>() / 1000) - 1);  // Omada end-stamps at next midnight
+        if (!missing.count(day)) continue;
+        vchr[day].first  += b["count"].as<int>();
+        vchr[day].second += voucherBucketRevenue(b, FALLBACK_PRICE_PER_VOUCHER);
+      }
+      File cf = LittleFS.open("/voucher_history.json", FILE_APPEND);
+      if (cf) {
+        for (long d : missing) { auto& v = vchr[d];
+          JsonDocument e; e["ts"] = (long)localDayStartUtc(d); e["count"] = v.first; e["revenue"] = v.second;
+          serializeJson(e, cf); cf.print('\n'); }
+        cf.close();
+      }
+    }
+  }
+  for (long d = winStart; d < winEnd; d++) { int s = monthSlot(d); if (s >= 0 && vchr.count(d)) voucher[s] += vchr[d].second; }
+
   // Seller commission rates
   std::map<String,int> commRate;
   if (fsExists("/sellers.json")) {
@@ -1336,7 +1377,7 @@ esp_err_t handleAdminStatement(PsychicRequest* request, PsychicResponse* respons
     }
   }
 
-  // Voucher income + per-seller commission per month — one voucher-groups call
+  // Seller COMMISSIONS per month — AUTOGEN groups only (zero until the naming convention began)
   std::map<String, std::vector<long>> sellerComm;    // seller → per-month commission (size 3)
   JsonDocument groups = getVoucherGroupsJson();
   if (!groups.isNull()) {
@@ -1349,15 +1390,16 @@ esp_err_t handleAdminStatement(PsychicRequest* request, PsychicResponse* respons
       if (s < 0) continue;
       String rest = name.substring(9); int sp = rest.indexOf(' ');
       String seller = sp >= 0 ? rest.substring(sp + 1) : rest;
+      int rate = commRate.count(seller) ? commRate[seller] : 0;
+      if (rate <= 0) continue;                        // only commissioned sellers are an expense line
       int price = PRICE_PER_COIN;
       JsonDocument dd;
       if (deserializeJson(dd, g["description"].as<String>()) == DeserializationError::Ok)
         price = dd["price"] | PRICE_PER_COIN;
       long rev = (long)g["usedCount"].as<int>() * price;
-      voucher[s] += rev;
-      auto& v = sellerComm[seller];                  // include every active seller (roster), 0 if no rate
+      auto& v = sellerComm[seller];
       if (v.empty()) v.assign(3, 0);
-      v[s] += rev * (commRate.count(seller) ? commRate[seller] : 0) / 100;
+      v[s] += rev * rate / 100;
     }
   }
 
@@ -1373,11 +1415,8 @@ esp_err_t handleAdminStatement(PsychicRequest* request, PsychicResponse* respons
     mo["vendo"]   = vendo[k];
     mo["voucher"] = voucher[k];
     JsonArray sl = mo["sellers"].to<JsonArray>();
-    for (auto& kv : sellerComm) {                    // same roster every month (0 where none) → consistent
-      JsonObject so = sl.add<JsonObject>();
-      so["name"]       = kv.first;
-      so["commission"] = kv.second[k];
-    }
+    for (auto& kv : sellerComm)                       // only months this seller actually earned commission
+      if (kv.second[k] > 0) { JsonObject so = sl.add<JsonObject>(); so["name"] = kv.first; so["commission"] = kv.second[k]; }
   }
 
   // Real equipment inventory for the Network page (one more controller call — grid/devices)

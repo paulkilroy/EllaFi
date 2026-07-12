@@ -1369,7 +1369,7 @@ async function makeStatementPDF(bizName, stmt, starlink, net = {}) {
     let commTotal = 0;
     (m.sellers || []).forEach(s => { commTotal += s.commission || 0;
       row(s.name || '—', s.commission || 0, { indent: 10, size: 10, color: 70 }); });
-    if (!(m.sellers || []).length) row('(no seller activity)', 0, { indent: 10, size: 10, color: 150 });
+    if (!(m.sellers || []).length) row('(none)', null, { indent: 10, size: 10, color: 150 });
     row('Internet (Starlink)', starlink, { indent: 5 });
     const totalExp = commTotal + starlink;
     subtotalRule();
