@@ -818,7 +818,7 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
     n["freeHeap"]  = ni.freeHeap;
     n["rssi"]      = (int)ni.rssi;
     unsigned long downForMs = now - ni.lastSeenMs;
-    n["online"]       = downForMs < 60000;
+    n["online"]       = downForMs < NODE_OFFLINE_THRESHOLD_MILLIS;
     n["downForSec"]   = (uint32_t)(downForMs / 1000UL);   // seconds since last heartbeat — for the "down for" display
     n["otaSentCount"] = ni.otaSentCount;
     n["lastOtaSentMs"] = ni.lastOtaSentMs;

@@ -152,4 +152,5 @@ constexpr time_t        NTP_EPOCH_MIN                 = 1000000000L;  // Sep 9 2
 constexpr int           NTP_SYNC_RETRIES              = 40;
 constexpr int           COIN_PULSE_QUEUE_SIZE          = 32;
 constexpr unsigned long HEARTBEAT_INTERVAL_MILLIS      = 15000;  // how often each node broadcasts its health
+constexpr unsigned long NODE_OFFLINE_THRESHOLD_MILLIS  = 60000;  // ~4 missed heartbeats → node counted down (admin dot + healthcheck /fail)
 constexpr unsigned long OTA_REBOOT_DELAY_MILLIS        = 30000;  // wait for slaves to fetch /fw.bin before master reboots

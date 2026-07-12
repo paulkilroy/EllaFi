@@ -225,17 +225,35 @@ void setup() {
 // already off when there's no internet). Disabled when healthchecks_url is empty.
 static void pingHealthcheck() {
   if (HEALTHCHECK_URL.isEmpty() || WiFi.status() != WL_CONNECTED) return;
+
+  // Fold coin-node health into the master's dead-man's switch: any node we've seen that has gone
+  // silent (missed ~4 heartbeats) flips the SAME check to /fail, so the operator gets one generic
+  // "something's down" alert and pulls up /admin to see which node. All healthy → normal success ping.
+  // (A dead master trips it too — it stops pinging entirely.)
+  String ownMac = WiFi.macAddress(); ownMac.toUpperCase();
+  String downMacs; int downCount = 0;
+  for (const NodeInfo& ni : getKnownNodes()) {
+    String mac = ni.mac; mac.toUpperCase();
+    if (mac == ownMac) continue;                                          // skip the master's own echo
+    if (millis() - ni.lastSeenMs < NODE_OFFLINE_THRESHOLD_MILLIS) continue;
+    if (downCount++) downMacs += ",";
+    downMacs += mac;
+  }
+
   WiFiClientSecure wc; wc.setInsecure(); wc.setTimeout(4000);
   HTTPClient h; h.setConnectTimeout(4000); h.setTimeout(4000);
-  if (!h.begin(wc, HEALTHCHECK_URL)) return;
+  if (!h.begin(wc, downCount ? HEALTHCHECK_URL + "/fail" : HEALTHCHECK_URL)) return;
   h.addHeader("Content-Type", "application/json");
-  String body = String("{\"mac\":\"") + WiFi.macAddress() +
+  String body = String("{\"mac\":\"") + ownMac +
                 "\",\"uptime_s\":" + String(millis() / 1000) +
-                ",\"active_sessions\":" + String((unsigned)HOTSPOT_SESSION_CACHE.size()) + "}";
+                ",\"active_sessions\":" + String((unsigned)HOTSPOT_SESSION_CACHE.size()) +
+                ",\"nodes_down\":" + String(downCount) +
+                (downCount ? (",\"down\":\"" + downMacs + "\"") : String("")) + "}";
   int code = h.POST(body);
   h.end();
-  if (code == 200) ESP_LOGI(TAG, "healthcheck ping ok");
-  else             ESP_LOGW(TAG, "healthcheck ping failed (HTTP %d)", code);
+  if (code != 200)    ESP_LOGW(TAG, "healthcheck ping failed (HTTP %d)", code);
+  else if (downCount) ESP_LOGW(TAG, "healthcheck /fail sent — %d node(s) down: %s", downCount, downMacs.c_str());
+  else                ESP_LOGI(TAG, "healthcheck ping ok");
 }
 
 void loop() {
