@@ -211,9 +211,22 @@ bool loadOmadaSites(String& errorDetail) {
     h.end();
     return false;
   }
+  if (code != 200) {
+    errorDetail = "Sites: HTTP " + String(code) + " — invalidating session";
+    ESP_LOGE(TAG, "%s", errorDetail.c_str());
+    h.end();
+    invalidateCredentials();   // stale session → re-login on the next retry instead of looping on a bad response
+    return false;
+  }
 
   String body = h.getString();
   h.end();
+  if (body.isEmpty()) {
+    errorDetail = "Sites: empty response — invalidating session";
+    ESP_LOGE(TAG, "%s", errorDetail.c_str());
+    invalidateCredentials();
+    return false;
+  }
 
   JsonDocument doc;
   if (deserializeJson(doc, body)) {

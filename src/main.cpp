@@ -264,9 +264,15 @@ static void pingHealthcheck() {
     downMacs += mac;
   }
 
-  WiFiClientSecure wc; wc.setInsecure(); wc.setTimeout(4000);
+  // Plain HTTP — a dead-man's-switch heartbeat needs no TLS. The check UUID is already in the URL, and
+  // dropping the ~40 KB TLS handshake stops the ping's connect from starving internal DRAM (the HTTP -1s)
+  // when the Omada refresh task happens to be mid-handshake on the other core. hc-ping.com serves plain
+  // HTTP directly (no https redirect). Tradeoff: the UUID + benign stats travel cleartext — fine for a ping.
+  WiFiClient client;
+  String url = HEALTHCHECK_URL; url.replace("https://", "http://");
+  if (downCount) url += "/fail";
   HTTPClient h; h.setConnectTimeout(4000); h.setTimeout(4000);
-  if (!h.begin(wc, downCount ? HEALTHCHECK_URL + "/fail" : HEALTHCHECK_URL)) return;
+  if (!h.begin(client, url)) return;
   h.addHeader("Content-Type", "application/json");
   String body = String("{\"mac\":\"") + ownMac +
                 "\",\"uptime_s\":" + String(millis() / 1000) +
