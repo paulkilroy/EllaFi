@@ -97,6 +97,14 @@ details.help code { background: #eef2ff; color: #3730a3; padding: 0.05rem 0.3rem
       <label for="minutes_per_coin">Minutes per Coin</label>
       <input type="number" id="minutes_per_coin" value="24" min="1">
     </div>
+    <div class="field">
+      <label for="price_per_coin">Price per Coin (₱)</label>
+      <input type="number" id="price_per_coin" value="1" min="1">
+    </div>
+    <div class="field">
+      <label for="fallback_price_per_voucher">Fallback Price per Voucher (₱)</label>
+      <input type="number" id="fallback_price_per_voucher" value="5" min="1">
+    </div>
   </fieldset>
 
   <fieldset>
@@ -235,9 +243,9 @@ async function fetchBin(filename) {
 
 function collectConfig() {
   const required = ['wifi_ssid','wifi_password','omada_url','omada_controller_id','omada_username','omada_password','master_mac','network_key'];
-  const numeric  = ['network_key','minutes_per_coin'];
+  const numeric  = ['network_key','minutes_per_coin','price_per_coin','fallback_price_per_voucher'];
   const cfg = {};
-  for (const id of [...required, 'minutes_per_coin']) {
+  for (const id of [...required, 'minutes_per_coin', 'price_per_coin', 'fallback_price_per_voucher']) {
     const el = document.getElementById(id);
     if (!el) continue;
     const val = el.value.trim();

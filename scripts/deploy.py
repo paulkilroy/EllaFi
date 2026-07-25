@@ -30,7 +30,7 @@ def load_config():
         return json.load(f)
 
 
-def upload(url, path, label, auth, reboot_on_reset=False, retries=3):
+def upload(url, path, label, auth, retries=3):
     size = os.path.getsize(path)
     for attempt in range(1, retries + 1):
         try:
@@ -42,12 +42,15 @@ def upload(url, path, label, auth, reboot_on_reset=False, retries=3):
             if r.ok:
                 print("OK")
                 return
+            # A real HTTP error (e.g. 500 "Error processing upload") means the flash FAILED.
+            # Never treat this as success — the device did NOT update.
             print(f"FAILED ({r.status_code}): {r.text.strip()}")
         except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            if reboot_on_reset:
-                print("OK (rebooting)")
-                return
-            print(f"connection error")
+            # The device sends 200 {"ok":true} BEFORE it reboots (500ms timer), so a successful
+            # OTA returns a 200 above — it never lands here. A dropped connection with no response
+            # means the upload aborted (ESP_FAIL) or the socket died mid-transfer: that is a failure,
+            # so retry rather than silently reporting "rebooting".
+            print("connection dropped (no 200 — upload did not complete)")
         if attempt < retries:
             print(f"  Retrying in 5s (attempt {attempt+1}/{retries})...")
             time.sleep(5)
@@ -138,7 +141,7 @@ def main():
         n += 1
         step(n, total, "Uploading firmware")
         print(  "  Master will: flash new firmware → save fw_size to NVS → reboot")
-        upload(f"{base_url}/update", fw_path, "firmware.bin", auth, reboot_on_reset=True)
+        upload(f"{base_url}/update", fw_path, "firmware.bin", auth)
 
     n += 1
     step(n, total, "Done")
