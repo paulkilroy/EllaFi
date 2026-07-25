@@ -8,6 +8,7 @@
   "price_per_coin": 1,
   "fallback_price_per_voucher": 5,
   "healthchecks_url": "https://hc-ping.com/<your-check-uuid>  (master dead-man's switch; omit or leave empty to disable)",
+  "static_ip": "optional; e.g. 192.168.1.3 to pin this device — omit for DHCP. Just the IP is enough (gateway defaults to <ip>.1, subnet 255.255.255.0, DNS = gateway). Override with static_gateway / static_subnet / static_dns if needed. PER-DEVICE: set at top level or in a single-node env, never a shared multi-node env.",
 
   "omada_url": "Settings -> Controller -> Controller URL  |  Cloud US-East: https://use1-api-omada-essential-controller.tplinkcloud.com  |  Local: https://<controller-ip>:8043",
   "omada_controller_id": "visible in the browser URL path after logging in to the Omada web UI",

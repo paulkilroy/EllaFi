@@ -116,6 +116,10 @@ std::atomic<unsigned long>  COIN_DEADLINE_MILLIS{0};
 String MANAGEMENT_SSID;
 String MANAGEMENT_PASSWORD;
 String HEALTHCHECK_URL;
+String STATIC_IP;
+String STATIC_GATEWAY;
+String STATIC_SUBNET;
+String STATIC_DNS;
 
 // ── Arduino entry points ──────────────────────────────────────────────────────
 
@@ -132,6 +136,26 @@ static bool setupPins() {
 }
 
 static bool setupWifi() {
+  // Optional static IP (config static_ip). Supply just the IP and we default the rest for a /24:
+  // gateway = <ip>.1, subnet = 255.255.255.0, DNS = gateway. Empty static_ip = DHCP.
+  if (!STATIC_IP.isEmpty()) {
+    IPAddress ip, gw, mask, dns;
+    if (!ip.fromString(STATIC_IP)) {
+      ESP_LOGE(TAG, "static_ip invalid: %s — using DHCP", STATIC_IP.c_str());
+    } else {
+      String gwStr = STATIC_GATEWAY.isEmpty()
+                       ? STATIC_IP.substring(0, STATIC_IP.lastIndexOf('.')) + ".1"
+                       : STATIC_GATEWAY;
+      gw.fromString(gwStr);
+      mask.fromString(STATIC_SUBNET.isEmpty() ? "255.255.255.0" : STATIC_SUBNET);
+      dns.fromString(STATIC_DNS.isEmpty() ? gwStr : STATIC_DNS);
+      if (WiFi.config(ip, gw, mask, dns))
+        ESP_LOGI(TAG, "Static IP: %s  GW: %s  mask: %s  DNS: %s",
+                 STATIC_IP.c_str(), gwStr.c_str(), mask.toString().c_str(), dns.toString().c_str());
+      else
+        ESP_LOGE(TAG, "WiFi.config(static) failed — using DHCP");
+    }
+  }
   WiFi.begin(MANAGEMENT_SSID.c_str(), MANAGEMENT_PASSWORD.c_str());
   ESP_LOGI(TAG, "Connecting to WiFi: %s", MANAGEMENT_SSID.c_str());
   for (int i = 0; i < 5; i++) {

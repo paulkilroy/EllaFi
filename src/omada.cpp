@@ -30,11 +30,22 @@
 #include <HTTPClient.h>
 #include <freertos/semphr.h>
 #include <esp_log.h>
+#include <esp_heap_caps.h>
 #include <stdlib.h>   // setenv
 #include <time.h>     // tzset
 #include "logger.h"
 
 static const char* TAG = "EllaFi";
+
+// Large Omada client-list JsonDocuments allocate from the 8MB PSRAM (N16R8), NOT the ~300KB internal
+// DRAM — that leaves the internal heap free for the mbedTLS handshake buffers (fixes SSL -32512 OOM).
+// Falls back to internal heap if the board has no PSRAM.
+struct PsramAllocator : ArduinoJson::Allocator {
+  void* allocate(size_t n) override   { void* p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM); return p ? p : malloc(n); }
+  void  deallocate(void* p) override  { heap_caps_free(p); }
+  void* reallocate(void* p, size_t n) override { void* q = heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM); return q ? q : realloc(p, n); }
+};
+static PsramAllocator psramAlloc;
 
 // ---- Omada config globals ----
 // Populated by loadConfig() in main.cpp at startup.
@@ -417,7 +428,7 @@ JsonDocument getHotspotClientsJson() {
     h.end();
     return JsonDocument();
   }
-  String body = h.getString();
+  String body = h.getString();   // getString() de-chunks the response; getStream() would leave chunk framing in the bytes
   h.end();
   ESP_LOGI(TAG, "getHotspotClientsJson: HTTP %d, %d bytes", code, body.length());
   if (code != 200 || body.isEmpty()) {
@@ -425,7 +436,7 @@ JsonDocument getHotspotClientsJson() {
     invalidateCredentials();
     return JsonDocument();
   }
-  JsonDocument doc;
+  JsonDocument doc(&psramAlloc);   // parse tree in PSRAM — the big client lists don't fit in internal DRAM after TLS
   if (deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0)
     ESP_LOGE(TAG, "getHotspotClientsJson: parse/API error: %.200s", body.c_str());
   return doc;
@@ -463,7 +474,7 @@ JsonDocument getDeviceGridJson() {
   String body = (code > 0) ? h.getString() : "";
   h.end();
   if (code != 200 || body.isEmpty()) { ESP_LOGW(TAG, "getDeviceGridJson: HTTP %d (%d bytes)", code, body.length()); return JsonDocument(); }
-  JsonDocument doc;
+  JsonDocument doc(&psramAlloc);
   if (deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0) { ESP_LOGW(TAG, "getDeviceGridJson: parse/API error: %.200s", body.c_str()); return JsonDocument(); }
   return doc;
 }
@@ -518,7 +529,7 @@ JsonDocument getAllClientsJson() {
     h.end();
     return JsonDocument();
   }
-  String body = h.getString();
+  String body = h.getString();   // getString() de-chunks the response; getStream() would leave chunk framing in the bytes
   h.end();
   ESP_LOGI(TAG, "getAllClientsJson: HTTP %d, %d bytes", code, body.length());
   if (code != 200 || body.isEmpty()) {
@@ -526,7 +537,7 @@ JsonDocument getAllClientsJson() {
     invalidateCredentials();
     return JsonDocument();
   }
-  JsonDocument doc;
+  JsonDocument doc(&psramAlloc);   // parse tree in PSRAM — the ~68 KB list won't fit in internal DRAM after TLS
   if (deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0) {
     ESP_LOGW(TAG, "getAllClientsJson: parse/API error: %.200s", body.c_str());
     return JsonDocument();
@@ -580,7 +591,7 @@ JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, ui
   std::map<String, JsonObject> allMap;
   for (JsonObject c : allClients) allMap[c["mac"].as<String>()] = c;
 
-  JsonDocument merged;
+  JsonDocument merged(&psramAlloc);
   JsonArray arr = merged.to<JsonArray>();
   std::set<String> seen;  // deduplicate: list sorted end desc, keep first (latest) session per MAC
   for (JsonObject hs : hotspotClients) {
@@ -616,16 +627,18 @@ JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, ui
 // snapshot and run their HTTP calls with fully independent local state —
 // they may execute concurrently across tasks without risk.
 void refreshHotspotSessionCache() {
+  {  // scope the 3 big docs so they free (PSRAM) before the TLS calls below
   JsonDocument hotspotDoc = getHotspotClientsJson();
   JsonDocument allDoc = getAllClientsJson();
 
   {
+    // "Voucher active" = clients CURRENTLY CONNECTED via a voucher. The hotspot list's `end` is
+    // Int64-max for By-Usage vouchers (no calendar expiry), so end>now counts long-gone sessions.
+    // The connected list (allDoc, filters.active=true) carries authInfo[].authType — 3 = voucher.
     int count = 0;
-    uint64_t now = nowEpochMillis();
-    for (JsonObject hs : hotspotDoc["result"]["data"].as<JsonArray>()) {
-      if (hs["authType"].as<int>() == OMADA_AUTH_TYPE_VOUCHER && hs["end"].as<uint64_t>() > now)
-        count++;
-    }
+    for (JsonObject c : allDoc["result"]["data"].as<JsonArray>())
+      for (JsonObject a : c["authInfo"].as<JsonArray>())
+        if (a["authType"].as<int>() == OMADA_AUTH_TYPE_VOUCHER) { count++; break; }
     VOUCHER_ACTIVE_COUNT = count;
   }
 
@@ -697,6 +710,8 @@ void refreshHotspotSessionCache() {
   }
   HOTSPOT_SESSION_CACHE.unlock();
   LAST_CACHE_REFRESH_MILLIS = millis();
+  }  // hotspotDoc/allDoc/merged freed here
+  ESP_LOGI(TAG, "heap after cache refresh: internal=%u  psram=%u", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
 
   refreshControllerStatus();  // refresh cached controller status (reachable, AP count, TZ)
   refreshDeviceStatus();      // refresh AP up/down for the captive-page coverage map

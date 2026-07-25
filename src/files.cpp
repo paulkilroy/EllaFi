@@ -142,6 +142,10 @@ bool loadConfig() {
   PRICE_PER_COIN        = cfg("price_per_coin")           | 1;
   FALLBACK_PRICE_PER_VOUCHER = cfg("fallback_price_per_voucher") | 5;
   HEALTHCHECK_URL       = cfg("healthchecks_url")         | "";   // optional; empty = disabled
+  STATIC_IP             = cfg("static_ip")                | "";   // optional; empty = DHCP
+  STATIC_GATEWAY        = cfg("static_gateway")           | "";   // optional; default = <ip>.1
+  STATIC_SUBNET         = cfg("static_subnet")            | "";   // optional; default = 255.255.255.0
+  STATIC_DNS            = cfg("static_dns")               | "";   // optional; default = gateway
   if (MANAGEMENT_SSID.isEmpty())     { ESP_LOGE(TAG, "config.json missing: wifi_ssid");           return false; }
   if (MANAGEMENT_PASSWORD.isEmpty()) { ESP_LOGE(TAG, "config.json missing: wifi_password");       return false; }
   if (CONTROLLER_BASE_URL.isEmpty()) { ESP_LOGE(TAG, "config.json missing: omada_url");           return false; }
