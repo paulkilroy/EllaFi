@@ -10,6 +10,19 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ## 🔴 Near-term (next up)
 
+- **🔴 BUG: SSL `-32512` (memory allocation failed) → repeated OUT OF SERVICE.** `refreshHotspotSessionCache()`
+  (omada.cpp ~618) holds **three** big JsonDocuments — `hotspotDoc` (63 KB) + `allDoc` (49 KB) + `merged` —
+  live for the whole function, then opens **new TLS connections** (`refreshControllerStatus`/`refreshDeviceStatus`,
+  lines 701-702) while they're still alive. ArduinoJson docs + mbedTLS both use **internal DRAM** (not the 8 MB
+  PSRAM on the N16R8), so the handshake can't get its ~40 KB → `-32512`. Fix: (a) scope the docs so they free
+  before the SSL calls, and/or (b) allocate the big docs from **PSRAM** (custom ArduinoJson allocator, scales as
+  the client list grows); consider stream+filter parse + one reused TLS conn. Confirmed from serial log 2026-07.
+- **🟡 Controller auto-discovery (local HW controller)** — kill the "controller IP moved, config stale" outages.
+  mDNS is out (Omada doesn't advertise it). Options: read **DHCP Option 138** (an Omada gateway can serve it)
+  via an lwIP custom-option hook, or a **subnet-scan fallback** on `setupOmada` failure — TCP-probe :443 across
+  the device's own /24, confirm the hit by requesting `/<controller_id>/api/v2/…`, then rewrite `omada_url`.
+  Zero-code stopgap: give the controller a **DHCP reservation** so it stops drifting.
+
 - *Clear — no pre-launch blockers. The crash saga is closed (v1.3.11–13, see Done).*
 
 ## 🟡 Resilience / ops

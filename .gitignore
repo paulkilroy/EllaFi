@@ -18,3 +18,6 @@ memory/code_audit.md
 *.har
 web/map.svg
 data/map.svg
+
+# Local voucher-group backups (contain live voucher codes) — do not commit
+voucher_backups/
