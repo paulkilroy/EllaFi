@@ -5328,7 +5328,7 @@
 	)
 	(wire
 		(pts
-			(xy 111.76 160.02) (xy 113.03 160.02)
+			(xy 111.76 160.02) (xy 120.65 160.02)
 		)
 		(stroke
 			(width 0)
@@ -5385,16 +5385,6 @@
 			(type default)
 		)
 		(uuid "491775ef-33db-436b-a4be-6e43731f9a8e")
-	)
-	(wire
-		(pts
-			(xy 120.65 160.02) (xy 113.03 160.02)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "4c489f15-e401-4a1a-8254-8eca93adb5c2")
 	)
 	(wire
 		(pts
@@ -5618,7 +5608,7 @@
 	)
 	(wire
 		(pts
-			(xy 88.9 157.48) (xy 113.03 157.48)
+			(xy 88.9 157.48) (xy 120.65 157.48)
 		)
 		(stroke
 			(width 0)
@@ -5965,16 +5955,6 @@
 			(type default)
 		)
 		(uuid "b066fe07-368c-4f60-b3e2-ee0a6254a832")
-	)
-	(wire
-		(pts
-			(xy 120.65 157.48) (xy 113.03 157.48)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "b08e7165-80f0-4805-9c16-25df16f62577")
 	)
 	(wire
 		(pts
@@ -9287,7 +9267,6 @@
 		(on_board yes)
 		(in_pos_files yes)
 		(dnp no)
-		(fields_autoplaced yes)
 		(uuid "b824c6c2-0356-4c15-960a-32a5f4f3a44c")
 		(property "Reference" "D4"
 			(at 121.92 68.2624 90)
@@ -9301,7 +9280,7 @@
 			)
 		)
 		(property "Value" "LED-YELLOW"
-			(at 121.92 70.8024 90)
+			(at 114.3 74.168 90)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects

@@ -1,12 +1,16 @@
 # KiCad local / auto-generated — not source
-*.kicad_prl          # per-user UI state
-*-backups/           # KiCad auto-backup zips
+# (comments must be on their own line; gitignore has no inline comments)
+*.kicad_prl
+*-backups/
 fp-info-cache
 *.lck
 ~*.lck
 *.bak
 *.bak-*
 .DS_Store
+
+# VS Code local history (has its own .git)
+.history/
 
 # Fabrication / assembly outputs — regenerate from the board, never commit
 *.gbr
@@ -17,6 +21,3 @@ fp-info-cache
 *.zip
 *.csv
 DRC.rpt
-
-# VS Code local history (has its own .git)
-.history/
