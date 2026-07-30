@@ -1,0 +1,4 @@
+(sym_lib_table
+	(version 7)
+	(lib (name "MPM3620A")(type "KiCad")(uri "${KIPRJMOD}/MPM3620A.kicad_sym")(options "")(descr "MPM3620A buck module (LCSC C529064)"))
+)

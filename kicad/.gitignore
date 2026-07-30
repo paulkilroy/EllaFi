@@ -1,0 +1,22 @@
+# KiCad local / auto-generated — not source
+*.kicad_prl          # per-user UI state
+*-backups/           # KiCad auto-backup zips
+fp-info-cache
+*.lck
+~*.lck
+*.bak
+*.bak-*
+.DS_Store
+
+# Fabrication / assembly outputs — regenerate from the board, never commit
+*.gbr
+*.gbrjob
+*.drl
+*-drl_map.ps
+*.pos
+*.zip
+*.csv
+DRC.rpt
+
+# VS Code local history (has its own .git)
+.history/

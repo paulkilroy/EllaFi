@@ -57,16 +57,36 @@ correct *as long as the placement matches*.
 > **PCB placement rule:** place J5 so **its pin 1 sits at the same end as J4.1** (i.e. J5's numbering runs
 > opposite to J4's down the board). Place it the other way round and every row-2 signal is mirrored.
 
-All remaining pins carry deliberate no-connect flags — that is why ERC only reports 5 errors.
+### 📐 J4/J5 PLACEMENT DIMENSIONS — must match the ESP module exactly or it won't seat
+Measured from the `ESP32-S3-DevKitC` footprint (44 pads, 22 per row), 2026-07-30. **U2 gets deleted, so
+these numbers ARE the only spec left — place J4/J5 to these or the DevKitC-1U pins won't line up:**
 
-### 🔧 REMAINING — the 5 connections to wire (these are the 5 ERC errors)
+| Dimension | Value |
+|---|---|
+| **Row-to-row spacing** (J4 row ↔ J5 row, centre-to-centre) | **22.86 mm (0.900")** |
+| **Pin pitch** (within a row) | **2.54 mm (0.100")** |
+| **Pins per row** | **22** |
+| **Row length** (pin 1 ↔ pin 22, centre-to-centre) | **53.34 mm** (= 21 × 2.54) |
 
-| Wire | ESP signal | Connect to (existing net) | Why |
-|---|---|---|---|
-| **J4.21** | 5V | buck output — `Net-(C2-Pad1)` (C2.1, U3.7/8/9, R7.1) | **Powers the ESP. The buck output currently does not reach it at all.** |
-| **J4.1 + J4.2** | 3V3 | new **3V3** rail → also tie `R1.1` and the `R2.1`/`R5.1` node | ESP's on-board LDO output; it is the supply for the whole coin-sense front end |
-| **J4.4** | GPIO4 = `COINSLOT_PIN` | opto collector — `Net-(D5-K)` (U1.4, R1.2, D5.1) | firmware sets `INPUT_PULLUP`, active-LOW coin pulse |
-| **J4.20** | GPIO14 = `COINSLOT_POWER_PIN` | Q1 gate — `Net-(J2-Pin_2)` (Q1.1, R6.2, J2.2) | firmware drives HIGH to enable the acceptor; R6 10 k pulldown already present |
+Place the two 1×22 sockets as a parallel pair: rows 22.86 mm apart in X, pins on a 2.54 mm grid in Y,
+both rows spanning the same 53.34 mm — and remember the **J5 reversal** (J5 pin 1 at the same end as J4
+pin 1). J4/J5 are `PinSocket_1x22_P2.54mm` (female); the module's male header seats into them. Since the
+module is hand-inserted, keep the two rows on the same 2.54 mm grid origin so a straight DevKitC-1U drops in.
+
+All remaining pins carry deliberate no-connect flags — that is why ERC otherwise only reports the socket
+signal pins.
+
+### ✅ DONE — the 5 ESP-socket signal connections (wired 2026-07-30 as net labels; ERC clean)
+
+Added via labels placed exactly on the pin endpoints (pin coords computed + self-validated against J4's
+ERC coordinates). Verified net membership in the netlist:
+
+| Net | ESP signal | Members (verified) |
+|---|---|---|
+| **/5V** | J4.21 (powers the ESP) | J4.21, C2.1, R7.1, R3.1, R4.2, U3.7/8/9 (buck output) |
+| **/3V3** | J4.1 + J4.2 (ESP LDO out → coin-sense supply) | J4.1, J4.2, R1.1, R2.1, R5.1 |
+| **/GPIO4** | J4.4 = `COINSLOT_PIN` (active-LOW coin pulse) | J4.4, U1.4, D5.1, R1.2 (opto collector) |
+| **/GPIO14** | J4.20 = `COINSLOT_POWER_PIN` (acceptor enable) | J4.20, Q1.1, J2.2, R6.2 (Q1 gate) |
 
 ### 🔍 Two dangling supply nets ERC will NOT flag
 Both are fed by the 3V3 wire above; ERC calls them "connected" because each has ≥1 wire, so they are
@@ -79,21 +99,21 @@ Matches the documented pulse loop `3V3→R2→opto→J1.2→acceptor OC→J1.3�
 (3V3/220 Ω)" in the review below. Wiring J4.1/J4.2 to 3V3 closes all three.
 
 ### Order of work
-1. Wire the 5 connections above (schematic) → re-run ERC, expect **0** `pin_not_connected`.
-2. Update PCB from schematic (F8). Place **J4/J5 on U2's two hole rows** — mind the J5 reversal rule.
+1. ~~Wire the 5 connections (schematic) → ERC 0 `pin_not_connected`.~~ **DONE 2026-07-30 — ERC clean.**
+2. **← NEXT:** Update PCB from schematic (F8). Place **J4/J5 on U2's two hole rows** — mind the J5 reversal rule.
 3. Then the existing PCB punch list below: C1 tight to IN, SW copper pour, star 12 V rail, widen
    `Net-(D4-K)` (Q1 drain — highest-current switched node, still 0.2 mm), pours, DRC.
 
 ### Regenerate this analysis
 ```
-cd ~/Documents/EllaFi-PCB
+cd kicad          # KiCad project now lives IN the repo at EllaFi/kicad/
 kicad-cli sch erc --output /tmp/erc.rpt --severity-error --severity-warning EllaFi-PCB.kicad_sch
 kicad-cli sch export netlist --format kicadsexpr --output /tmp/net.net EllaFi-PCB.kicad_sch
 ```
 
 ## Design review (2026-06, verified against KiCad netlist + PCB)
 
-KiCad project lives at `~/Documents/EllaFi-PCB/` (NOT in the repo). Regenerate a fresh netlist with:
+KiCad project lives **in the repo at `kicad/`** (moved from `~/Documents/EllaFi-PCB/` on 2026-07-30; source files only — gerbers/backups gitignored, regenerate on demand). Regenerate a fresh netlist with:
 `kicad-cli sch export netlist --format kicadsexpr -o /tmp/x.net EllaFi-PCB.kicad_sch`.
 Board: **43.8 × 97.2 mm, 2-layer**, all-THT, ESP32-S3 DevKitC-1 socketed (U2, DNP).
 
@@ -264,7 +284,7 @@ the MPM3620**A** datasheet Fig 10 for pin 18 and the FB resistors. Do NOT copy t
 **Still applies from the LM2596 work:** the **star-rail rule** — coin acceptor (J1) + LED panel (J2) branch off
 the bulk/fuse node, NOT the module's IN pin (physics is chip-independent; see the shared-12V-rail note below).
 
-### Library artifacts (in `~/Documents/EllaFi-PCB/`, verified present 2026-07-23)
+### Library artifacts (in `kicad/`, verified present 2026-07-23)
 | File | State |
 |---|---|
 | `MPM3620A.kicad_sym` | symbol, **all 20 pins** at distinct positions (1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20) |

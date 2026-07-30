@@ -1,0 +1,10 @@
+* LEDs — tune Vf via N/IS; these conduct ~1.9–2.1 V @ 20 mA (fine for "do they light")
+.model LED_RED    D(IS=1e-20 N=1.9 RS=3 CJO=15p)
+.model LED_YELLOW D(IS=1e-21 N=2.0 RS=3 CJO=15p)
+.model LED_GREEN  D(IS=1e-21 N=2.0 RS=3 CJO=15p)
+
+* 1N5822 40V/3A Schottky (low Vf ~0.5 V, EG=0.69)
+.model D1N5822 D(IS=1.7e-4 RS=0.014 N=1.0 CJO=1.5n M=0.4 EG=0.69 XTI=2 BV=40 IBV=1e-4)
+
+* P6KE6.8A TVS — crude clamp proxy (real TVS dynamics need more; OK for "does it limit")
+.model P6KE6_8A D(IS=1e-12 N=1 RS=0.5 BV=6.8 IBV=1e-3)
