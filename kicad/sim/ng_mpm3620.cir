@@ -1,0 +1,24 @@
+* MPM3620A module input-loop spike test — same VIN-spike measurement as the LM2596 ref
+* Key difference: switch FET + inductor + input cap are ON-DIE. External C1 only replenishes
+* the internal cap through the external loop inductance, so the IN pin never sees the switch di/dt.
+V1 sup 0 12
+Llead sup a 1u          ; supply lead (same as reference)
+Rlead a b 0.05
+C1 b nc1 10u            ; EXTERNAL 10uF 0805 input cap (the only external one)
+Rc1 nc1 0 0.003         ; low-ESR ceramic
+Lext b vin 1.5n         ; external loop: C1 -> module IN pin (tight, ~1.5nH)
+Cvin vin 0 100p         ; IN-pin parasitic
+Lint vin die 0.1n       ; ~0: internal input cap sits right at the die
+Cint die ncint 4.7u     ; INTERNAL input cap (integrated in the module)
+Rcint ncint 0 0.002
+* internal FET draws the input current in pulses at 2MHz (Iout~1A, D=5/12=0.42)
+Iswitch die 0 PULSE(0 1.2 0 1n 1n 0.21u 0.5u)
+.nodeset v(vin)=12 v(b)=12 v(die)=12
+.control
+tran 0.5n 0.2m 0 0.5n
+meas tran vin_peak MAX v(vin)
+meas tran vin_low  MIN v(vin)
+meas tran die_peak MAX v(die)
+meas tran die_low  MIN v(die)
+.endc
+.end

@@ -284,6 +284,25 @@ the MPM3620**A** datasheet Fig 10 for pin 18 and the FB resistors. Do NOT copy t
 **Still applies from the LM2596 work:** the **star-rail rule** — coin acceptor (J1) + LED panel (J2) branch off
 the bulk/fuse node, NOT the module's IN pin (physics is chip-independent; see the shared-12V-rail note below).
 
+### ✅ Spike test — VALIDATED (ngspice, 2026-07-31): the redesign kills the input spike
+Ran the SAME VIN-spike test that condemned the LM2596, on both designs (sources in `kicad/sim/`):
+
+| at the switcher IN pin | LM2596 (old — killed chips) | MPM3620A (new) |
+|---|---|---|
+| peak | **30.3 V** | **12.1 V** |
+| low  | **−7.3 V** | **11.8 V** |
+| swing | 37 V ring | **0.24 V ripple** |
+
+The LM2596 rang 30 V → −7 V every switching cycle — and 30 V already exceeds the MPM3620A's **28 V
+abs-max**, so that loop would kill the module too. But the MPM3620A IN pin just sits at a clean 12 V:
+the switch, inductor, and input cap are all **on-die**, so the external pin never sees the switching
+di/dt. The failure mechanism is gone; C1's ~2 mm placement is more than adequate.
+
+Behavioral model (internal input cap ~4.7 µF, switch current ~1.2 A estimated) — but the result is
+**structural**, not value-dependent: an on-die input cap absorbs the di/dt regardless. Output voltage is
+just the divider: 0.798×(1+100/19.1) = **4.98 V**. Files: `kicad/sim/ng_ref_rail.cir` (old baseline),
+`kicad/sim/ng_mpm3620.cir` (new). Run: `ngspice -b <file>` (full sim workspace: `~/Documents/ella-sim/`).
+
 ### Library artifacts (in `kicad/`, verified present 2026-07-23)
 | File | State |
 |---|---|

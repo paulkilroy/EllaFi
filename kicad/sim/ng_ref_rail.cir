@@ -1,0 +1,29 @@
+* Reference design; measure spike at VIN pin vs at the bulk-cap rail node (where J1/J2 tap)
+V1 sup 0 12
+Llead sup a 1u
+Rlead a b 0.05
+C1 b nc1 220u
+Rc1 nc1 0 0.12
+Lbulk b vin 12n
+Cvin vin 0 300p
+Lcer vin cn 1.5n
+C3 cn ncer 10u
+Rcer ncer 0 0.01
+S1 vin sw pwm 0 SWMOD
+Vpwm pwm 0 PULSE(0 5 0 10n 10n 3.0u 6.66u)
+.model SWMOD SW(vt=2.5 vh=0 ron=0.05 roff=1meg)
+D2 0 sw DSCH
+.model DSCH D(is=2u rs=0.02 n=1.05 cjo=200p)
+L1 sw vout 47u
+C2 vout nc2 220u
+Rc2 nc2 0 0.12
+Rload vout 0 5
+.nodeset v(vin)=12 v(b)=12 v(a)=12
+.control
+tran 2n 0.6m 0 2n
+meas tran vin_peak MAX v(vin)
+meas tran vin_low  MIN v(vin)
+meas tran rail_peak MAX v(b)
+meas tran rail_low  MIN v(b)
+.endc
+.end
