@@ -303,6 +303,36 @@ Behavioral model (internal input cap ~4.7 µF, switch current ~1.2 A estimated) 
 just the divider: 0.798×(1+100/19.1) = **4.98 V**. Files: `kicad/sim/ng_ref_rail.cir` (old baseline),
 `kicad/sim/ng_mpm3620.cir` (new). Run: `ngspice -b <file>` (full sim workspace: `~/Documents/ella-sim/`).
 
+### ✅ Whole-board validation suite (2026-08-07) — `kicad/sim/board/`, run `./run_all.sh`
+Three layers, all must pass before ordering:
+1. **`check_polarity.py`** — pad-1 net vs datasheet intent for every polarized part. This is the check
+   ERC/DRC/parity structurally can't do (they only compare project files to each other) — it caught **D1
+   installed backwards** (band on GND → would have clamped the coin line at 0.7 V forever; coin input dead).
+2. **`check_sim_sync.py`** — fresh netlist export vs the SPICE board model, component-by-component. Kills
+   silent sim/schematic drift. If it fails after a schematic edit: fix `board.inc` + NETMAP first.
+3. **11 ngspice benches + 60-trial Monte Carlo** — power-up/WiFi bursts, coin pulse, coin-wire noise+short,
+   Q1 enable channel, inductive kick, hot-plug ring, reverse polarity, polyfuse trip, opto aging, 3-wire
+   panel, tolerances. Models: averaged MPM3620A (~40 kHz loop), thermal-trip polyfuse, CTR-settable FOD817.
+
+**Defects found by the suite and FIXED (schematic + PCB, no routing changes beyond D4/R4 move):**
+- **D4 reverse voltage**: 7 V continuous across a 5 V-max LED whenever Q1 off → moved D4+R4 to the gate side
+  (GPIO14→D4→R4→GND). Bonus: D4 now clamps GPIO14 to ~2.1 V during boot if a 3-wire panel with a 12 V pullup
+  is attached — the pin's safety against such panels DEPENDS on D4 being present.
+- **Reverse polarity killed the buck**: old bidirectional D6 (1.5SMC18CA) did nothing until ±20 V → −12 V on
+  the MPM3620A VIN. Swapped to **unidirectional 1.5SMC18A** (band toward the 12 V rail): clamps at ~−0.8 V,
+  F1 trips (~2.7 A). BOM fields updated (Bourns, `1.5SMC18ABB-ND`).
+- **D1 backwards** (see above) — flipped; cathode band now on the coin line.
+- **Opto CTR margin**: opto had to sink pullup + green LED ≈ 8.3 mA; bottom-of-bin (CTR 50 %) or aged FOD817s
+  left GPIO4 at 0.83–0.88 V > the 0.825 V logic-low ceiling → ~5 % flaky new builds (Monte Carlo). Fix:
+  **R1 1 k→2.2 k, R5 220→1 k** → clean 0.05 V low at CTR 50 %, 0.20 V at CTR 30 %. NOT 4.7 k: larger pullup
+  recovers too slowly from coupled noise bursts (dip 0.40 V = false-low). Lesson: the checked-in benches
+  (0.1 µs step) are the truth — a coarse-step what-if "validated" 4.7 k by aliasing the 2 MHz burst.
+- **J2.2 3-wire panel verdict** (closes the globals.h TODO): 3.3 V-logic-safe incl. 12 V-pullup panels
+  (D4 clamp); but 3.3 V drive is only marginal into a 10 k-series NPN panel input (active, not saturated) —
+  fine into ~1 k inputs. Measure the panel before relying on J2.2 logic drive.
+- Sustained coin-wire 12 V short: F1 trips at ~0.6 s; D1 runs ~45 W meanwhile and may sacrifice itself
+  (TVS fails short → trips F1 faster; GPIO stays protected). Acceptable — requires a wiring fault.
+
 ### Library artifacts (in `kicad/`, verified present 2026-07-23)
 | File | State |
 |---|---|

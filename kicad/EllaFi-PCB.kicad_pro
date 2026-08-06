@@ -661,7 +661,7 @@
       },
       {
         "netclass": "SW_GND",
-        "pattern": "Net-(D4-K)"
+        "pattern": "Net-(J1-Pin_3)"
       },
       {
         "netclass": "5V",
@@ -677,7 +677,7 @@
       },
       {
         "netclass": "12V",
-        "pattern": "Net-(D6-A2)"
+        "pattern": "Net-(D6-A1)"
       },
       {
         "netclass": "COIN",
@@ -689,7 +689,7 @@
       },
       {
         "netclass": "COIN",
-        "pattern": "Net-(D1-A2)"
+        "pattern": "Net-(D1-A1)"
       },
       {
         "netclass": "3V3",
@@ -704,8 +704,8 @@
         "pattern": "Net-(D3-A)"
       },
       {
-        "netclass": "5V",
-        "pattern": "Net-(D4-A)"
+        "netclass": "COIN_EN",
+        "pattern": "Net-(D4-K)"
       }
     ]
   },

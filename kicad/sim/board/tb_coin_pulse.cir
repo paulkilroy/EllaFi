@@ -1,0 +1,22 @@
+* TB2: normal coin pulses through the opto to GPIO4
+* Acceptor enabled (GPIO14 high). Three 50ms open-collector pulses, 150ms apart.
+* Prove: GPIO4 swings full logic levels, opto LED current in its happy range,
+* green activity LED lights, and the 50ms pulse width survives the opto.
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT VJACK 0 12
+VG14 g14d 0 3.3
+RG14 g14d GPIO14 15
+VCOIN COINCTL 0 PULSE(0 1 10m 1u 1u 50m 150m)
+VSOL SOLCTL 0 0
+.options savecurrents
+.control
+tran 20u 350m
+meas tran g4_low   MIN v(GPIO4) from=12m to=58m
+meas tran g4_high  MAX v(GPIO4) from=70m to=155m
+meas tran iled_on  MAX i(v.xu1.vsens) from=12m to=58m
+meas tran igrn_on  MAX @r5[i] from=12m to=58m
+meas tran width TRIG v(GPIO4) VAL=1.65 FALL=1 TARG v(GPIO4) VAL=1.65 RISE=1
+.endc
+.end

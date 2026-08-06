@@ -1,0 +1,23 @@
+* TB6: adapter hot-plug — a live 12V supply jammed into the barrel jack.
+* The lead inductance + ceramic input cap ring the rail above 12V; the buck's
+* constant-power draw makes the ring worse, D6 (18V TVS) has to keep the peak
+* under the MPM3620A's ratings (24V operating / 26V abs-max).
+.param LAMPR=144
+.include models.inc
+.include board.inc
+* hot-plug: full 12V appears in 1us through 2uH/30mR of adapter cable
+VADAPT vsup 0 PULSE(0 12 0.05m 1u 1u 1 2)
+LLEAD vsup vl 2u
+RLEAD vl VJACK 0.03
+VG14 g14d 0 0
+RG14 g14d GPIO14 15
+VCOIN COINCTL 0 0
+VSOL SOLCTL 0 0
+.options savecurrents
+.control
+tran 10n 1m
+meas tran rail12_pk  MAX v(RAIL12)
+meas tran rail12_min MIN v(RAIL12) from=0.06m
+meas tran tvs_i_pk   MIN @dtv6[id]
+.endc
+.end

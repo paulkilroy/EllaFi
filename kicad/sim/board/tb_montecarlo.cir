@@ -1,0 +1,36 @@
+* TB12: Monte Carlo — component tolerances vs the pass limits.
+* 60 trials: R7/R8 (FB divider, 1%), R1/R2/R5 (coin path, 1%) uniform scatter;
+* opto CTR uniform across the FOD817's wide bin (0.5..2.0).
+* Each trial prints "MC <v5> <g4low>"; run_all.sh aggregates: every trial must
+* have 4.85 <= v5 <= 5.15 and g4low <= 0.8 (clean coin logic low).
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT VJACK 0 12
+VG14 g14d 0 3.3
+RG14 g14d GPIO14 15
+VCOIN COINCTL 0 PULSE(0 1 5m 1u 1u 20m 1)
+VSOL SOLCTL 0 0
+.control
+repeat 60
+  let ctr_draw = 1.25 + 0.75*sunif(0)
+  alterparam fod817_ctr = $&ctr_draw
+  reset
+  let r7v = 100k*(1 + 0.01*sunif(0))
+  let r8v = 19.1k*(1 + 0.01*sunif(0))
+  let r1v = 2.2k*(1 + 0.01*sunif(0))
+  let r2v = 220*(1 + 0.01*sunif(0))
+  let r5v = 1k*(1 + 0.01*sunif(0))
+  alter r7 = $&r7v
+  alter r8 = $&r8v
+  alter r1 = $&r1v
+  alter r2 = $&r2v
+  alter r5 = $&r5v
+  tran 20u 30m
+  meas tran v5f FIND v(P5V) AT=4.5m
+  meas tran g4l MIN v(GPIO4) from=7m to=24m
+  echo MC $&v5f $&g4l
+  destroy all
+end
+.endc
+.end

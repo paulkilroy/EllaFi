@@ -1,0 +1,25 @@
+* TB9: polyfuse trip — prove F1 actually clears the sustained coin-wire fault.
+* 12V shorted onto the coin line at 10ms (same fault as tb_coin_fault, which only
+* watches the first ms). D1 clamps ~7A through F1; F1 must heat and trip, after
+* which D1's current falls to ~zero. Checks the "F1 clears it" claim the other
+* benches hand-wave, and that D1's time-at-power stays inside its pulse rating.
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT VJACK 0 12
+VG14 g14d 0 3.3
+RG14 g14d GPIO14 15
+VCOIN COINCTL 0 0
+VSOL SOLCTL 0 0
+SFLT RAIL12 COIN FLTCTL 0 SWFLT
+VFLT FLTCTL 0 PULSE(0 1 10m 1u 1u 2 3)
+.model SWFLT SW(Ron=0.5 Roff=1e9 Vt=0.5 Vh=0.1)
+.options savecurrents
+.control
+tran 10u 1.2s
+meas tran t_trip WHEN v(f1th)=2.0 RISE=1
+let d1abs = abs(@dtv1[id])
+meas tran d1_i_posttrip MAX d1abs from=1.0
+meas tran d1_i_during MIN @dtv1[id] from=11m to=100m
+.endc
+.end

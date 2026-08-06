@@ -1,0 +1,27 @@
+* TB1: power-up, buck soft-start, WiFi TX bursts, worst-case adapter current
+* Sequence: 12V step at 0.1ms -> soft-start -> GPIO14 enables acceptor+lamp at 5ms
+* -> WiFi bursts (300mA on 3V3) from 8ms -> solenoid kick (coin accept) at 15ms.
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT vsup 0 PULSE(0 12 0.1m 0.2m 1u 1 2)
+LLEAD vsup vl 1u
+RLEAD vl VJACK 0.05
+VG14 g14d 0 PULSE(0 3.3 5m 1u 1u 1 2)
+RG14 g14d GPIO14 15
+VCOIN COINCTL 0 0
+VSOL SOLCTL 0 PULSE(0 1 15m 1u 1u 10m 1)
+IBURST P3V3 0 PULSE(0 0.3 8m 0.1m 0.1m 0.5m 2m)
+.options savecurrents
+.control
+tran 2u 30m
+meas tran v5_final   FIND v(P5V)  AT=29m
+meas tran v33_final  FIND v(P3V3) AT=29m
+meas tran v5_min     MIN v(P5V)    from=9m
+meas tran v5_max     MAX v(P5V)    from=2m
+meas tran rail12_min MIN v(RAIL12) from=9m
+let iad = -vadapt#branch
+meas tran i_steady_max MAX iad from=8m
+meas tran i_inrush_pk  MAX iad from=0 to=2m
+.endc
+.end

@@ -1,0 +1,33 @@
+* TB3: coin-line abuse — wiring noise burst, then a hard 12V short onto the coin wire
+* (a) 2ms: 25V 2MHz damped ring coupled through 47pF (solenoid wiring crosstalk)
+*     -> GPIO4 must NOT dip below logic-high (no ghost coin).
+* (b) 5ms: 12V shorted directly onto the coin line through 0.5R (wiring fault)
+*     -> D1 clamps, GPIO4 stays inside ESP32 abs-max, opto LED reverse voltage < 6V.
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT VJACK 0 12
+VG14 g14d 0 3.3
+RG14 g14d GPIO14 15
+VCOIN COINCTL 0 0
+VSOL SOLCTL 0 0
+* (a) coupled noise burst
+VN nn 0 SIN(0 25 2Meg 2m 4e5)
+CN nn COIN 47p
+* (b) fault switch: 12V rail -> coin line
+SFLT RAIL12 COIN FLTCTL 0 SWFLT
+VFLT FLTCTL 0 PULSE(0 1 5m 1u 1u 3m 1)
+.model SWFLT SW(Ron=0.5 Roff=1e9 Vt=0.5 Vh=0.1)
+.options savecurrents
+.control
+tran 0.1u 9m
+meas tran g4_min_noise  MIN v(GPIO4) from=1.9m to=4m
+meas tran coin_pk_fault MAX v(COIN)  from=5m to=8.5m
+meas tran g4_max_fault  MAX v(GPIO4) from=5m to=8.5m
+meas tran g4_min_fault  MIN v(GPIO4) from=5m to=8.5m
+* reverse (clamping) current through D1 is negative in SPICE convention
+meas tran d1_i_pk       MIN @dtv1[id] from=5m to=8.5m
+let vrev_opto = v(COIN)-v(nu1a)
+meas tran opto_vrev_pk MAX vrev_opto from=5m to=8.5m
+.endc
+.end

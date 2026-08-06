@@ -1,0 +1,27 @@
+* TB7: reversed adapter polarity (-12V on the barrel jack).
+* D6 is now the UNIdirectional 1.5SMC18A: reversed input forward-biases it at ~1
+* diode drop and the fault current trips F1 (trip itself not modeled). With the
+* original bidirectional 18CA this test showed -19V reaching the buck's VIN pin.
+* PASS: rail12_min > -1.2 (one diode drop at the adapter's fault current).
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT vsup 0 PULSE(0 -12 0.05m 1u 1u 1 2)
+LLEAD vsup vl 2u
+* RLIM: a cheap 12V SMPS brick current-limits at ~3A into a fault; an ideal
+* source here would push a fictional 70A through D6 (drop -2.2V instead of -0.8V)
+RLIM vl vr 4
+RLEAD vr VJACK 0.03
+VG14 g14d 0 0
+RG14 g14d GPIO14 15
+VCOIN COINCTL 0 0
+VSOL SOLCTL 0 0
+.options savecurrents
+.options method=gear
+.control
+tran 0.1u 2m
+meas tran rail12_min MIN v(RAIL12)
+let iad = -vadapt#branch
+meas tran i_fault MIN iad from=0.1m
+.endc
+.end

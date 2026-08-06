@@ -1,0 +1,28 @@
+* TB5: inductive load on the J2 screw terminals (someone wires a relay coil, 12V/300R/100mH)
+* instead of the LED lamp. Q1 turns off at 20ms -> the coil kicks the drain up.
+* Prove: peak drain voltage, avalanche energy trivially small, and what D4 sees.
+.param LAMPR=1e9
+.include models.inc
+.include board.inc
+VADAPT VJACK 0 12
+* relay coil in place of the lamp
+RREL RAIL12 nrel 300
+LREL nrel J2RET 100m
+VG14 g14d 0 PULSE(0 3.3 2m 1u 1u 18m 1)
+RG14 g14d GPIO14 15
+VCOIN COINCTL 0 0
+VSOL SOLCTL 0 0
+.options savecurrents
+.control
+* run 1: coin acceptor plugged in (its 200R idle path absorbs the coil kick)
+tran 0.2u 40m
+meas tran vds_pk    MAX v(BLINK) from=19m
+let vrev_d4 = v(nd4k)-v(GPIO14)
+meas tran d4_vrev_pk MAX vrev_d4 from=19m
+* run 2: acceptor unplugged (bench scenario) — coil kick must avalanche Q1's 44V clamp
+alter racc 1e9
+tran 0.2u 40m
+meas tran vds_pk_noacc  MAX v(BLINK) from=19m
+meas tran i_aval_pk     MIN @dav1[id] from=19m
+.endc
+.end

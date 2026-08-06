@@ -132,13 +132,13 @@ constexpr int           COINBUTTON_PIN                = 0;   // GPIO0 — BOOT b
 // COINSLOT_PIN: coin acceptor signal (CH-926 style open-collector). The acceptor never drives the
 // Coin acceptor pinout reference: https://www.cable-tester.com/coin-acceptor-connector-pin-out/
 // line HIGH — it only pulls it to its own GND on a coin pulse. Safe to wire directly to a 3.3V GPIO.
-//   GPIO4 ---+--- 10k resistor --- 3V3   (INPUT_PULLUP or external pull-up)
+//   GPIO4 ---+--- 2.2k resistor (R1) --- 3V3   (INPUT_PULLUP too — harmless in parallel)
 //            |
 //           coin (open-collector: LOW = coin pulse, open = idle)
 // HW coupling: the acceptor's GND returns through Q1 (COINSLOT_POWER_PIN, low-side switch), so a coin
 // pulse only reaches this pin while COINSLOT_POWER_PIN is HIGH (acceptor enabled) — none when disabled.
 constexpr int           COINSLOT_PIN                  = 4;
-constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — gate of Q1 (IRLZ44N, logic-level): HIGH enables the coin acceptor. 2-wire panels: low-side GND switch via Q1. 3-wire panels: also drives the panel enable on J2.2 (verify it's 3.3V-logic-safe — see memory/hardware_notes.md)
+constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — gate of Q1 (AOD4184A, logic-level): HIGH enables the coin acceptor. 2-wire panels: low-side GND switch via Q1. 3-wire panels: also drives the panel enable on J2.2 — sim-verified 3.3V-logic-safe (even 12V-pullup panels: D4 clamps the pin ~2.1V during boot), but 3.3V only marginally drives panels with ~10k series inputs; measure the panel first (memory/hardware_notes.md, kicad/sim/board/tb_panel3wire.cir)
 constexpr unsigned long COIN_INSERT_TIMEOUT_MILLIS    = 10000;
 extern int              MINUTES_PER_COIN;              // minutes of access per coin — loaded from config
 extern int              PRICE_PER_COIN;                // currency value of one coin pulse — revenue multiplier for reports only; from config, default 1 (1 pulse = 1 unit). Bump if the acceptor is set to N pulses/coin.

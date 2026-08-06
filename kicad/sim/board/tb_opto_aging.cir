@@ -1,0 +1,26 @@
+* TB10: opto end-of-life — FOD817 CTR degrades over years (LED dims).
+* Run the coin pulse at nominal CTR=1.0, then again at CTR=0.5 (end-of-life)
+* and CTR=0.3 (pessimistic). Coin detection must still produce a clean logic
+* low on GPIO4. R1=1k pullup means we need >=3.3mA of opto collector current.
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT VJACK 0 12
+VG14 g14d 0 3.3
+RG14 g14d GPIO14 15
+VCOIN COINCTL 0 PULSE(0 1 10m 1u 1u 50m 150m)
+VSOL SOLCTL 0 0
+.options savecurrents
+.control
+tran 20u 80m
+meas tran g4_low_ctr100 MIN v(GPIO4) from=12m to=58m
+alterparam fod817_ctr = 0.5
+reset
+tran 20u 80m
+meas tran g4_low_ctr50 MIN v(GPIO4) from=12m to=58m
+alterparam fod817_ctr = 0.3
+reset
+tran 20u 80m
+meas tran g4_low_ctr30 MIN v(GPIO4) from=12m to=58m
+.endc
+.end

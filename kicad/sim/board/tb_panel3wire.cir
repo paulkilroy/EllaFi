@@ -1,0 +1,49 @@
+* TB11: 3-wire LED panel on J2 — closes the TODO in src/globals.h ("verify
+* J2.2 is 3.3V-logic-safe"). J2.2 carries GPIO14 straight to the panel's
+* signal wire; two panel input styles are modeled:
+*
+* case A (common, benign): NPN input — 10k series into base, 4.7k internal
+*   pulldown, transistor switches the panel's LEDs from 12V.
+*   Question: does a 3.3V drive actually turn a 12V-logic panel on?
+* case B (hazard): panel with an internal 10k PULLUP to its 12V rail on the
+*   signal wire. During ESP32 reset/boot the pin is high-impedance and only
+*   R6 (10k to GND) fights the pullup -> divider puts ~6V on GPIO14 and Q1's
+*   gate. ESP32 abs-max is 3.6V. Reported as INFO: field-wiring constraint,
+*   not a board defect.
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT VJACK 0 12
+* ESP32 pin: high-impedance until 5ms (boot window), then drives 3.3V
+VG14 g14d 0 PULSE(0 3.3 5m 1u 1u 1 2)
+SDRV g14d GPIO14 DRVCTL 0 SWDRV
+VDRV DRVCTL 0 PULSE(0 1 5m 1u 1u 1 2)
+.model SWDRV SW(Ron=15 Roff=1e9 Vt=0.5 Vh=0.1)
+VCOIN COINCTL 0 0
+VSOL SOLCTL 0 0
+* case A panel: NPN input stage fed from J2.2 (GPIO14 net)
+RSA GPIO14 pnb 10k
+RPD pnb 0 4.7k
+QPN pnc pnb 0 QPANEL
+RPLED RAIL12 pnc 470
+.model QPANEL NPN(BF=200 IS=1e-14)
+* case B panel pullup: parked at 1T until the control script enables it
+RPLUP RAIL12 GPIO14 1e12
+.options savecurrents
+.control
+* case A
+tran 5u 15m
+meas tran vb_panel   FIND v(pnb) AT=12m
+meas tran vpanel_col FIND v(pnc) AT=12m
+meas tran g14_caseA  MAX v(GPIO14) from=0.1m to=4.9m
+* case B: NPN panel out, pullup panel in
+alter rsa = 1e12
+alter rpd = 1e12
+alter rplup = 10k
+tran 5u 15m
+meas tran g14_boot_pk MAX v(GPIO14) from=0.1m to=4.9m
+meas tran g14_after   FIND v(GPIO14) AT=12m
+* side effect of case B: 6V on the gate turns Q1 ON during boot
+meas tran blink_boot  FIND v(BLINK) AT=3m
+.endc
+.end

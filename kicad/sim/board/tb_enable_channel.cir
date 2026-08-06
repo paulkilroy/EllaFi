@@ -1,0 +1,25 @@
+* TB4: Q1 enable channel — acceptor + self-flashing lamp powered through Q1's low side
+* GPIO14: off until 10ms, on 10-200ms (vending session), off after (session end).
+* Solenoid kick at 50ms (coin accepted) while enabled.
+* Prove: Q1 drops almost nothing (acceptor "ground" stays valid), indicator LED current sane,
+* and measure D4's reverse voltage in the off state (LED abs-max check).
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT VJACK 0 12
+VG14 g14d 0 PULSE(0 3.3 10m 1u 1u 190m 1)
+RG14 g14d GPIO14 15
+VCOIN COINCTL 0 PULSE(0 1 60m 1u 1u 50m 1)
+VSOL SOLCTL 0 PULSE(0 1 50m 1u 1u 80m 1)
+.options savecurrents
+.control
+tran 20u 300m
+meas tran vds_on_max  MAX v(BLINK) from=20m to=190m
+meas tran i_lamp_on   MAX @rlamp[i] from=20m to=190m
+meas tran i_d4_on     MAX @r4[i] from=20m to=190m
+meas tran g4_low_coin MIN v(GPIO4) from=62m to=108m
+let vrev_d4 = v(nd4k)-v(GPIO14)
+meas tran d4_vrev_off MAX vrev_d4 from=220m
+meas tran blink_off   FIND v(BLINK) AT=290m
+.endc
+.end
