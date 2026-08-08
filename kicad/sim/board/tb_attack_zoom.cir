@@ -1,0 +1,32 @@
+* TB14: ATTACK ZOOM — 60ms at 100ns resolution, for firmware co-sim.
+* The "pitik" fraud: piezo lighter sparks against the coin slot while a session
+* is active. Two coupling paths, both modeled:
+*   5ms:  spark burst into the COIN WIRE (300V damped 1MHz ring via 2pF)
+*   15ms: spark EM pickup directly on the GPIO4 TRACE (30V ring via 0.5pF)
+*   30ms: a REAL 20ms coin — must still be counted cleanly after the attacks
+* Verdict comes from cosim_replay.py: zero accepted pulses from the attacks,
+* exactly one from the coin; fraud counter stays under the abort limit.
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT VJACK 0 12
+VG14 g14d 0 3.3
+RG14 g14d GPIO14 15
+VSOL SOLCTL 0 0
+VCOIN COINCTL 0 PWL(0 0  29.999m 0  30m 1  50m 1  50.001m 0  1 0)
+* attack 1: spark into the coin wire
+VATK1 natk1 0 SIN(0 300 1Meg 5m 3e5)
+CATK1 natk1 COIN 2p
+* attack 2: spark EM pickup on the GPIO4 trace itself (bypasses the opto)
+VATK2 natk2 0 SIN(0 30 5Meg 15m 1.5e6)
+CATK2 natk2 GPIO4 0.5p
+.options method=gear
+.control
+tran 100n 60m
+wrdata attackzoom.dat v(GPIO4) v(COIN) v(P3V3)
+meas tran coin_clamp_pk  MAX v(COIN) from=4.9m to=6m
+meas tran g4_atk1_min    MIN v(GPIO4) from=4.9m to=6m
+meas tran g4_atk2_min    MIN v(GPIO4) from=14.9m to=16m
+meas tran g4_coin_low    MIN v(GPIO4) from=31m to=49m
+.endc
+.end

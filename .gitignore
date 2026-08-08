@@ -21,3 +21,8 @@ data/map.svg
 
 # Local voucher-group backups (contain live voucher codes) — do not commit
 voucher_backups/
+
+# sim/co-sim generated outputs
+kicad/sim/board/*.dat
+kicad/sim/board/cosim_traces.json
+kicad/sim/board/scope.html

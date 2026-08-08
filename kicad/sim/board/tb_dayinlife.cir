@@ -1,0 +1,65 @@
+* TB13: DAY IN THE LIFE — 4.5s of board time with real-world dirt, for firmware co-sim.
+* Waveforms are dumped (wrdata) and replayed through the ACTUAL firmware decision
+* logic (constants parsed from src/globals.h) by cosim_replay.py.
+*
+* timeline:
+*   0.00  adapter on: 12V + 0.4Vpp 100Hz ripple (cheap SMPS)
+*   0-0.7 ESP32 booting: GPIO14 high-impedance (R6 holds Q1 off)
+*   0.70  firmware up: session starts (GPIO14 driven high), lamp flashes 2Hz,
+*         WiFi TX bursts 300mA/20ms every 100ms
+*   0.75  coin inserted DURING boot-suppress window (firmware must suppress)
+*   1.00  coin #1 (20ms), solenoid kick
+*   1.30  coin #2 (20ms)
+*   1.45  coin #3 (4ms — narrowest real-world width observed on live acceptors)
+*   1.80  brownout: adapter sags to 9V for 100ms (rails must ride through)
+*   2.50  coin #4 from a WORN acceptor: 300us contact bounce on both edges
+*   3.00  coins #5+#6 jammed 80ms apart (< 100ms interval floor -> fraud filter)
+*   3.40  dropout: adapter dead for 3ms -> rails collapse, ESP32 brownout-resets
+*         (coins counted in RAM are LOST — the money_store problem)
+*   4.00  session ends (GPIO14 low)
+*   4.20  coin inserted after session end — must die at Q1, not in software
+.param LAMPR=1e9
+.include models.inc
+.include board.inc
+* adapter: ripple + brownout + dropout, 0.5 ohm source impedance
+BADPT vsrc 0 V = {( time>3.4 && time<3.403 ? 0 : ( time>1.8 && time<1.9 ? 9 : 12 )) + 0.2*sin(628.3*time)}
+RSRC vsrc VJACK 0.5
+* ESP32 GPIO14: high-Z during boot, then drives session window 0.7-4.0s
+VG14 g14d 0 PULSE(0 3.3 0.7 1u 1u 3.3 10)
+SDRV g14d GPIO14 DRVCTL 0 SWDRV
+VDRV DRVCTL 0 PULSE(0 1 0.7 1u 1u 10 20)
+.model SWDRV SW(Ron=15 Roff=1e9 Vt=0.5 Vh=0.1)
+* self-flashing lamp: 120mA at 2Hz through the Q1 channel once session is up
+RFL RAIL12 nfl 100
+SFL nfl J2RET FLCTL 0 SWDRV
+VFL FLCTL 0 PULSE(0 1 0.7 1m 1m 0.25 0.5)
+* WiFi TX bursts on 3V3
+IBURST P3V3 0 PULSE(0 0.3 0.75 0.1m 0.1m 20m 100m)
+* solenoid kicks accompanying real coin events
+VSOL SOLCTL 0 PWL(0 0  0.999 0  1.0 1  1.08 1  1.081 0
++ 1.299 0  1.30 1  1.38 1  1.381 0
++ 1.449 0  1.45 1  1.53 1  1.531 0
++ 2.499 0  2.50 1  2.58 1  2.581 0  10 0)
+* coin acceptor open-collector schedule (1 = output pulled low)
+VCOIN COINCTL 0 PWL(0 0
++ 0.7499 0  0.75 1  0.77 1  0.7701 0
++ 0.9999 0  1.0 1  1.02 1  1.0201 0
++ 1.2999 0  1.3 1  1.32 1  1.3201 0
++ 1.4499 0  1.45 1  1.454 1  1.4541 0
++ 2.4999 0
++ 2.5000 1  2.5003 0  2.5005 1  2.50075 0  2.5009 1
++ 2.5199 1
++ 2.5200 0  2.5202 1  2.5205 0
++ 2.9999 0  3.0 1  3.02 1  3.0201 0
++ 3.0799 0  3.08 1  3.10 1  3.1001 0
++ 4.1999 0  4.2 1  4.22 1  4.2201 0  10 0)
+.options method=gear
+.control
+tran 20u 4.5
+wrdata dayinlife.dat v(GPIO4) v(P5V) v(P3V3) v(RAIL12) v(COIN) v(GPIO14) v(BLINK)
+meas tran v33_brownout MIN v(P3V3) from=1.8 to=1.95
+meas tran v33_dropout  MIN v(P3V3) from=3.4 to=3.5
+meas tran v5_brownout  MIN v(P5V)  from=1.8 to=1.95
+meas tran g4_postsession MIN v(GPIO4) from=4.19 to=4.25
+.endc
+.end
