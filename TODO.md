@@ -72,6 +72,21 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   `apMac`/`radioId` from auth? — was blocked by the voucher SSID (`-41501`), but the **EllaFi PisoWiFi**
   External-Portal SSID on Bakhaw is now a clean target. Run `test/auth_field_probe.py` against a
   pending client there.
+- **Coin-slot boot-glitch characterization endpoint.** Before touching `COINSLOT_BOOT_SUPPRESS_MILLIS`
+  (currently a 500ms guess): admin test mode that cycles Q1 (acceptor power) N times and captures every
+  raw pulse the ISR queues for 3s after each power-on — bypassing the suppress/width/interval filters,
+  which stay untouched. Output: per-cycle (offset-from-power-on, width). Sets the window from data
+  (~2× the latest glitch ever seen). Run with acceptor attached AND unplugged to separate acceptor boot
+  noise from board switching noise. Refuse while a coin session is active.
+- **Reconsider the fraud abort / bounce handling — ONLY if field data ever shows it.** The board co-sim
+  (`kicad/sim/board/`, day-in-the-life bench) showed a *worn* acceptor with bouncing contacts generates
+  2-3 sub-width fragments per coin → 3-strike fraud abort kills the paying customer's session. BUT: zero
+  reports of this in the wild (JuanFi groups), and the width check has proven field value against pitik
+  on the old board — so the check stays as-is. The admin "Rejects" column is the instrument: the bounce
+  signature is rejects clustered around accepted coins. If that ever shows up, the analyzed fixes are
+  ISR-level merge (gaps <1ms = same pulse, with flicker count as a health metric) or task-level
+  forgiveness (don't count sub-width pulses within ~10ms of an accepted coin as fraud); either can be
+  proven in `cosim_replay.py` against the existing waveforms before touching coin.cpp.
 - **LittleFS browser (admin, read-only).** A "what's actually on the device" panel — would have caught
   the stale-`config.json` confusion instantly, and exposes `sellers.json`/history files we can't see today.
   Flat 6-file set (`config.json`, `sellers.json`, `errors.log`, `refunds.log`, `vendo_history.json`,
@@ -93,39 +108,27 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   `handleProgram`. Design note, not a known bug.
 - TLS `setInsecure()` on the self-signed controller — **accepted** tradeoff.
 
-## 🔧 Hardware — next board revision (rev B)
+## 🔧 Hardware — current board (MPM3620A, in repo at `kicad/`)
 
-From the PCBWay BOM quote (Product No. **T-3P14W1063745A**, 6 units @ $211.34). The current order is
-fine to ship **as-is**; these apply to the next spin. Detail → `memory/hardware_notes.md`.
+*(Rewritten 2026-08-08 — the old rev-B list here described the LM2596 board and was a generation stale.
+Most of its items are now DONE and sim-verified on the current design: input fuse F1 + reverse-polarity
+protection (D6 = unidirectional 1.5SMC18A), GPIO14/J2.2 verified 3.3V-logic-safe (D4 gate-side clamp,
+`tb_panel3wire`), D1 coin-line clamp node confirmed (and a backwards install caught + fixed), J4/J5
+22-pin confirmed, LM2596 thermal/cost items obsolete with the MPM3620A. Validation gate:
+`kicad/sim/board/run_all.sh` — polarity + sim-sync checkers, 13 benches, Monte Carlo, all green.
+Detail → `memory/hardware_notes.md`.)*
 
-Now **verified against the KiCad netlist + PCB** (`~/Documents/EllaFi-PCB/`); full review in `memory/hardware_notes.md`.
-The schematic checks out (gate pulldown, LM2596 ON/OFF, opto level, TVS placement all correct). Rev-B items:
-
-- **Widen the power-path traces.** *All 146 tracks are 0.2 mm (8 mil)* — including +12V, 5V, and the
-  switch node — but it's a 3A supply. Size +12V/5V/switch node to ≥0.5 mm (≥1.5 mm for full 3A).
-- **Stitch the ground planes.** GND pours on both layers but **0 vias** — add ground-stitching vias,
-  especially around U3 (switcher).
-- **Protect GPIO14 on J2.2 (3-wire mode).** It exposes the bare GPIO (10k pulldown only) to the panel's
-  enable input; a 12V-referenced panel back-drives 12V into GPIO14 → **kills the ESP**. Verify the panel
-  enable is 3.3V-logic-safe, else add series R + 3V3 clamp (or buffer it).
-- **Add input protection.** No **fuse** and no **reverse-polarity protection** on J2/J3 — a reversed jack
-  or a field-power fault has nothing to stop it. Add a fuse holder + series Schottky or P-FET ideal-diode.
-- **U3 thermal:** vertical TO-220 on 2-layer — needs a clip-on heatsink above ~1.5A. Measure full-load
-  trace/U3 temps first. Verify **L1 Isat ≥ ~3.5A**; consider **C2 220µF** (vs 100µF) per the datasheet.
-- **Value-engineer the cost outliers** (the 5V supply is ~$18 of the ~$30/board component cost). With
-  no design change, functional-equivalent swaps cut ~$40 across 6 boards:
-  - **C1,C2 100µF 25V** — $2.06/ea is ~6–10× normal; generic low-ESR ≈ $0.30 (~$20 saved). *Worst offender.*
-  - **J2 Phoenix 1715857** — premium; generic 5.08mm 3-pos block ≈ $0.50–1 (~$15 saved).
-  - **L1 Würth 100µH** — generic 100µH ≥3A shielded ≈ $1–1.50 (~$10 saved).
-  - **U3 LM2596T-5.0** — PCBWay's $10.25 is ~2× typical; ask them to re-source (or revisit a buck module).
-- **Verify (could be wrong as drawn):**
-  - **C2 output cap = 100µF** — LM2596 5V datasheet wants ~220µF low-ESR for clean ripple/stability at load.
-  - **J4/J5 = 1×22/side** — confirm the actual ESP32-S3-DevKitC-1 is 22 pins/side (some S3 devkits are 20);
-    and confirm 6 **customer-supplied modules** are on hand (U2 is DNP, not in the quote).
-  - **D1 P6KE6.8A** — 6.8V standoff is marginal directly across a 5V rail; confirm which node it clamps.
-- **Board shape / form-factor improvements** — reference layout to crib from (terminal placement, outline,
-  mounting): https://s.alicdn.com/@sc04/kf/H56d01305253044b59730e6da2d08d7ceB.jpg?avif=close&webp=close
-  (commercial piso-WiFi vendo board; also worth studying for the 12V/3A power path + USB-5V-out layout).
+Still open before/at ordering:
+- **Re-check power-path trace widths + ground stitching vias on the CURRENT layout** (the old finding —
+  all tracks 0.2mm, zero stitching vias — was against the LM2596 board; verify it didn't carry over).
+- **Bring-up checklist for the first assembled board:** re-run the piezo "pitik" spark test (the new
+  opto+TVS front end should stop it cold per `tb_attack_zoom` — if strays still get through, suspect
+  the GPIO0 button path or grounding, not the coin line); scope the coin line through 20 Q1 power
+  cycles to size `COINSLOT_BOOT_SUPPRESS_MILLIS` (see the characterization-endpoint TODO); scope VIN
+  at the MPM3620A pin under load (sim says clean; a scope is the only true proof).
+- **3-wire panel compatibility note:** 3.3V drive on J2.2 only marginally switches panels with ~10k
+  series inputs (sim: transistor active, not saturated) — measure the actual panel's input before
+  relying on it; ~1k inputs are fine.
 
 ## 🟢 Docs / tooling
 

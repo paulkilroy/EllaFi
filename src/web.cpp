@@ -798,6 +798,8 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
     n["uptimeSec"] = millis() / 1000UL;
     n["freeHeap"]  = ESP.getFreeHeap();
     n["rssi"]      = (int)WiFi.RSSI();
+    n["rejW"]      = COIN_REJECT_WIDTH_COUNT.load();
+    n["rejI"]      = COIN_REJECT_INTERVAL_COUNT.load();
     n["online"]    = true;
   }
 
@@ -817,6 +819,8 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
     n["uptimeSec"] = ni.uptimeSec;
     n["freeHeap"]  = ni.freeHeap;
     n["rssi"]      = (int)ni.rssi;
+    n["rejW"]      = ni.rejectWidth;
+    n["rejI"]      = ni.rejectInterval;
     unsigned long downForMs = now - ni.lastSeenMs;
     n["online"]       = downForMs < NODE_OFFLINE_THRESHOLD_MILLIS;
     n["downForSec"]   = (uint32_t)(downForMs / 1000UL);   // seconds since last heartbeat — for the "down for" display

@@ -93,6 +93,10 @@ extern bool IS_MASTER;
 extern std::atomic<bool>            COIN_INSERT_ACTIVE;
 extern volatile bool                COINSLOT_PROGRAM_MODE;  // relay held HIGH until restart — set via /program
 extern std::atomic<int>             COIN_COUNT;
+// Rejected-pulse counters — acceptor health, shown per node on the admin dashboard.
+// Since boot only (the 3am nightly reboot makes these "today"); durable history is errors.log.
+extern std::atomic<uint16_t>        COIN_REJECT_WIDTH_COUNT;     // sub-width pulses (pitik/EMI/bounce)
+extern std::atomic<uint16_t>        COIN_REJECT_INTERVAL_COUNT;  // pulses faster than the acceptor can emit
 extern std::atomic<CoinSessionSlot> COIN_SESSION_SLOT;    // client ip (u32) + WS fd as one CAS-able unit
 extern std::atomic<unsigned long>   COIN_DEADLINE_MILLIS;     // millis() the window expires; for UI countdown
 extern unsigned long                COIN_SLOT_READY_MILLIS;  // suppress pulses until this millis() — boot glitch guard
@@ -119,7 +123,7 @@ constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
 // ── Firmware version ─────────────────────────────────────────────────────────
 
 #define FIRMWARE_VERSION "1.4.2"
-#define FIRMWARE_BUILD   58       // increment on every release; used for slave version comparison
+#define FIRMWARE_BUILD   59       // increment on every release; used for slave version comparison
 
 // True byte size of the running firmware image, computed once at boot (ESP.getSketchSize()).
 // This is what the master serves to slaves for OTA — derived from the running partition, so it's

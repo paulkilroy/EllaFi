@@ -159,6 +159,7 @@ void coinPulseTask(void*) {
     if (pulse.source == PULSE_COINSLOT || pulse.source == PULSE_BUTTON) {
       if (pulse.widthMicros < COINSLOT_MIN_PULSE_WIDTH_MICROS) {
         fraudCountThisSession++;
+        COIN_REJECT_WIDTH_COUNT.fetch_add(1);
         ESP_LOGE(TAG, "Pulse width fraud #%d: width=%luus (min %luus)", fraudCountThisSession, pulse.widthMicros, COINSLOT_MIN_PULSE_WIDTH_MICROS);
         if (IS_MASTER && fraudCountThisSession >= COINSLOT_MAX_FRAUD_PER_SESSION) abortSessionForFraud(fraudCountThisSession);
         continue;
@@ -171,6 +172,7 @@ void coinPulseTask(void*) {
       unsigned long interval = pulse.timestampMicros - prevAcceptedTimestampMicros;
       if (interval < COINSLOT_MIN_PULSE_INTERVAL_MILLIS * 1000UL) {
         fraudCountThisSession++;
+        COIN_REJECT_INTERVAL_COUNT.fetch_add(1);
         prevAcceptedTimestampMicros = 0;
         ESP_LOGE(TAG, "Interval fraud #%d: interval=%luus (min %lums)", fraudCountThisSession, interval, COINSLOT_MIN_PULSE_INTERVAL_MILLIS);
         if (IS_MASTER && fraudCountThisSession >= COINSLOT_MAX_FRAUD_PER_SESSION) abortSessionForFraud(fraudCountThisSession);

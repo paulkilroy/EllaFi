@@ -23,6 +23,8 @@ struct NodeInfo {
   uint32_t uptimeSec        = 0;
   uint32_t freeHeap         = 0;
   int8_t   rssi             = 0;
+  uint16_t rejectWidth      = 0;  // sub-width coin pulses rejected since boot (acceptor health)
+  uint16_t rejectInterval   = 0;  // too-fast coin pulses rejected since boot
   unsigned long lastSeenMs    = 0;
   uint32_t      otaSentCount  = 0;  // how many OTA_AVAILABLE packets master has sent to this node
   unsigned long lastOtaSentMs = 0;  // millis() when last OTA_AVAILABLE was sent (0 = never)

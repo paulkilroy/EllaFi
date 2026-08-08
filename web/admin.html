@@ -195,7 +195,7 @@
     <div class="section-title">Node Health</div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th></th><th>Role</th><th>Nickname</th><th>Commission</th><th class="col-ip">IP</th><th class="col-uptime">Uptime</th><th>Version</th><th>RSSI</th></tr></thead>
+        <thead><tr><th></th><th>Role</th><th>Nickname</th><th>Commission</th><th class="col-ip">IP</th><th class="col-uptime">Uptime</th><th>Version</th><th>RSSI</th><th title="Coin pulses rejected by the width/interval filters since boot (resets at the 3am reboot). Click to see the log lines.">Rejects</th></tr></thead>
         <tbody id="nodes-tbody"></tbody>
       </table>
     </div>
@@ -350,6 +350,8 @@
     <div class="section-title">
       Device Log
       <span style="display:flex;gap:6px;align-items:center;margin-left:auto">
+        <input id="log-filter" type="text" placeholder="filter…" oninput="applyLogFilter(this.value)"
+               style="width:110px;font-size:12px;padding:2px 6px;background:#181818;color:#ddd;border:1px solid #333;border-radius:4px">
         <button id="log-btn-W" class="btn btn-sm log-lvl-btn active" style="color:#f0b429" onclick="toggleLevel('W')" title="Warnings">W</button>
         <button id="log-btn-I" class="btn btn-sm log-lvl-btn active" style="color:#5dade2" onclick="toggleLevel('I')" title="Info">I</button>
         <button id="log-btn-D" class="btn btn-sm log-lvl-btn" style="color:#6a7a90" onclick="toggleLevel('D')" title="Debug">D</button>
@@ -675,6 +677,12 @@ function renderNodeHealth(nodes) {
     const dot      = `<span class="node-dot ${statusClass}"></span>`;
     const role     = `<span class="tag ${n.role === 'master' ? 'tag-coin' : 'tag-vchr'}">${n.role.toUpperCase()}</span>`;
     const rssi     = (n.online && n.rssi) ? `<span style="color:${rssiColor(n.rssi)}">${n.rssi} dBm</span>` : '<span class="muted">—</span>';
+    // Acceptor health: pulses the coin filters rejected today (counters reset at the 3am reboot).
+    const rejTotal = (n.rejW || 0) + (n.rejI || 0);
+    const rejects  = rejTotal === 0
+      ? '<span class="muted">0</span>'
+      : `<a href="#" onclick="showRejectLog();return false;" style="color:#f0b429"
+           title="${n.rejW || 0} width / ${n.rejI || 0} interval — click for log">${rejTotal}</a>`;
     const ver      = n.version ? `<span class="mono" style="font-size:11px;letter-spacing:1px">${n.version}</span><span class="muted" style="font-size:11px"> (${n.build ?? '?'})</span>` : '<span class="muted">—</span>';
     // Online: uptime. Offline: how long it's been silent, in parens (last-known version/uptime are frozen).
     const uptime   = n.online ? fmtUptime(n.uptimeSec * 1000)
@@ -692,6 +700,7 @@ function renderNodeHealth(nodes) {
       <td class="col-uptime muted">${uptime}</td>
       <td>${ver}</td>
       <td>${rssi}</td>
+      <td>${rejects}</td>
     </tr>`;
   }).join('');
 }
@@ -1685,6 +1694,25 @@ function toggleLevel(l) {
   document.getElementById('dev-log').classList.toggle('hide-' + l, !devLogLevels[l]);
 }
 
+// Text filter: hides log lines not containing the string (case-insensitive).
+// Applies to lines already shown and to new ones as they arrive (see pollDevLog).
+let devLogFilter = '';
+function applyLogFilter(s) {
+  devLogFilter = (s || '').toLowerCase();
+  for (const div of document.querySelectorAll('#dev-log .log-line'))
+    div.style.display = !devLogFilter || div.textContent.toLowerCase().includes(devLogFilter) ? '' : 'none';
+}
+
+// "Rejects" column click: jump to the Device Log pre-filtered to the fraud lines.
+// The RAM ring holds recent lines; older ones persist in errors.log (E/W are written
+// there too, including lines forwarded from slave nodes).
+function showRejectLog() {
+  const box = document.getElementById('log-filter');
+  box.value = 'fraud';
+  applyLogFilter('fraud');
+  document.getElementById('dev-log').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
 function fmtUptimeMs(ms) {
   const s = Math.floor(ms / 1000), m = Math.floor(s / 60), h = Math.floor(m / 60);
   return h ? `${h}h${String(m%60).padStart(2,'0')}m` : m ? `${m}m${String(s%60).padStart(2,'0')}s` : `${s}s`;
@@ -1710,6 +1738,7 @@ async function pollDevLog() {
       div.className = 'log-line ' + (LOG_COLORS[e.level] || '');
       const timeStr = e.ts > 0 ? new Date(e.ts * 1000).toLocaleTimeString() : fmtUptimeMs(e.ms);
       div.textContent = `[${timeStr}] [${e.level}] ${e.tag}: ${e.msg}`;
+      if (devLogFilter && !div.textContent.toLowerCase().includes(devLogFilter)) div.style.display = 'none';
       el.appendChild(div);
       if (el.children.length > 1000) el.removeChild(el.firstChild);
     }

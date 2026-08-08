@@ -38,6 +38,8 @@ struct __attribute__((packed)) HeartbeatBody {
   uint32_t uptimeSec;
   uint32_t freeHeap;
   int8_t   rssi;
+  uint16_t rejectWidth;     // coin pulses rejected by the width filter since boot
+  uint16_t rejectInterval;  // coin pulses rejected by the interval filter since boot
   char     version[16];  // null-terminated display string
   char     ip[16];       // null-terminated
   char     mac[18];      // null-terminated, e.g. "AA:BB:CC:DD:EE:FF"
@@ -179,6 +181,8 @@ void broadcastHeartbeat() {
   body.uptimeSec   = millis() / 1000;
   body.freeHeap    = ESP.getFreeHeap();
   body.rssi        = (int8_t)WiFi.RSSI();
+  body.rejectWidth    = COIN_REJECT_WIDTH_COUNT.load();
+  body.rejectInterval = COIN_REJECT_INTERVAL_COUNT.load();
   strncpy(body.version, FIRMWARE_VERSION, sizeof(body.version) - 1);
   WiFi.localIP().toString().toCharArray(body.ip,  sizeof(body.ip));
   WiFi.macAddress().toCharArray(       body.mac, sizeof(body.mac));
@@ -393,6 +397,8 @@ void networkLoop() {
       entry.uptimeSec   = body.uptimeSec;
       entry.freeHeap    = body.freeHeap;
       entry.rssi        = body.rssi;
+      entry.rejectWidth    = body.rejectWidth;
+      entry.rejectInterval = body.rejectInterval;
       entry.lastSeenMs  = millis();
       // otaSentCount and lastOtaSentMs are preserved across heartbeats
       xSemaphoreGive(NODE_MAP_MUTEX);

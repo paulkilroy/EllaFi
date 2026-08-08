@@ -110,6 +110,8 @@ std::atomic<bool>           COIN_INSERT_ACTIVE{false};
 volatile bool               COINSLOT_PROGRAM_MODE  = false;
 unsigned long               COIN_SLOT_READY_MILLIS = 0;
 std::atomic<int>            COIN_COUNT{0};
+std::atomic<uint16_t>       COIN_REJECT_WIDTH_COUNT{0};
+std::atomic<uint16_t>       COIN_REJECT_INTERVAL_COUNT{0};
 std::atomic<CoinSessionSlot> COIN_SESSION_SLOT{ CoinSessionSlot{0, -1} };
 std::atomic<unsigned long>  COIN_DEADLINE_MILLIS{0};
 
