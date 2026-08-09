@@ -230,6 +230,9 @@ void setup() {
   RETRY_ON_FAIL(setupFilesystem());
   RETRY_ON_FAIL(setupConfig());
   moneyStoreBegin();   // NVS money record — best-effort, never blocks boot
+  // Legacy file cleanup (2026-08-09): sellers moved to config.json, voucher day-cache moved to RAM
+  LittleFS.remove("/sellers.json");
+  LittleFS.remove("/voucher_history.json");
   RETRY_ON_FAIL(setupPins());
   if (!setupWifi()) runWifiRecovery();  // solid red + BOOT-button → SoftAP re-provisioning; never returns
   RUNNING_IMAGE_SIZE = ESP.getSketchSize();  // our true image size, for serving slave OTA

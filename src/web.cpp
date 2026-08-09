@@ -650,8 +650,9 @@ void setupFsOtaRoute() {
     FS_PSRAM_BUFFER = nullptr;
 
     // Back up runtime data files before wiping the filesystem
-    static const char* PRESERVE[] = {"/config.json", "/sellers.json", "/errors.log", "/refunds.log",
-                                     "/vendo_history.json", "/voucher_history.json"};
+    // config = device identity (loss = reprovision trip); vendo_history = the money journal;
+    // refunds = outstanding customer codes; errors = reject/fraud trail. Everything else rebuilds.
+    static const char* PRESERVE[] = {"/config.json", "/vendo_history.json", "/errors.log", "/refunds.log"};
     fb->nPreserved = 0;
     for (auto path : PRESERVE) {
       if (!LittleFS.exists(path)) continue;
@@ -718,8 +719,8 @@ void setupFsOtaRoute() {
 // ── Admin nodes ───────────────────────────────────────────────────────────────
 
 // Nodes: Omada is the source of truth. Each node's "nickname|commission" lives in its Omada client
-// name; we cache it here (refreshed ≤1×/60s) and overlay it on the sellers.json cache, so the
-// controller wins and node commissions survive a sellers.json wipe. sellers.json is only a fallback.
+// name; we cache it here (refreshed ≤1×/60s). No local fallback file — while the controller is
+// unreachable AND the RAM cache is cold (fresh boot), nicknames simply display blank.
 static std::map<String, String> NODE_ALIAS;       // mac (colon, upper) -> "nickname|commission"
 static unsigned long NODE_ALIAS_SYNC_MS = 0;
 
@@ -745,26 +746,9 @@ static void syncNodeAliases() {
 esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
   JsonDocument doc;
 
-  // Load node nicknames and commissions from sellers.json
+  // Node nicknames and commissions come from the Omada client aliases (RAM cache, 60s sync).
   std::map<String, String> nicknames;
   std::map<String, int>    commissions;
-  if (fsExists("/sellers.json")) {       // guard: open("r") on a missing file logs a spurious VFS [E]
-    File f = LittleFS.open("/sellers.json", "r");
-    if (f) {
-      JsonDocument sellers;
-      if (deserializeJson(sellers, f) == DeserializationError::Ok) {
-        for (JsonObject node : sellers["nodes"].as<JsonArray>()) {
-          String mac = node["mac"].as<String>();
-          mac.toUpperCase();
-          nicknames[mac]   = node["nickname"].as<String>();
-          commissions[mac] = node["commission"].as<int>();
-        }
-      }
-      f.close();
-    }
-  }
-
-  // Overlay the Omada alias (source of truth for nodes) onto the sellers.json cache.
   syncNodeAliases();
   for (auto& kv : NODE_ALIAS) {
     int bar = kv.second.indexOf('|');
@@ -998,24 +982,33 @@ esp_err_t handleAdminLog(PsychicRequest* request, PsychicResponse* response) {
 esp_err_t handleAdminSellers(PsychicRequest* request, PsychicResponse* response) {
   response->addHeader("Cache-Control", "no-store");
   if (request->method() == HTTP_GET) {
-    // Start from the saved file (commission rates + node nicknames live only here).
+    // Sellers live in config.json (their only home since 2026-08-09); node aliases are RAM/controller.
     JsonDocument doc;
-    if (fsExists("/sellers.json")) {       // guard: open("r") on a missing file logs a spurious VFS [E]
-      File f = LittleFS.open("/sellers.json", "r");
-      if (f) { deserializeJson(doc, f); f.close(); }
+    {
+      File f = LittleFS.open("/config.json", "r");
+      if (f) {
+        JsonDocument cfg;
+        if (deserializeJson(cfg, f) == DeserializationError::Ok) doc["sellers"] = cfg["sellers"];
+        f.close();
+      }
     }
     if (!doc["sellers"].is<JsonArray>()) doc["sellers"].to<JsonArray>();
-    if (!doc["nodes"].is<JsonArray>())   doc["nodes"].to<JsonArray>();
+    doc["nodes"].to<JsonArray>();   // kept for UI shape; node data rides /admin/nodes
     String json; serializeJson(doc, json);
     return response->send(200, "application/json", json.c_str());
   }
-  // POST — write sellers.json (authoritative for SELLERS)
+  // POST — sellers array merges into config.json (same path the config editor uses)
   JsonDocument doc;
   if (deserializeJson(doc, request->body()) || !doc["sellers"].is<JsonArray>())
     return response->send(400, "text/plain", "Bad request");
-  File f = LittleFS.open("/sellers.json", "w");
-  if (!f) return response->send(500, "text/plain", "Failed to write file");
-  serializeJson(doc, f); f.close();
+  {
+    JsonDocument merge;
+    merge["sellers"] = doc["sellers"];
+    String body; serializeJson(merge, body);
+    String err;
+    if (!mergeAndSaveConfig(body, err))
+      return response->send(500, "text/plain", ("Failed to save config: " + err).c_str());
+  }
   // Nodes: Omada is the source of truth — push each node's nickname|commission to its client alias.
   for (JsonObject n : doc["nodes"].as<JsonArray>()) {
     String mac = n["mac"].as<String>();
@@ -1176,6 +1169,31 @@ static time_t localDayStartUtc(long dayNum) {
   return mktime(&lt);              // interpret as local → real UTC epoch (DST-aware)
 }
 
+// Voucher daily stats cache (day → {count, revenue}) — RAM only, repopulated lazily after each
+// nightly reboot with ONE ranged controller fetch per dashboard window (was /voucher_history.json
+// on LittleFS; moved to RAM 2026-08-09 — it is a pure cache, nothing to preserve).
+static std::map<long, std::pair<int,int>> VCHR_DAY_CACHE;
+
+// Ensure [winStart, winEnd) is populated. Days the API returns no bucket for cache as 0.
+static void ensureVoucherDays(long winStart, long winEnd) {
+  std::set<long> missing;
+  for (long d = winStart; d < winEnd; d++) if (!VCHR_DAY_CACHE.count(d)) missing.insert(d);
+  if (missing.empty()) return;
+  // Omada end-stamps each daily bucket at the NEXT local midnight; widen the window a day so the
+  // last missing day's bucket is comfortably inside it (extra buckets filtered below).
+  JsonDocument hist = getVoucherHistoryJson(localDayStartUtc(*missing.begin()),
+                                            localDayStartUtc(*missing.rbegin() + 2));
+  if (hist.isNull()) return;                       // controller down — retry on the next load
+  for (long d : missing) VCHR_DAY_CACHE[d];        // default-init {0,0}
+  for (JsonObject b : voucherBuckets(hist)) {
+    long day = localDayNum((time_t)(b["time"].as<long long>() / 1000) - 1);  // -1s: land in the day it represents
+    if (!missing.count(day)) continue;
+    auto& v = VCHR_DAY_CACHE[day];
+    v.first  += b["count"].as<int>();
+    v.second += voucherBucketRevenue(b, FALLBACK_PRICE_PER_VOUCHER);
+  }
+}
+
 esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   response->addHeader("Cache-Control", "no-store");
 
@@ -1229,58 +1247,9 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   int dayVoucherTotals[DAYS] = {};
   int dayVchrRevTotals[DAYS] = {};
 
-  std::map<long, std::pair<int,int>> vchrCache;  // day → {count, rev}
-  if (fsExists("/voucher_history.json")) {
-    File f = LittleFS.open("/voucher_history.json", FILE_READ);
-    if (f) {
-      while (f.available()) {
-        String line = f.readStringUntil('\n'); line.trim();
-        if (line.isEmpty()) continue;
-        JsonDocument doc;
-        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
-        long day = localDayNum((time_t)(doc["ts"] | 0L));
-        if (day > 0) vchrCache[day] = {doc["count"] | 0, doc["revenue"] | 0};
-      }
-      f.close();
-    }
-  }
-
-  // Find all missing past days and fetch in one call
-  std::set<long> missingDays;
-  for (int i = 0; i < DAYS - 1; i++) {
-    long day = todayDay - (DAYS - 1) + i;
-    if (!vchrCache.count(day)) missingDays.insert(day);
-  }
-  if (!missingDays.empty()) {
-    // Omada end-stamps each daily bucket at the NEXT local midnight, so the bucket
-    // for day L sits at localDayStartUtc(L+1). Widen the window by an extra day so
-    // the last missing day's bucket is comfortably inside it (extra buckets are
-    // filtered by missingDays below).
-    time_t startSec = localDayStartUtc(*missingDays.begin());
-    time_t endSec   = localDayStartUtc(*missingDays.rbegin() + 2);
-    JsonDocument histDoc = getVoucherHistoryJson(startSec, endSec);
-    if (!histDoc.isNull()) {
-      // Accumulate all sub-day buckets by day before caching
-      for (JsonObject b : voucherBuckets(histDoc)) {
-        // Omada stamps the bucket at the day's END (next local midnight); -1s lands
-        // it in the day it actually represents.
-        long day = localDayNum((time_t)(b["time"].as<long long>() / 1000) - 1);
-        if (!missingDays.count(day)) continue;
-        vchrCache[day].first  += b["count"].as<int>();
-        vchrCache[day].second += voucherBucketRevenue(b, FALLBACK_PRICE_PER_VOUCHER);
-      }
-      // Write one entry per missing day (days with no API response get cached as 0)
-      File cacheFile = LittleFS.open("/voucher_history.json", FILE_APPEND);
-      if (cacheFile) {
-        for (long day : missingDays) {
-          auto& v = vchrCache[day];
-          JsonDocument e; e["ts"] = (long)localDayStartUtc(day); e["count"] = v.first; e["revenue"] = v.second;
-          serializeJson(e, cacheFile); cacheFile.print('\n');
-        }
-        cacheFile.close();
-      }
-    }
-  }
+  // Past days from the RAM cache (one ranged fetch for whatever is missing)
+  ensureVoucherDays(todayDay - (DAYS - 1), todayDay);
+  auto& vchrCache = VCHR_DAY_CACHE;
 
   // Apply cached past days
   for (int i = 0; i < DAYS - 1; i++) {
@@ -1353,7 +1322,7 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
 // ── Income statement (last 3 COMPLETE calendar months) ────────────────────────
 // Income by source, per month: vendo from local coin logs; voucher from the REDEMPTION history (every
 // voucher sold, named or not) so months before the AUTOGEN naming convention still count. Seller
-// commissions come ONLY from AUTOGEN groups × the seller's sellers.json rate — so they naturally begin
+// commissions come ONLY from AUTOGEN groups × the flat COMMISSION_RATE_PERCENT — so they naturally begin
 // the month naming started. Calls: voucher history (income) + voucher groups (commissions) + grid/devices
 // (equipment). The client adds the fixed Starlink expense and computes net profit.
 esp_err_t handleAdminStatement(PsychicRequest* request, PsychicResponse* response) {
@@ -1386,59 +1355,16 @@ esp_err_t handleAdminStatement(PsychicRequest* request, PsychicResponse* respons
     }
   }
 
-  // Voucher INCOME per month — redemption history (all vouchers, named or not). Cache + one fetch.
-  std::map<long, std::pair<int,int>> vchr;           // day → {count, revenue}
-  if (fsExists("/voucher_history.json")) {
-    File f = LittleFS.open("/voucher_history.json", FILE_READ);
-    if (f) {
-      while (f.available()) {
-        String line = f.readStringUntil('\n'); line.trim();
-        if (line.isEmpty()) continue;
-        JsonDocument doc;
-        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
-        long day = localDayNum((time_t)(doc["ts"] | 0L));
-        if (day >= winStart && day < winEnd) vchr[day] = {doc["count"] | 0, doc["revenue"] | 0};
-      }
-      f.close();
-    }
+  // Voucher INCOME per month — redemption history (all vouchers, named or not), from the RAM cache.
+  ensureVoucherDays(winStart, winEnd);
+  for (long d = winStart; d < winEnd; d++) {
+    int s = monthSlot(d);
+    auto it = VCHR_DAY_CACHE.find(d);
+    if (s >= 0 && it != VCHR_DAY_CACHE.end()) voucher[s] += it->second.second;
   }
-  std::set<long> missing;
-  for (long d = winStart; d < winEnd; d++) if (!vchr.count(d)) missing.insert(d);
-  if (!missing.empty()) {
-    JsonDocument hist = getVoucherHistoryJson(localDayStartUtc(*missing.begin()),
-                                              localDayStartUtc(*missing.rbegin() + 2));
-    if (!hist.isNull()) {
-      for (JsonObject b : voucherBuckets(hist)) {
-        long day = localDayNum((time_t)(b["time"].as<long long>() / 1000) - 1);  // Omada end-stamps at next midnight
-        if (!missing.count(day)) continue;
-        vchr[day].first  += b["count"].as<int>();
-        vchr[day].second += voucherBucketRevenue(b, FALLBACK_PRICE_PER_VOUCHER);
-      }
-      File cf = LittleFS.open("/voucher_history.json", FILE_APPEND);
-      if (cf) {
-        for (long d : missing) { auto& v = vchr[d];
-          JsonDocument e; e["ts"] = (long)localDayStartUtc(d); e["count"] = v.first; e["revenue"] = v.second;
-          serializeJson(e, cf); cf.print('\n'); }
-        cf.close();
-      }
-    }
-  }
-  for (long d = winStart; d < winEnd; d++) { int s = monthSlot(d); if (s >= 0 && vchr.count(d)) voucher[s] += vchr[d].second; }
 
-  // Seller commission rates
-  std::map<String,int> commRate;
-  if (fsExists("/sellers.json")) {
-    File f = LittleFS.open("/sellers.json", "r");
-    if (f) {
-      JsonDocument doc;
-      if (deserializeJson(doc, f) == DeserializationError::Ok)
-        for (JsonObject s : doc["sellers"].as<JsonArray>()) {
-          String name = s["name"].as<String>();
-          if (!name.isEmpty()) commRate[name] = s["commission"] | 0;
-        }
-      f.close();
-    }
-  }
+  // Seller commission: flat rate (per-seller rates retired 2026-08-09 with sellers.json)
+  auto commRate = [](const String&) { return COMMISSION_RATE_PERCENT; };
 
   // Seller COMMISSIONS per month — AUTOGEN groups only (zero until the naming convention began)
   std::map<String, std::vector<long>> sellerComm;    // seller → per-month commission (size 3)
@@ -1453,7 +1379,7 @@ esp_err_t handleAdminStatement(PsychicRequest* request, PsychicResponse* respons
       if (s < 0) continue;
       String rest = name.substring(9); int sp = rest.indexOf(' ');
       String seller = sp >= 0 ? rest.substring(sp + 1) : rest;
-      int rate = commRate.count(seller) ? commRate[seller] : 0;
+      int rate = commRate(seller);
       if (rate <= 0) continue;                        // only commissioned sellers are an expense line
       int price = PRICE_PER_COIN;
       JsonDocument dd;
@@ -1507,16 +1433,16 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
                   ? (int)max(1L, min(request->getParam("days")->value().toInt(), 365L)) : 30;
   time_t cutoff = now - (time_t)nDays * 86400;
 
-  // Load seller commission rates
-  std::map<String, int> commissions;
-  if (fsExists("/sellers.json")) {
-    File f = LittleFS.open("/sellers.json", "r");
+  // Registered sellers from config.json (their home since 2026-08-09); commission is the flat rate.
+  std::set<String> registeredSellers;
+  {
+    File f = LittleFS.open("/config.json", "r");
     if (f) {
-      JsonDocument doc;
-      if (deserializeJson(doc, f) == DeserializationError::Ok)
-        for (JsonObject s : doc["sellers"].as<JsonArray>()) {
+      JsonDocument cfg;
+      if (deserializeJson(cfg, f) == DeserializationError::Ok)
+        for (JsonObject s : cfg["sellers"].as<JsonArray>()) {
           String name = s["name"].as<String>();
-          if (!name.isEmpty()) commissions[name] = s["commission"].as<int>();
+          if (!name.isEmpty()) registeredSellers.insert(name);
         }
       f.close();
     }
@@ -1563,8 +1489,8 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
   JsonDocument out;
   JsonArray arr = out.to<JsonArray>();
   for (auto& kv : sorted) {
-    int  comm = commissions.count(kv.first) ? commissions[kv.first] : 20;
-    bool reg  = commissions.count(kv.first) > 0;
+    int  comm = COMMISSION_RATE_PERCENT;
+    bool reg  = registeredSellers.count(kv.first) > 0;
     JsonObject s = arr.add<JsonObject>();
     s["seller"]     = kv.first;
     s["vouchers"]   = kv.second.first;
@@ -1618,7 +1544,8 @@ esp_err_t handleAdminRebootAll(PsychicRequest* request, PsychicResponse* respons
 }
 
 esp_err_t handleAdminClearVoucherCache(PsychicRequest* request, PsychicResponse* response) {
-  if (fsExists("/voucher_history.json")) LittleFS.remove("/voucher_history.json");
+  VCHR_DAY_CACHE.clear();                                // RAM cache since 2026-08-09
+  if (fsExists("/voucher_history.json")) LittleFS.remove("/voucher_history.json");  // legacy file cleanup
   ESP_LOGI(TAG, "Voucher cache cleared by admin");
   return response->send(200, "text/plain", "OK");
 }
