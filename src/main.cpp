@@ -77,6 +77,7 @@
 #include "led.h"
 #include "network.h"
 #include "reprovision.h"
+#include "money_store.h"
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -228,6 +229,7 @@ void setup() {
   setupLed();
   RETRY_ON_FAIL(setupFilesystem());
   RETRY_ON_FAIL(setupConfig());
+  moneyStoreBegin();   // NVS money record — best-effort, never blocks boot
   RETRY_ON_FAIL(setupPins());
   if (!setupWifi()) runWifiRecovery();  // solid red + BOOT-button → SoftAP re-provisioning; never returns
   RUNNING_IMAGE_SIZE = ESP.getSketchSize();  // our true image size, for serving slave OTA
@@ -298,6 +300,8 @@ void loop() {
     lastRebootCheck = millis();
     time_t now = time(NULL);
     struct tm* t = localtime(&now);
+    // 2:45am: money rollup (voucher groups + income refresh) — before the 3am reboot wipes RAM state
+    if (t->tm_hour == 2 && t->tm_min == 45) moneyNightlyRollup();
     if (t->tm_hour == 3 && t->tm_min == 0) {
       ESP_LOGI(TAG, "Scheduled 3am reboot — cascading to slaves, then restarting");
       for (int i = 0; i < 3; i++) { masterBroadcastReboot(); delay(100); }

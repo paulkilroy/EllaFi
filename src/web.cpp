@@ -1,6 +1,7 @@
 #include "web.h"
 #include "network.h"
 #include "log_buffer.h"
+#include "money_store.h"
 
 #include <LittleFS.h>
 #include <ESPmDNS.h>
@@ -649,7 +650,8 @@ void setupFsOtaRoute() {
     FS_PSRAM_BUFFER = nullptr;
 
     // Back up runtime data files before wiping the filesystem
-    static const char* PRESERVE[] = {"/config.json", "/sellers.json", "/errors.log", "/refunds.log"};
+    static const char* PRESERVE[] = {"/config.json", "/sellers.json", "/errors.log", "/refunds.log",
+                                     "/vendo_history.json", "/voucher_history.json"};
     fb->nPreserved = 0;
     for (auto path : PRESERVE) {
       if (!LittleFS.exists(path)) continue;
@@ -891,8 +893,52 @@ esp_err_t handleAdminRecheck(PsychicRequest* request, PsychicResponse* response)
   return response->send(200, "application/json", "{\"queued\":true}");
 }
 
+// ── Money record (NVS financial source-of-truth) ─────────────────────────────
+
+// GET: the whole record (report source + off-device backup export).
+esp_err_t handleAdminMoney(PsychicRequest* request, PsychicResponse* response) {
+  response->addHeader("Cache-Control", "no-store");
+  return response->send(200, "application/json", moneyRecordJson().c_str());
+}
+
+// POST: merge a Mac-side rollup (voucher_backup.py --rollup) into the record.
+esp_err_t handleAdminMoneyImport(PsychicRequest* request, PsychicResponse* response) {
+  String err;
+  int touched = moneyImport(request->body(), err);
+  if (touched < 0) return response->send(400, "application/json", ("{\"error\":\"" + err + "\"}").c_str());
+  return response->send(200, "application/json", ("{\"touched\":" + String(touched) + "}").c_str());
+}
+
+// One-time vendo-history migration. GET = dry run (per-month totals, no writes);
+// POST = apply once (guarded; repeat POSTs get 409 — the nightly rollup keeps months fresh after).
+esp_err_t handleAdminMoneyMigrate(PsychicRequest* request, PsychicResponse* response) {
+  std::map<String, long> months;
+  moneyVendoMonths(months);
+  if (request->method() == HTTP_GET) {
+    JsonDocument doc;
+    doc["migrated"] = moneyVendoMigrated();
+    doc["priceAssumption"] = PRICE_PER_COIN;
+    JsonObject m = doc["months"].to<JsonObject>();
+    for (auto& kv : months) m[kv.first] = kv.second;
+    String json; serializeJson(doc, json);
+    return response->send(200, "application/json", json.c_str());
+  }
+  if (moneyVendoMigrated())
+    return response->send(409, "application/json", "{\"error\":\"already migrated\"}");
+  for (auto& kv : months) {
+    // voucher side untouched: import/rollup owns it (moneyImport semantics preserve the other side)
+    String payload = "{\"income\":{\"" + kv.first + "\":{\"vendo\":" + String(kv.second) + "}}}";
+    String err; moneyImport(payload, err);
+  }
+  moneyMarkVendoMigrated();
+  moneyStoreSave();
+  return response->send(200, "application/json", ("{\"applied\":" + String((int)months.size()) + "}").c_str());
+}
+
+#ifdef TEST_MODE
 // Acceptor boot-glitch characterization: POST starts (cycles param, default 20), GET polls results.
-// Used to size COINSLOT_BOOT_SUPPRESS_MILLIS from measured data — see TODO.md.
+// Bench-build only (like /diag/hammer) — used at board bring-up / new-acceptor commissioning to size
+// COINSLOT_BOOT_SUPPRESS_MILLIS from measured data. Measured 2026-08-09: CH-926 power-on is clean.
 esp_err_t handleCoinBootTest(PsychicRequest* request, PsychicResponse* response) {
   if (request->method() == HTTP_POST) {
     int cycles = request->hasParam("cycles") ? request->getParam("cycles")->value().toInt() : 20;
@@ -902,6 +948,7 @@ esp_err_t handleCoinBootTest(PsychicRequest* request, PsychicResponse* response)
   }
   return response->send(200, "application/json", coinBootTestJson().c_str());
 }
+#endif
 
 #ifdef TEST_MODE
 // Stress endpoint: deliberately drives the controller refresh on THIS (httpd) thread AND enqueues a
@@ -1728,8 +1775,14 @@ void setupWeb() {
   HTTP_SERVER.on("/program",           HTTP_GET,  handleProgram)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/nodes",       HTTP_GET,  handleAdminNodes)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/recheck",     HTTP_POST, handleAdminRecheck)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/money",         HTTP_GET,  handleAdminMoney)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/money/import",  HTTP_POST, handleAdminMoneyImport)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/money/migrate", HTTP_GET,  handleAdminMoneyMigrate)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/money/migrate", HTTP_POST, handleAdminMoneyMigrate)->addMiddleware(adminAuth);
+#ifdef TEST_MODE
   HTTP_SERVER.on("/admin/coinslot/boottest", HTTP_POST, handleCoinBootTest)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/coinslot/boottest", HTTP_GET,  handleCoinBootTest)->addMiddleware(adminAuth);
+#endif
 #ifdef TEST_MODE
   HTTP_SERVER.on("/diag/hammer",       HTTP_GET,  handleDiagHammer);   // stress repro — see test/crash_hammer.py
 #endif

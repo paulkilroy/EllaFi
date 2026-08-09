@@ -123,7 +123,7 @@ constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
 // ── Firmware version ─────────────────────────────────────────────────────────
 
 #define FIRMWARE_VERSION "1.4.2"
-#define FIRMWARE_BUILD   60       // increment on every release; used for slave version comparison
+#define FIRMWARE_BUILD   61       // increment on every release; used for slave version comparison
 
 // True byte size of the running firmware image, computed once at boot (ESP.getSketchSize()).
 // This is what the master serves to slaves for OTA — derived from the running partition, so it's
@@ -145,6 +145,7 @@ constexpr int           COINSLOT_PIN                  = 4;
 constexpr int           COINSLOT_POWER_PIN            = 14;  // GPIO14 — gate of Q1 (AOD4184A, logic-level): HIGH enables the coin acceptor. 2-wire panels: low-side GND switch via Q1. 3-wire panels: also drives the panel enable on J2.2 — sim-verified 3.3V-logic-safe (even 12V-pullup panels: D4 clamps the pin ~2.1V during boot), but 3.3V only marginally drives panels with ~10k series inputs; measure the panel first (memory/hardware_notes.md, kicad/sim/board/tb_panel3wire.cir)
 constexpr unsigned long COIN_INSERT_TIMEOUT_MILLIS    = 10000;
 extern int              MINUTES_PER_COIN;              // minutes of access per coin — loaded from config
+constexpr int           COMMISSION_RATE_PERCENT       = 20;  // flat seller commission (global by decision 2026-08-09; make configurable if rates ever diverge)
 extern int              PRICE_PER_COIN;                // currency value of one coin pulse — revenue multiplier for reports only; from config, default 1 (1 pulse = 1 unit). Bump if the acceptor is set to N pulses/coin.
 extern int              FALLBACK_PRICE_PER_VOUCHER;    // voucher revenue fallback when Omada returns a bucket with no amount: revenue = count * this. Reports only; from config, default 5.
 
