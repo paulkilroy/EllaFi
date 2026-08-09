@@ -891,6 +891,18 @@ esp_err_t handleAdminRecheck(PsychicRequest* request, PsychicResponse* response)
   return response->send(200, "application/json", "{\"queued\":true}");
 }
 
+// Acceptor boot-glitch characterization: POST starts (cycles param, default 20), GET polls results.
+// Used to size COINSLOT_BOOT_SUPPRESS_MILLIS from measured data — see TODO.md.
+esp_err_t handleCoinBootTest(PsychicRequest* request, PsychicResponse* response) {
+  if (request->method() == HTTP_POST) {
+    int cycles = request->hasParam("cycles") ? request->getParam("cycles")->value().toInt() : 20;
+    if (!coinBootTestStart(cycles))
+      return response->send(409, "application/json", "{\"error\":\"coin session active or test already running\"}");
+    return response->send(200, "application/json", "{\"ok\":true}");
+  }
+  return response->send(200, "application/json", coinBootTestJson().c_str());
+}
+
 #ifdef TEST_MODE
 // Stress endpoint: deliberately drives the controller refresh on THIS (httpd) thread AND enqueues a
 // WS-task refresh, so multiple tasks hit getCredentials concurrently — reproduces the heap-clean
@@ -1716,6 +1728,8 @@ void setupWeb() {
   HTTP_SERVER.on("/program",           HTTP_GET,  handleProgram)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/nodes",       HTTP_GET,  handleAdminNodes)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/recheck",     HTTP_POST, handleAdminRecheck)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/coinslot/boottest", HTTP_POST, handleCoinBootTest)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/coinslot/boottest", HTTP_GET,  handleCoinBootTest)->addMiddleware(adminAuth);
 #ifdef TEST_MODE
   HTTP_SERVER.on("/diag/hammer",       HTTP_GET,  handleDiagHammer);   // stress repro — see test/crash_hammer.py
 #endif

@@ -118,6 +118,74 @@ void slaveRecvCoinInsertEnd() {
   ESP_LOGI(TAG, "Session ended — coin acceptance disabled");
 }
 
+// ── Acceptor boot-glitch characterization ─────────────────────────────────────
+// coinPulseTask stays the queue's sole consumer — while the test runs it diverts raw
+// pulses here (before any filter) instead of processing them.
+struct BootTestPulse { uint16_t cycle; uint32_t offsetMs; uint32_t widthUs; };
+static constexpr int           BOOTTEST_MAX_PULSES    = 200;
+static constexpr int           BOOTTEST_MAX_CYCLES    = 64;
+static constexpr unsigned long BOOTTEST_OFF_MILLIS     = 2000;  // acceptor fully discharged
+static constexpr unsigned long BOOTTEST_CAPTURE_MILLIS = 3000;  // watch window after power-on
+
+static std::atomic<bool>          BOOT_TEST_RUNNING{false};
+static volatile uint16_t          BOOT_TEST_CYCLE = 0;   // 1-based, current
+static volatile int               BOOT_TEST_TOTAL = 0;
+static std::atomic<unsigned long> BOOT_TEST_POWERON_US{0};
+static BootTestPulse              BOOT_TEST_PULSES[BOOTTEST_MAX_PULSES];
+static std::atomic<int>           BOOT_TEST_COUNT{0};
+static uint8_t                    BOOT_TEST_STUCK[BOOTTEST_MAX_CYCLES];  // line still LOW at window end
+
+static void coinBootTestTask(void*) {
+  for (int c = 1; c <= BOOT_TEST_TOTAL; c++) {
+    BOOT_TEST_CYCLE = c;
+    digitalWrite(COINSLOT_POWER_PIN, LOW);
+    BOOT_TEST_POWERON_US.store(0);
+    vTaskDelay(pdMS_TO_TICKS(BOOTTEST_OFF_MILLIS));
+    BOOT_TEST_POWERON_US.store(micros());
+    digitalWrite(COINSLOT_POWER_PIN, HIGH);
+    vTaskDelay(pdMS_TO_TICKS(BOOTTEST_CAPTURE_MILLIS));
+    BOOT_TEST_STUCK[c - 1] = (digitalRead(COINSLOT_PIN) == LOW);
+  }
+  digitalWrite(COINSLOT_POWER_PIN, LOW);   // idle state: acceptor off
+  ESP_LOGW(TAG, "Boot test done: %d cycles, %d raw pulses captured", BOOT_TEST_TOTAL, BOOT_TEST_COUNT.load());
+  BOOT_TEST_RUNNING.store(false);
+  vTaskDelete(NULL);
+}
+
+bool coinBootTestRunning() { return BOOT_TEST_RUNNING.load(); }
+
+bool coinBootTestStart(int cycles) {
+  if (SHOULD_ACCEPT_COINS || BOOT_TEST_RUNNING.load()) return false;
+  BOOT_TEST_TOTAL = cycles < 1 ? 1 : (cycles > BOOTTEST_MAX_CYCLES ? BOOTTEST_MAX_CYCLES : cycles);
+  BOOT_TEST_COUNT.store(0);
+  BOOT_TEST_CYCLE = 0;
+  memset(BOOT_TEST_STUCK, 0, sizeof(BOOT_TEST_STUCK));
+  BOOT_TEST_RUNNING.store(true);
+  xTaskCreate(coinBootTestTask, "bootTest", 4096, NULL, 1, NULL);
+  return true;
+}
+
+String coinBootTestJson() {
+  JsonDocument doc;
+  doc["running"]     = BOOT_TEST_RUNNING.load();
+  doc["cycle"]       = (int)BOOT_TEST_CYCLE;
+  doc["cyclesTotal"] = BOOT_TEST_TOTAL;
+  JsonArray arr = doc["pulses"].to<JsonArray>();
+  int n = BOOT_TEST_COUNT.load();
+  for (int i = 0; i < n; i++) {
+    JsonObject o = arr.add<JsonObject>();
+    o["cycle"] = BOOT_TEST_PULSES[i].cycle;
+    o["ms"]    = BOOT_TEST_PULSES[i].offsetMs;
+    o["us"]    = BOOT_TEST_PULSES[i].widthUs;
+  }
+  JsonArray st = doc["stuckLowCycles"].to<JsonArray>();
+  for (int c = 0; c < BOOT_TEST_TOTAL && c < BOOTTEST_MAX_CYCLES; c++)
+    if (BOOT_TEST_STUCK[c]) st.add(c + 1);
+  String out;
+  serializeJson(doc, out);
+  return out;
+}
+
 // ── FreeRTOS tasks ────────────────────────────────────────────────────────────
 
 // Post a fraud abort to the session owner. Called from coinPulseTask (master).
@@ -138,6 +206,19 @@ void coinPulseTask(void*) {
   for (;;) {
     CoinPulse pulse;
     xQueueReceive(COIN_PULSE_QUEUE, &pulse, portMAX_DELAY);
+
+    // Boot test running — capture the raw pulse (offset from acceptor power-on + width), skip filters
+    if (BOOT_TEST_RUNNING.load()) {
+      unsigned long onUs = BOOT_TEST_POWERON_US.load();
+      int i = BOOT_TEST_COUNT.load();
+      if (pulse.source == PULSE_COINSLOT && onUs != 0 && i < BOOTTEST_MAX_PULSES) {
+        BOOT_TEST_PULSES[i] = { BOOT_TEST_CYCLE,
+                                (uint32_t)((pulse.timestampMicros - onUs) / 1000UL),
+                                (uint32_t)pulse.widthMicros };
+        BOOT_TEST_COUNT.store(i + 1);
+      }
+      continue;
+    }
 
     // Outside insertion window — reset per-session state and discard
     if (!SHOULD_ACCEPT_COINS) {
@@ -211,6 +292,7 @@ String coinU32ToIp(uint32_t v) {
 }
 
 bool coinSessionTryClaim(int socketFd, const String& clientIp) {
+  if (BOOT_TEST_RUNNING.load()) return false;  // acceptor power is being cycled — no sessions
   bool expected = false;
   if (!COIN_INSERT_ACTIVE.compare_exchange_strong(expected, true)) return false;
   CoinSessionEvent e(socketFd, clientIp);

@@ -72,12 +72,13 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   `apMac`/`radioId` from auth? — was blocked by the voucher SSID (`-41501`), but the **EllaFi PisoWiFi**
   External-Portal SSID on Bakhaw is now a clean target. Run `test/auth_field_probe.py` against a
   pending client there.
-- **Coin-slot boot-glitch characterization endpoint.** Before touching `COINSLOT_BOOT_SUPPRESS_MILLIS`
-  (currently a 500ms guess): admin test mode that cycles Q1 (acceptor power) N times and captures every
-  raw pulse the ISR queues for 3s after each power-on — bypassing the suppress/width/interval filters,
-  which stay untouched. Output: per-cycle (offset-from-power-on, width). Sets the window from data
-  (~2× the latest glitch ever seen). Run with acceptor attached AND unplugged to separate acceptor boot
-  noise from board switching noise. Refuse while a coin session is active.
+- **✅ Coin-slot boot-glitch characterization — MEASURED (2026-08-09).** Endpoint built
+  (`POST/GET /admin/coinslot/boottest`, build 60): cycles Q1 N times, captures every raw pulse for 3s
+  after each power-on, bypassing the filters (which stay untouched); sessions locked out during a run.
+  Result on the bench box's CH-926 (operator confirmed the acceptor audibly cycling): **40 power-ons
+  across two days — incl. an overnight-cold first cycle — zero pulses, zero stuck-low.** This acceptor's
+  power-on is clean. `COINSLOT_BOOT_SUPPRESS_MILLIS` stays 500ms as free margin (other units/models may
+  differ — rerun the endpoint on the new board at bring-up, and on any newly deployed acceptor).
 - **Reconsider the fraud abort / bounce handling — ONLY if field data ever shows it.** The board co-sim
   (`kicad/sim/board/`, day-in-the-life bench) showed a *worn* acceptor with bouncing contacts generates
   2-3 sub-width fragments per coin → 3-strike fraud abort kills the paying customer's session. BUT: zero

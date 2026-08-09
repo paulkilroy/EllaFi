@@ -5,6 +5,15 @@
 #include "network.h"
 
 void IRAM_ATTR coinButtonPulse();   // debounced — boot button / test
+
+// Acceptor boot-glitch characterization (admin test mode): power-cycles the acceptor
+// N times and captures every raw coin pulse for 3s after each power-on, bypassing the
+// suppress/width/interval filters (which stay untouched). Sizes COINSLOT_BOOT_SUPPRESS_MILLIS
+// from data instead of guesswork. Start refuses while a coin session is active; session
+// claims are refused while the test runs.
+bool   coinBootTestStart(int cycles);
+bool   coinBootTestRunning();
+String coinBootTestJson();
 void IRAM_ATTR coinSlotPulse();     // no debounce — real coin acceptor
 
 void masterRecvCoinInserted(const char* senderMac);
