@@ -286,9 +286,19 @@ static void pingHealthcheck() {
                 ",\"active_sessions\":" + String((unsigned)HOTSPOT_SESSION_CACHE.size()) +
                 ",\"nodes_down\":" + String(downCount) +
                 (downCount ? (",\"down\":\"" + downMacs + "\"") : String("")) + "}";
+  unsigned long t0 = millis();
   int code = h.POST(body);
   h.end();
-  if (code != 200)    ESP_LOGW(TAG, "healthcheck ping failed (HTTP %d)", code);
+  // Contention snapshot on failure: elapsed separates instant connect/DNS fails (-1, ~0ms) from
+  // timeouts (-11, ~4000ms); tls counts concurrent Omada handshakes (the DRAM competitor); wsq is
+  // the Omada job backlog; dram/largest expose heap squeeze/fragmentation. All ~equal across many
+  // failures + tls=0 + healthy heap = the WAN is dropping, not the firmware.
+  if (code != 200)
+    ESP_LOGW(TAG, "healthcheck ping failed (HTTP %d) after %lums — tls=%d wsq=%u rssi=%d dram=%u largest=%u",
+             code, millis() - t0, omadaTlsInFlight(),
+             (unsigned)uxQueueMessagesWaiting(WEBSOCKET_JOB_QUEUE), WiFi.RSSI(),
+             (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   else if (downCount) ESP_LOGW(TAG, "healthcheck /fail sent — %d node(s) down: %s", downCount, downMacs.c_str());
   else                ESP_LOGI(TAG, "healthcheck ping ok");
 }

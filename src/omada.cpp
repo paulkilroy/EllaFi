@@ -47,6 +47,16 @@ struct PsramAllocator : ArduinoJson::Allocator {
 };
 static PsramAllocator psramAlloc;
 
+// TLS-in-flight counter — contention instrumentation. Each block that opens a WiFiClientSecure
+// holds a TlsGuard, so a failed healthcheck ping (main.cpp) can report whether an Omada TLS
+// handshake was concurrently eating internal DRAM. Read via omadaTlsInFlight().
+static std::atomic<int> TLS_IN_FLIGHT{0};
+int omadaTlsInFlight() { return TLS_IN_FLIGHT.load(); }
+struct TlsGuard {
+  TlsGuard()  { TLS_IN_FLIGHT.fetch_add(1); }
+  ~TlsGuard() { TLS_IN_FLIGHT.fetch_sub(1); }
+};
+
 // ---- Omada config globals ----
 // Populated by loadConfig() in main.cpp at startup.
 
@@ -96,7 +106,7 @@ static OmadaCredentials getCredentials(String& errorDetail) {
   CREDS = {};
 
   CookieJar jar;
-  WiFiClientSecure wc;
+  WiFiClientSecure wc; TlsGuard tlsg;
   HTTPClient h;
   wc.setInsecure();
   wc.setTimeout(15000);
@@ -192,7 +202,7 @@ bool loadOmadaSites(String& errorDetail) {
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) return false;
 
-  WiFiClientSecure wc;
+  WiFiClientSecure wc; TlsGuard tlsg;
   HTTPClient h;
   wc.setInsecure();
   h.setTimeout(15000);
@@ -264,7 +274,7 @@ bool authenticateOmadaClient(SessionParams& session, unsigned long long duration
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) return false;
 
-  WiFiClientSecure wc;
+  WiFiClientSecure wc; TlsGuard tlsg;
   HTTPClient h;
   wc.setInsecure();
 
@@ -325,7 +335,7 @@ bool extendOmadaClient(SessionParams& session, unsigned long long durationMillis
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) return false;
 
-  WiFiClientSecure wc;
+  WiFiClientSecure wc; TlsGuard tlsg;
   HTTPClient h;
   wc.setInsecure();
 
@@ -373,7 +383,7 @@ bool disconnectOmadaClient(SessionParams& session, String& errorDetail) {
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) return false;
 
-  WiFiClientSecure wc;
+  WiFiClientSecure wc; TlsGuard tlsg;
   HTTPClient h;
   wc.setInsecure();
 
@@ -425,7 +435,7 @@ JsonDocument getHotspotClientsJson() {
     return JsonDocument();
   }
 
-  WiFiClientSecure wc;
+  WiFiClientSecure wc; TlsGuard tlsg;
   HTTPClient h;
   wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
@@ -480,7 +490,7 @@ JsonDocument getDeviceGridJson() {
   String errorDetail;
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) { ESP_LOGW(TAG, "getDeviceGridJson: login failed: %s", errorDetail.c_str()); return JsonDocument(); }
-  WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+  WiFiClientSecure wc; TlsGuard tlsg; HTTPClient h; wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/sites/" + SITE_ID + "/grid/devices";
   h.begin(wc, url); applyCredentials(h, creds);
   int code = h.GET();
@@ -526,7 +536,7 @@ JsonDocument getAllClientsJson() {
     return JsonDocument();
   }
 
-  WiFiClientSecure wc;
+  WiFiClientSecure wc; TlsGuard tlsg;
   HTTPClient h;
   wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
@@ -542,6 +552,7 @@ JsonDocument getAllClientsJson() {
     h.end();
     return JsonDocument();
   }
+  int contentLen = h.getSize();  // Content-Length, or -1 when chunked
   String body = h.getString();   // getString() de-chunks the response; getStream() would leave chunk framing in the bytes
   h.end();
   ESP_LOGI(TAG, "getAllClientsJson: HTTP %d, %d bytes", code, body.length());
@@ -551,8 +562,15 @@ JsonDocument getAllClientsJson() {
     return JsonDocument();
   }
   JsonDocument doc(&psramAlloc);   // parse tree in PSRAM — the ~68 KB list won't fit in internal DRAM after TLS
-  if (deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0) {
-    ESP_LOGW(TAG, "getAllClientsJson: parse/API error: %.200s", body.c_str());
+  DeserializationError perr = deserializeJson(doc, body);
+  if (perr || doc["errorCode"].as<int>() != 0) {
+    // Seen 2026-08-10 with errorCode:0 in the prefix — i.e. a good response that failed to parse.
+    // len vs Content-Length proves/disproves truncation; largest DRAM block shows heap squeeze.
+    ESP_LOGW(TAG, "getAllClientsJson: parse/API error (%s): len=%u contentLen=%d largestDRAM=%u : %.200s",
+             perr ? perr.c_str() : "api",
+             (unsigned)body.length(), contentLen,
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             body.c_str());
     return JsonDocument();
   }
   return doc;
@@ -567,7 +585,7 @@ bool setClientName(const String& mac, const String& name, String& errorDetail) {
   String macDash = mac; macDash.replace(":", "-"); macDash.toUpperCase();   // path wants dash-separated
   String esc = name; esc.replace("\\", "\\\\"); esc.replace("\"", "\\\"");
 
-  WiFiClientSecure wc;
+  WiFiClientSecure wc; TlsGuard tlsg;
   HTTPClient h;
   wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/sites/" + SITE_ID + "/clients/" + macDash;
@@ -736,7 +754,7 @@ JsonDocument getVoucherGroupsJson() {
   String errorDetail;
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) { ESP_LOGE(TAG, "getVoucherGroupsJson: login failed: %s", errorDetail.c_str()); return JsonDocument(); }
-  WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+  WiFiClientSecure wc; TlsGuard tlsg; HTTPClient h; wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/sites/" + SITE_ID + "/voucherGroups?currentPage=1&currentPageSize=100";
   h.begin(wc, url); applyCredentials(h, creds);
   int code = h.GET();
@@ -752,7 +770,7 @@ JsonDocument getVoucherHistoryJson(time_t startSec, time_t endSec) {
   String errorDetail;
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) { ESP_LOGW(TAG, "getVoucherHistoryJson: login failed: %s", errorDetail.c_str()); return JsonDocument(); }
-  WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+  WiFiClientSecure wc; TlsGuard tlsg; HTTPClient h; wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/sites/" + SITE_ID +
                "/vouchers/statistics/history?filters.timeStart=" + String((long)startSec) +
                "&filters.timeEnd=" + String((long)endSec);
@@ -776,7 +794,7 @@ bool createVoucherGroup(const String& name, int durationMin, int totalCount,
                         String& groupId, String& errorDetail) {
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) return false;
-  WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+  WiFiClientSecure wc; TlsGuard tlsg; HTTPClient h; wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/sites/" + SITE_ID + "/voucherGroups";
   h.begin(wc, url); applyCredentials(h, creds); h.addHeader("Content-Type", "application/json");
   String escapedName = name;
@@ -818,7 +836,7 @@ JsonDocument getVoucherCodesJson(const String& groupId, int page) {
   String errorDetail;
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) return JsonDocument();
-  WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+  WiFiClientSecure wc; TlsGuard tlsg; HTTPClient h; wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/sites/" + SITE_ID +
                "/voucherGroups/" + groupId + "?currentPage=" + String(page) + "&currentPageSize=130";
   h.begin(wc, url); applyCredentials(h, creds);
@@ -833,7 +851,7 @@ JsonDocument getVoucherCodesJson(const String& groupId, int page) {
 bool deleteVoucherGroup(const String& groupId, String& errorDetail) {
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) return false;
-  WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+  WiFiClientSecure wc; TlsGuard tlsg; HTTPClient h; wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/sites/" + SITE_ID +
                "/voucherGroups/" + groupId;
   h.begin(wc, url); applyCredentials(h, creds);
@@ -977,7 +995,7 @@ void refreshControllerStatus() {
   JsonDocument doc;
   bool ok = false;
   if (creds.loginMs != 0) {
-    WiFiClientSecure wc; HTTPClient h; wc.setInsecure();
+    WiFiClientSecure wc; TlsGuard tlsg; HTTPClient h; wc.setInsecure();
     wc.setTimeout(4000);          // bounded — this runs in the master loop's 30s health poll
     h.setConnectTimeout(4000);    // a dead controller must fail fast, not stall coin/UDP timing
     h.setTimeout(4000);

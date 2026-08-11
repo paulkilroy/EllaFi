@@ -149,6 +149,11 @@ bool extendOmadaClient(SessionParams& session, unsigned long long durationMillis
 bool disconnectOmadaClient(SessionParams& session, String& errorDetail);
 JsonDocument getHotspotClientsJson();
 JsonDocument getAllClientsJson();
+
+// Contention instrumentation: number of Omada TLS operations currently in flight
+// (each ~40KB of internal DRAM during handshake). Read by the healthcheck ping's
+// failure log to separate firmware contention from WAN loss.
+int omadaTlsInFlight();
 bool setClientName(const String& mac, const String& name, String& errorDetail);  // PATCH a client's Omada alias
 JsonDocument mergeClientLists(JsonArray hotspotClients, JsonArray allClients, uint64_t nowMs);
 void refreshHotspotSessionCache();
