@@ -1,0 +1,53 @@
+* TB16: COIN-ACCEPT ENABLE SEQUENCE — the new board, end to end, all simulated.
+* Session starts at t=100ms: ESP32 drives GPIO14 high -> Q1 (AOD4184A) turns on ->
+* the acceptor gets its ground return (inrush into its input electrolytic!) and the
+* LED ring lights -> acceptor boots (measured clean, 2026-08-09) -> boot-suppress
+* window (500ms) -> coins with REALISTIC widths (CH-926 range + the 4ms field minimum):
+*
+*   0.35s  coin, 20ms  — inside the suppress window: firmware must swallow it
+*   0.75s  coin, 20ms  — nominal fast-mode pulse -> ACCEPT
+*   1.00s  coin,  4ms  — narrowest width seen on real acceptors -> ACCEPT (1ms margin)
+*   1.25s  coin, 50ms  — medium-mode pulse -> ACCEPT
+*
+* cosim layer (enable_seq section of microscope_scope.py) replays coin.cpp over
+* v(GPIO4) and prints the verdicts + measured-vs-emitted widths.
+.param LAMPR=144
+.include models.inc
+.include board.inc
+VADAPT vsup 0 12
+LLEAD vsup vl 1u
+RLEAD vl VJACK 0.05
+* acceptor input electrolytic — the enable-moment inrush source (220uF, 0.4R ESR)
+CACC naccc accgnd 220u
+RACCESR accv naccc 0.4
+* ESP32 drives the session: GPIO14 high at 100ms (pin driver ~15R)
+VG14 g14d 0 PULSE(0 3.3 100m 1u 1u 10 20)
+RG14 g14d GPIO14 15
+* coin schedule (acceptor open-collector closes = 1)
+VCOIN COINCTL 0 PWL(0 0
++ 0.34999 0  0.35 1  0.37 1  0.37001 0
++ 0.74999 0  0.75 1  0.77 1  0.77001 0
++ 0.99999 0  1.00 1  1.004 1  1.00401 0
++ 1.24999 0  1.25 1  1.30 1  1.30001 0  10 0)
+VSOL SOLCTL 0 0
+.options savecurrents
+.options method=gear
+.control
+tran 10u 1.5
+wrdata enableseq.dat v(GPIO14) v(BLINK) v(RAIL12) v(GPIO4) v(COIN) v(P3V3)
+meas tran g14_high    WHEN v(GPIO14)=1.7 RISE=1
+meas tran q1_on       WHEN v(BLINK)=0.5 FALL=1
+meas tran rail_dip    MIN v(RAIL12) from=99m to=140m
+let iacc = v(accv,naccc)/0.4
+meas tran inrush_pk   MAX iacc from=99m to=140m
+meas tran v5_dip      MIN v(P5V)  from=99m to=140m
+meas tran v33_dip     MIN v(P3V3) from=99m to=140m
+meas tran dip_len TRIG v(RAIL12) VAL=10 FALL=1 TARG v(RAIL12) VAL=10 RISE=1
+meas tran lamp_i      FIND @rlamp[i] AT=300m
+meas tran d4_i        FIND @r4[i] AT=300m
+meas tran acc_settle  FIND v(BLINK) AT=300m
+* fine zoom of the enable instant for the visual
+tran 0.2u 104m 98m
+wrdata enableseq_zoom.dat v(GPIO14) v(BLINK) v(RAIL12)
+.endc
+.end

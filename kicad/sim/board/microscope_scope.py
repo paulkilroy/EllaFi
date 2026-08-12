@@ -48,6 +48,38 @@ def main():
         'strips': [{'name': k, 'cl': ROLE[r][0], 'cd': ROLE[r][1], 'pts': d[k]} for k, r in
                    [('12V rail','power'), ('3V3','power'), ('coin line','coin'), ('GPIO4','coin'), ('GPIO14','ctrl')]]})
 
+    # ---- enable sequence (tb_enable_seq): cascade + firmware verdicts ----
+    import cosim_replay as CR
+    te, (g14e, blinke, rail12e, g4e, coine, p33e) = load_wrdata(os.path.join(HERE, 'enableseq.dat'), 6)
+    edges, _ = CR.schmitt_edges(te, g4e, p33e)
+    C = CR.firmware_constants()
+    accepted, events, fraud, aborted = CR.replay(edges, C, 0.1, 10.0)
+    verdicts = ' · '.join(f"{t:.2f}s {m.split('(')[0].strip()}" for t, m, w in events)
+    widths = [f"{w/1000:.1f}ms" for t, m, w in events if 'ACCEPTED' in m]
+    sections.append({'id': 'sec_seq', 'title': 'SECONDS — coin-accept enable sequence (new board)', 'unit': 's', 'tmax': 1.5,
+        'note': 'Session starts at 0.10s: GPIO14 rises, Q1 turns on (acceptor ground + LED ring live, '
+                'D4 indicator 5.6mA, ring 83mA), acceptor input cap inrushes (next section), boot-suppress '
+                'window runs to 0.60s. Coins at realistic widths: 20ms in the window, then 20ms / 4ms / 50ms. '
+                f'Firmware replay verdicts: {verdicts}. Measured widths at GPIO4: {", ".join(widths)} '
+                f'(emitted 20/4/50ms — the opto adds ~+9µs, see the edge sections). '
+                f'{len(accepted)}/3 legal coins accepted, {fraud} fraud events.',
+        'strips': [{'name': n, 'cl': ROLE[r][0], 'cd': ROLE[r][1],
+                    'pts': [[round(tt, 5), round(vv, 4)] for tt, vv in decimate(te, vv_)]}
+                   for n, r, vv_ in [('GPIO14', 'ctrl', g14e), ('Q1 drain', 'ctrl', blinke),
+                                     ('12V rail', 'power', rail12e), ('coin line', 'coin', coine),
+                                     ('GPIO4', 'coin', g4e)]]})
+
+    tz, (g14z, blinkz, rail12z) = load_wrdata(os.path.join(HERE, 'enableseq_zoom.dat'), 3)
+    sections.append({'id': 'sec_seq_zoom', 'title': 'MICROSECONDS — the enable instant', 'unit': 'ms',
+        'tmin': 98, 'tmax': 104,
+        'note': 'The moment Q1 closes: the acceptor\'s 220µF input cap inrushes at ~19.5A for ~60µs, '
+                'sagging the 12V rail to 6.0V — and the 5V/3V3 rails ride through untouched (4.961V / '
+                '3.292V measured). Within Q1\'s 50A rating; 0.04% of F1\'s trip energy. Model note: real '
+                'acceptor ESR + wiring likely soften this further.',
+        'strips': [strip('GPIO14', 'ctrl', tz, g14z, 1e3),
+                   strip('Q1 drain', 'ctrl', tz, blinkz, 1e3),
+                   strip('12V rail', 'power', tz, rail12z, 1e3)]})
+
     z = cs['runs']['attackzoom']['traces']
     sections.append({'id': 'sec_ms', 'title': 'MILLISECONDS — the pitik attack', 'unit': 'ms', 'tmax': 60,
         'note': '300V spark ring into the coin wire at 5ms (D1 clamps the line at 7.0V, GPIO4 dips only to 2.1V '
