@@ -528,7 +528,7 @@
         "pcb_color": "rgba(0, 0, 0, 0.000)",
         "priority": 4,
         "schematic_color": "rgb(255, 0, 0)",
-        "track_width": 0.25,
+        "track_width": 0.8,
         "tuning_profile": "",
         "via_diameter": 0.6,
         "via_drill": 0.3,
@@ -566,7 +566,7 @@
         "pcb_color": "rgba(0, 0, 0, 0.000)",
         "priority": 2,
         "schematic_color": "rgb(255, 0, 0)",
-        "track_width": 0.25,
+        "track_width": 0.8,
         "tuning_profile": "",
         "via_diameter": 0.6,
         "via_drill": 0.3,
@@ -642,7 +642,7 @@
         "pcb_color": "rgba(0, 0, 0, 0.000)",
         "priority": 1,
         "schematic_color": "rgb(0, 0, 0)",
-        "track_width": 0.25,
+        "track_width": 0.8,
         "tuning_profile": "",
         "via_diameter": 0.6,
         "via_drill": 0.3,
@@ -706,6 +706,10 @@
       {
         "netclass": "COIN_EN",
         "pattern": "Net-(D4-K)"
+      },
+      {
+        "netclass": "SW_GND",
+        "pattern": "Net-(J2-Pin_3)"
       }
     ]
   },
