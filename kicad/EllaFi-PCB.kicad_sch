@@ -6573,7 +6573,18 @@
 				)
 			)
 		)
-		(property "Mfg_PN" "AP3216SURCK"
+		(property "Mfg_PN" "LTST-C150KRKT"
+			(at 217.17 40.64 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C125086"
 			(at 217.17 40.64 0)
 			(hide yes)
 			(show_name no)
@@ -6741,6 +6752,17 @@
 				)
 			)
 		)
+		(property "LCSC" "C221829"
+			(at 95.25 87.63 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(property "Instructions" ""
 			(at 95.25 87.63 0)
 			(hide yes)
@@ -6863,6 +6885,17 @@
 			)
 		)
 		(property "Mfg_PN" "AOD4184A"
+			(at 219.71 146.05 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C99124"
 			(at 219.71 146.05 0)
 			(hide yes)
 			(show_name no)
@@ -7002,6 +7035,17 @@
 				)
 			)
 		)
+		(property "LCSC" "C95781"
+			(at 214.63 104.14 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(property "Instructions" ""
 			(at 214.63 104.14 0)
 			(hide yes)
@@ -7106,6 +7150,17 @@
 			)
 		)
 		(property "Mfg_PN" "PPPC221LFBN-RC"
+			(at 156.21 134.62 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" ""
 			(at 156.21 134.62 0)
 			(hide yes)
 			(show_name no)
@@ -7300,6 +7355,17 @@
 				)
 			)
 		)
+		(property "LCSC" ""
+			(at 68.58 90.17 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(property "Instructions" ""
 			(at 68.58 90.17 0)
 			(hide yes)
@@ -7418,6 +7484,17 @@
 				)
 			)
 		)
+		(property "LCSC" "C138042"
+			(at 147.32 25.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(pin "2"
 			(uuid "c83479c4-6125-48f2-a4ca-14595a0c1a4e")
 		)
@@ -7522,7 +7599,18 @@
 				)
 			)
 		)
-		(property "Mfg_PN" "CL21A106KACLRNC"
+		(property "Mfg_PN" "CL21A106KAYNNNE"
+			(at 67.31 38.1 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C15850"
 			(at 67.31 38.1 0)
 			(hide yes)
 			(show_name no)
@@ -7637,6 +7725,17 @@
 			)
 		)
 		(property "Mfg_PN" "PPPC221LFBN-RC"
+			(at 125.73 134.62 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" ""
 			(at 125.73 134.62 0)
 			(hide yes)
 			(show_name no)
@@ -7811,6 +7910,17 @@
 			)
 		)
 		(property "Mfg_PN" "MINISMDC150F/16-2"
+			(at 39.37 35.56 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C315955"
 			(at 39.37 35.56 0)
 			(hide yes)
 			(show_name no)
@@ -8011,7 +8121,18 @@
 				)
 			)
 		)
-		(property "Mfg_PN" "AP3216SGCK"
+		(property "Mfg_PN" "LTST-C150KGKT"
+			(at 189.23 132.08 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C125085"
 			(at 189.23 132.08 0)
 			(hide yes)
 			(show_name no)
@@ -8169,6 +8290,17 @@
 			)
 		)
 		(property "Mfg_PN" "RC0805FR-07220RL"
+			(at 102.87 142.24 90)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C114519"
 			(at 102.87 142.24 90)
 			(hide yes)
 			(show_name no)
@@ -8371,6 +8503,17 @@
 				)
 			)
 		)
+		(property "LCSC" "C60491"
+			(at 97.79 29.21 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(pin "1"
 			(uuid "3c3f76ac-3a10-432c-ac1d-9be18a6d7795")
 		)
@@ -8487,6 +8630,17 @@
 			)
 		)
 		(property "Mfg_PN" "P6SMB6.8A"
+			(at 200.66 54.61 90)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C19077595"
 			(at 200.66 54.61 90)
 			(hide yes)
 			(show_name no)
@@ -8657,7 +8811,18 @@
 				)
 			)
 		)
-		(property "Mfg_PN" "FOD817S"
+		(property "Mfg_PN" "LTV-817S-TA1-B"
+			(at 189.23 118.11 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C109226"
 			(at 189.23 118.11 0)
 			(hide yes)
 			(show_name no)
@@ -8801,6 +8966,17 @@
 				)
 			)
 		)
+		(property "LCSC" "C114561"
+			(at 168.91 109.22 90)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(property "Instructions" ""
 			(at 168.91 109.22 90)
 			(hide yes)
@@ -8915,6 +9091,17 @@
 			)
 		)
 		(property "Mfg_PN" "RC0805FR-07330RL"
+			(at 190.5 40.64 90)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C105878"
 			(at 190.5 40.64 90)
 			(hide yes)
 			(show_name no)
@@ -9285,6 +9472,17 @@
 				)
 			)
 		)
+		(property "LCSC" "C114519"
+			(at 205.74 104.14 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(property "Instructions" ""
 			(at 205.74 104.14 0)
 			(hide yes)
@@ -9410,7 +9608,18 @@
 				)
 			)
 		)
-		(property "Mfg_PN" "AP3216SYCK"
+		(property "Mfg_PN" "LTST-C150YKT"
+			(at 95.25 142.24 90)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C125089"
 			(at 95.25 142.24 90)
 			(hide yes)
 			(show_name no)
@@ -9557,6 +9766,17 @@
 			)
 		)
 		(property "Mfg_PN" "PJ-002AH"
+			(at 20.32 38.1 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C2961147"
 			(at 20.32 38.1 0)
 			(hide yes)
 			(show_name no)
@@ -9760,7 +9980,18 @@
 				)
 			)
 		)
-		(property "Mfg_PN" "CL21A226KOQNNNG"
+		(property "Mfg_PN" "CL21A226MOQNNNE"
+			(at 156.21 45.72 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C98190"
 			(at 156.21 45.72 0)
 			(hide yes)
 			(show_name no)
@@ -9895,6 +10126,17 @@
 				)
 			)
 		)
+		(property "LCSC" ""
+			(at 68.58 59.69 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(property "Instructions" ""
 			(at 68.58 59.69 0)
 			(hide yes)
@@ -10004,6 +10246,17 @@
 			)
 		)
 		(property "Mfg_PN" "MPM3620AGQV-Z"
+			(at 129.54 33.02 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C529064"
 			(at 129.54 33.02 0)
 			(hide yes)
 			(show_name no)
@@ -10206,6 +10459,17 @@
 				)
 			)
 		)
+		(property "LCSC" "C84376"
+			(at 200.66 154.94 90)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(property "Instructions" ""
 			(at 200.66 154.94 0)
 			(hide yes)
@@ -10321,6 +10585,17 @@
 				)
 			)
 		)
+		(property "LCSC" "C60491"
+			(at 156.21 25.4 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
 		(pin "1"
 			(uuid "6d8e2279-1d30-43a7-b428-240d2b8eae0c")
 		)
@@ -10413,6 +10688,17 @@
 			)
 		)
 		(property "Mfg_PN" "1.5SMC18A"
+			(at 50.8 38.1 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(property "LCSC" "C223925"
 			(at 50.8 38.1 0)
 			(hide yes)
 			(show_name no)
