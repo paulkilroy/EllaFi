@@ -26,3 +26,4 @@ voucher_backups/
 kicad/sim/board/*.dat
 kicad/sim/board/cosim_traces.json
 kicad/sim/board/scope.html
+kicad/fab/
