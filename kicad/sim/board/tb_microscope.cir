@@ -1,0 +1,73 @@
+* TB15: ELECTRICAL MICROSCOPE — the finest-grained truth the models can produce.
+* Three captures at nanosecond resolution, each isolating one piece of physics:
+*
+* A (0-200us, 2ns step): the buck at SWITCHING level — not the averaged model.
+*   The MPM3620A's internal FET chops the input at 2MHz (duty 5/12). Shows the
+*   12V rail's residual ripple at the external pin (the spike the LM2596 design
+*   died from, absent here) and the 5V output ripple into C2.
+* B (0-40us): a coin FALLING edge through the whole chain: acceptor transistor
+*   closes -> coin line falls -> opto LED lights -> 3us phototransistor lag ->
+*   GPIO4 pulled low. The anti-pitik band-limiting, visible.
+* C (0-40us): the RISING edge: acceptor releases -> D1/line recover -> opto off
+*   -> R1 (2.2k) recharges GPIO4 + pin capacitance. The R1 value chosen in the
+*   Monte Carlo work, seen doing its job at ns scale.
+.include models.inc
+
+* ---- capture A: switching-level buck coupled to the board's input network ----
+* (input loop from ng_mpm3620.cir, driven through the board's fuse + TVS + C1)
+VSUPA supa 0 12
+LLEADA supa a1 1u
+RLEADA a1 a2 0.05
+RFUSEA a2 vina 0.11
+DTVA 0 vina TVS18UNI
+C1A vina nc1a 10u
+RC1A nc1a 0 0.003
+LEXTA vina pin_a 1.5n
+CPINA pin_a 0 100p
+LINTA pin_a die_a 0.1n
+CINTA die_a ncia 4.7u
+RCIA ncia 0 0.002
+ISWA die_a 0 PULSE(0 1.2 0 1n 1n 0.21u 0.5u)
+* output side: switched node feeding L-C into the 5V load (behavioral switch level)
+BSWA swa 0 V = {v(die_a) * ((time - floor(time/0.5u)*0.5u) < 0.21u ? 1 : 0)}
+LOUTA swa vouta 1u ic=0.504
+COUTA vouta 0 22u ic=5.04
+RLOADA vouta 0 10
+* start at the steady operating point (uic) — else the Q~47 output LC rings for ~1.4ms
+* and swamps the 200us ripple measurement
+C1A2 dummy_a 0 1p
+.ic v(vina)=12 v(die_a)=12 v(nc1a)=0 v(ncia)=0 v(pin_a)=12 v(a1)=12 v(a2)=12 v(swa)=5
+
+* ---- captures B and C: coin edge chain at ns resolution ----
+V3V3 p3v3 0 3.3
+V12B rail12b 0 12
+R2B p3v3 nu1ab 220
+XU1B nu1ab coinb gpio4b 0 FOD817
+DTV1B 0 coinb TVS68
+R1B gpio4b p3v3 2.2k
+R5B p3v3 nd5ab 1k
+D5B nd5ab gpio4b DLED_GRN
+CG4B gpio4b 0 5p
+* acceptor: open-collector via 30cm harness; closes at 5us (B), opens at 5us in run C
+LW2B nacoinb coinb 300n
+SCOINB nacoinb 0 CTLB 0 SWB
+.model SWB SW(Ron=30 Roff=1e9 Vt=0.5 Vh=0.1)
+VCTLB CTLB 0 PWL(0 0 4.999u 0 5u 1 1 1)
+
+.control
+* A: buck switching detail (uic: start at the operating point)
+tran 2n 500u 0 2n uic
+wrdata microscope_buck.dat v(vina) v(die_a) v(vouta)
+meas tran vin_ripple PP v(vina) from=400u
+meas tran vout_ripple PP v(vouta) from=400u
+* B: coin falling edge
+tran 5n 40u
+wrdata microscope_fall.dat v(coinb) v(gpio4b) v(nu1ab)
+meas tran t_g4_low WHEN v(gpio4b)=0.825 FALL=1
+* C: rising edge — rerun with inverted control (acceptor opens at 5us)
+alter @vctlb[pwl] = [ 0 1 4.999u 1 5u 0 1 0 ]
+tran 5n 40u
+wrdata microscope_rise.dat v(coinb) v(gpio4b) v(nu1ab)
+meas tran t_g4_high WHEN v(gpio4b)=2.475 RISE=1
+.endc
+.end
