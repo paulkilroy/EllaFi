@@ -7278,7 +7278,7 @@
 				)
 			)
 		)
-		(property "DigiKey_PN" "277-1976-ND"
+		(property "DigiKey_PN" ""
 			(at 68.58 90.17 0)
 			(hide yes)
 			(show_name no)
@@ -7289,7 +7289,7 @@
 				)
 			)
 		)
-		(property "Mfg_PN" "1715857"
+		(property "Mfg_PN" "WJ500V-5.08-3P"
 			(at 68.58 90.17 0)
 			(hide yes)
 			(show_name no)
@@ -10401,7 +10401,7 @@
 				)
 			)
 		)
-		(property "DigiKey_PN" "1.5SMC18ABB-ND"
+		(property "DigiKey_PN" "118-1.5SMC18ACT-ND"
 			(at 50.8 38.1 0)
 			(hide yes)
 			(show_name no)
