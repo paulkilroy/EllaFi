@@ -7344,7 +7344,7 @@
 				)
 			)
 		)
-		(property "Mfg_PN" "WJ500V-5.08-3P"
+		(property "Mfg_PN" "KF301-5.0-3P"
 			(at 68.58 90.17 0)
 			(hide yes)
 			(show_name no)
@@ -7355,7 +7355,7 @@
 				)
 			)
 		)
-		(property "LCSC" ""
+		(property "LCSC" "C474882"
 			(at 68.58 90.17 0)
 			(hide yes)
 			(show_name no)
