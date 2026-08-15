@@ -47,6 +47,35 @@ struct PsramAllocator : ArduinoJson::Allocator {
 };
 static PsramAllocator psramAlloc;
 
+// A Stream sink that buffers into PSRAM. HTTPClient::getString() writes the de-chunked body into a DRAM
+// String (StreamString + writeToStream); at 80+ clients that body is ~82 KB and can't fit a contiguous
+// internal-DRAM block (largestDRAM seen as low as 15 KB) → the String truncates → deserializeJson returns
+// InvalidInput on a perfectly good response. This is the SAME writeToStream de-chunk path, but the 8 MB
+// PSRAM is the sink, so the big client list never touches internal DRAM (which also frees it for mbedTLS).
+class PsramSink : public Stream {
+  uint8_t* _buf = nullptr;
+  size_t   _len = 0, _cap = 0;
+  bool     _oom = false;
+public:
+  ~PsramSink() { if (_buf) heap_caps_free(_buf); }
+  size_t write(uint8_t b) override { return write(&b, 1); }
+  size_t write(const uint8_t* p, size_t n) override {
+    if (_len + n > _cap) {
+      size_t nc = _len + n + 8192;                                        // grow with headroom, fewer reallocs
+      uint8_t* nb = (uint8_t*)heap_caps_realloc(_buf, nc, MALLOC_CAP_SPIRAM);
+      if (!nb) { _oom = true; return 0; }   // PSRAM OOM (shouldn't happen ~82 KB); short write aborts writeToStream
+      _buf = nb; _cap = nc;
+    }
+    memcpy(_buf + _len, p, n); _len += n; return n;
+  }
+  int  available() override { return 0; }   // write-only sink
+  int  read()      override { return -1; }
+  int  peek()      override { return -1; }
+  const char* data() const { return (const char*)_buf; }
+  size_t      len()  const { return _len; }
+  bool        oom()  const { return _oom; }
+};
+
 // TLS-in-flight counter — contention instrumentation. Each block that opens a WiFiClientSecure
 // holds a TlsGuard, so a failed healthcheck ping (main.cpp) can report whether an Omada TLS
 // handshake was concurrently eating internal DRAM. Read via omadaTlsInFlight().
@@ -451,17 +480,22 @@ JsonDocument getHotspotClientsJson() {
     h.end();
     return JsonDocument();
   }
-  String body = h.getString();   // getString() de-chunks the response; getStream() would leave chunk framing in the bytes
+  PsramSink sink;                // de-chunk the (large) body straight into PSRAM — no contiguous DRAM String
+  int written = h.writeToStream(&sink);   // same de-chunk path getString() uses, but the 8 MB PSRAM is the sink
   h.end();
-  ESP_LOGI(TAG, "getHotspotClientsJson: HTTP %d, %d bytes", code, body.length());
-  if (code != 200 || body.isEmpty()) {
-    ESP_LOGE(TAG, "getHotspotClientsJson: bad response: %.200s — invalidating session", body.c_str());
+  ESP_LOGI(TAG, "getHotspotClientsJson: HTTP %d, %d bytes", code, (int)sink.len());
+  if (code != 200 || written <= 0 || sink.len() == 0) {
+    ESP_LOGE(TAG, "getHotspotClientsJson: bad response (code=%d written=%d len=%u oom=%d) — invalidating session",
+             code, written, (unsigned)sink.len(), (int)sink.oom());
     invalidateCredentials();
     return JsonDocument();
   }
-  JsonDocument doc(&psramAlloc);   // parse tree in PSRAM — the big client lists don't fit in internal DRAM after TLS
-  if (deserializeJson(doc, body) || doc["errorCode"].as<int>() != 0)
-    ESP_LOGE(TAG, "getHotspotClientsJson: parse/API error: %.200s", body.c_str());
+  JsonDocument doc(&psramAlloc);   // parse tree in PSRAM
+  if (deserializeJson(doc, sink.data(), sink.len()) || doc["errorCode"].as<int>() != 0)
+    ESP_LOGE(TAG, "getHotspotClientsJson: parse/API error: len=%u largestDRAM=%u : %.*s",
+             (unsigned)sink.len(),
+             (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+             (int)(sink.len() < 200 ? sink.len() : 200), sink.data());
   return doc;
 }
 
@@ -491,7 +525,7 @@ JsonDocument getDeviceGridJson() {
   OmadaCredentials creds = getCredentials(errorDetail);
   if (creds.loginMs == 0) { ESP_LOGW(TAG, "getDeviceGridJson: login failed: %s", errorDetail.c_str()); return JsonDocument(); }
   WiFiClientSecure wc; TlsGuard tlsg; HTTPClient h; wc.setInsecure();
-  String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/sites/" + SITE_ID + "/grid/devices";
+  String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/sites/" + SITE_ID + "/grid/devices?currentPage=1&currentPageSize=100";
   h.begin(wc, url); applyCredentials(h, creds);
   int code = h.GET();
   String body = (code > 0) ? h.getString() : "";
@@ -553,24 +587,25 @@ JsonDocument getAllClientsJson() {
     return JsonDocument();
   }
   int contentLen = h.getSize();  // Content-Length, or -1 when chunked
-  String body = h.getString();   // getString() de-chunks the response; getStream() would leave chunk framing in the bytes
+  PsramSink sink;                // de-chunk the (large) body straight into PSRAM — no contiguous DRAM String
+  int written = h.writeToStream(&sink);   // same de-chunk path getString() uses, but the 8 MB PSRAM is the sink
   h.end();
-  ESP_LOGI(TAG, "getAllClientsJson: HTTP %d, %d bytes", code, body.length());
-  if (code != 200 || body.isEmpty()) {
-    ESP_LOGW(TAG, "getAllClientsJson: bad response: %.200s — invalidating session", body.c_str());
+  ESP_LOGI(TAG, "getAllClientsJson: HTTP %d, %d bytes", code, (int)sink.len());
+  if (code != 200 || written <= 0 || sink.len() == 0) {
+    ESP_LOGW(TAG, "getAllClientsJson: bad response (code=%d written=%d len=%u oom=%d) — invalidating session",
+             code, written, (unsigned)sink.len(), (int)sink.oom());
     invalidateCredentials();
     return JsonDocument();
   }
-  JsonDocument doc(&psramAlloc);   // parse tree in PSRAM — the ~68 KB list won't fit in internal DRAM after TLS
-  DeserializationError perr = deserializeJson(doc, body);
+  JsonDocument doc(&psramAlloc);   // parse tree in PSRAM
+  DeserializationError perr = deserializeJson(doc, sink.data(), sink.len());
   if (perr || doc["errorCode"].as<int>() != 0) {
-    // Seen 2026-08-10 with errorCode:0 in the prefix — i.e. a good response that failed to parse.
-    // len vs Content-Length proves/disproves truncation; largest DRAM block shows heap squeeze.
-    ESP_LOGW(TAG, "getAllClientsJson: parse/API error (%s): len=%u contentLen=%d largestDRAM=%u : %.200s",
+    // errorCode:0 in the prefix but a parse failure = truncation/OOM. largestDRAM shows the internal-heap squeeze.
+    ESP_LOGW(TAG, "getAllClientsJson: parse/API error (%s): len=%u contentLen=%d largestDRAM=%u : %.*s",
              perr ? perr.c_str() : "api",
-             (unsigned)body.length(), contentLen,
+             (unsigned)sink.len(), contentLen,
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
-             body.c_str());
+             (int)(sink.len() < 200 ? sink.len() : 200), sink.data());
     return JsonDocument();
   }
   return doc;
