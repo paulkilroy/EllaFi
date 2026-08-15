@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>EllaFi POC diagnostics</title>
+<style>
+  body { font-family: monospace; font-size: 13px; margin: 0; padding: 10px; background: #111; color: #ddd; }
+  h1 { font-size: 16px; margin: 0 0 10px; color: #6cf; }
+  h2 { font-size: 14px; margin: 18px 0 6px; color: #6cf; border-bottom: 1px solid #333; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border: 1px solid #333; padding: 3px 6px; text-align: left; vertical-align: top; word-break: break-all; }
+  th { color: #999; }
+  .pass { color: #4c4; font-weight: bold; }
+  .fail { color: #e55; font-weight: bold; }
+  .warn { color: #fb3; font-weight: bold; }
+  .run  { color: #6cf; }
+  button { font-family: monospace; font-size: 13px; padding: 6px 12px; margin: 4px 4px 4px 0; background: #224; color: #ddd; border: 1px solid #558; }
+  input { font-family: monospace; font-size: 13px; padding: 5px; background: #000; color: #ddd; border: 1px solid #555; }
+  #log { width: 100%; height: 220px; background: #000; color: #9c9; border: 1px solid #333; font-size: 11px; white-space: pre; overflow: scroll; box-sizing: border-box; }
+  #verdict div { padding: 4px 8px; margin: 3px 0; border-left: 4px solid #555; background: #1a1a1a; }
+</style>
+</head>
+<body>
+<h1>EllaFi POC diagnostics — Omada-hosted portal &rarr; ESP32</h1>
+
+<h2>1 &middot; Environment</h2>
+<table id="env"></table>
+
+<h2>2 &middot; Portal query parameters (from Omada redirect)</h2>
+<table id="params"></table>
+
+<h2>3 &middot; ESP32 target</h2>
+ESP IP: <input id="espIp" value="192.168.1.3" size="16">
+<button onclick="saveIp();runAll()">Run all tests</button>
+<button onclick="location.reload()">Reload page</button>
+
+<h2>4 &middot; Test results</h2>
+<table id="results">
+  <tr><th>#</th><th>Test</th><th>Status</th><th>ms</th><th>Detail</th></tr>
+</table>
+
+<h2>5 &middot; Verdict (the three POC questions)</h2>
+<div id="verdict"><div>Run the tests first.</div></div>
+
+<h2>6 &middot; WS full-protocol test (manual — claims the coin slot on the target ESP!)</h2>
+<p>Sends the real <code>{action:'startCoinInsert'}</code> over the WebSocket and reports every push
+the ESP sends back. This is the actual coin-session handshake — only run it against a test/bench
+ESP, or expect the live node's coin slot to power up for this client.</p>
+<button onclick="testWsSession()">Open WS + send startCoinInsert</button>
+<button onclick="wsSessionStop()">Close WS session</button>
+<div id="wsSessionResult" style="margin-top:6px">not run</div>
+
+<h2>7 &middot; Voucher auth test (manual — consumes a real voucher!)</h2>
+Voucher code: <input id="voucherCode" size="12">
+<button onclick="testVoucherAuth()">POST /portal/auth (same-origin)</button>
+<div id="authResult" style="margin-top:6px"></div>
+
+<h2>8 &middot; Raw log</h2>
+<button onclick="copyLog()">Select all (then copy manually)</button>
+<textarea id="log" readonly></textarea>
+
+<script>
+// Captive mini-browsers have no devtools — EVERYTHING gets logged on-screen with timestamps.
+var t0 = Date.now();
+function log(msg) {
+  var el = document.getElementById('log');
+  el.value += ((Date.now() - t0) / 1000).toFixed(2) + 's  ' + msg + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+window.onerror = function (m, s, l, c) { log('JS ERROR: ' + m + ' @' + (s || '?') + ':' + l + ':' + c); return false; };
+window.addEventListener('unhandledrejection', function (e) { log('UNHANDLED REJECTION: ' + (e.reason && e.reason.message || e.reason)); });
+
+function copyLog() { var el = document.getElementById('log'); el.focus(); el.select(); log('log selected — use the OS copy action'); }
+
+// ── Environment ──────────────────────────────────────────────────────────────
+function row(tbl, k, v) { var r = tbl.insertRow(); r.insertCell().textContent = k; r.insertCell().textContent = v; }
+var env = document.getElementById('env');
+row(env, 'userAgent', navigator.userAgent);
+row(env, 'page URL', location.href);
+row(env, 'protocol', location.protocol + '   (https means every http:// call below is MIXED CONTENT)');
+row(env, 'origin', location.origin);
+row(env, 'referrer', document.referrer || '(none)');
+row(env, 'screen', screen.width + 'x' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x, viewport ' + innerWidth + 'x' + innerHeight);
+row(env, 'navigator.onLine', String(navigator.onLine));
+row(env, 'cookies enabled', String(navigator.cookieEnabled));
+row(env, 'localStorage', (function () { try { localStorage.setItem('_t', '1'); localStorage.removeItem('_t'); return 'works'; } catch (e) { return 'BLOCKED: ' + e.message; } })());
+
+// The params Omada appends when redirecting a client here (same set the stock portal reads).
+var PARAM_NAMES = ['clientMac', 'apMac', 'gatewayMac', 'ssidName', 'radioId', 'vid', 'clientIp', 'originUrl', 'previewSite', 't'];
+var params = {};
+var ptbl = document.getElementById('params');
+PARAM_NAMES.forEach(function (n) {
+  var m = new RegExp('[?&]' + n + '=([^&]*)').exec(location.search);
+  params[n] = m ? decodeURIComponent(m[1]) : '';
+  row(ptbl, n, params[n] || '(missing)');
+});
+log('page loaded. clientMac=' + (params.clientMac || 'MISSING') + ' apMac=' + (params.apMac || 'MISSING'));
+
+// ── Test harness ─────────────────────────────────────────────────────────────
+var results = document.getElementById('results');
+var outcome = {};   // testId -> 'pass' | 'fail' | 'warn'
+function addTest(id, name) {
+  var r = results.insertRow();
+  r.insertCell().textContent = id;
+  r.insertCell().textContent = name;
+  r.insertCell().innerHTML = '<span class="run">…</span>';
+  r.insertCell().textContent = '';
+  r.insertCell().textContent = '';
+  return {
+    done: function (status, ms, detail) {
+      r.cells[2].innerHTML = '<span class="' + status + '">' + status.toUpperCase() + '</span>';
+      r.cells[3].textContent = ms != null ? Math.round(ms) : '';
+      r.cells[4].textContent = detail;
+      outcome[id] = status;
+      log('[' + id + '] ' + status.toUpperCase() + ' (' + (ms != null ? Math.round(ms) + 'ms' : '-') + ') ' + detail);
+    }
+  };
+}
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout after ' + ms + 'ms')); }, ms); })]);
+}
+function espBase() { return 'http://' + document.getElementById('espIp').value.trim(); }
+function saveIp() { try { localStorage.setItem('espIp', document.getElementById('espIp').value.trim()); } catch (e) {} }
+try { var saved = localStorage.getItem('espIp'); if (saved) document.getElementById('espIp').value = saved; } catch (e) {}
+
+// ── The tests ────────────────────────────────────────────────────────────────
+
+// T1 — same-origin controller API. On the real controller this returns portal settings; when
+// previewing the zip locally it falls back to the bundled getPortalPageSetting.json mock.
+function t1() {
+  var t = addTest('T1', 'controller API same-origin: POST /portal/getPortalPageSetting');
+  var start = performance.now();
+  return withTimeout(fetch('/portal/getPortalPageSetting', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }), 8000)
+    .then(function (r) { return r.text().then(function (b) { t.done(r.ok ? 'pass' : 'warn', performance.now() - start, 'HTTP ' + r.status + ': ' + b.slice(0, 120)); }); })
+    .catch(function (e) {
+      var start2 = performance.now();
+      return withTimeout(fetch('getPortalPageSetting.json'), 4000)
+        .then(function (r) { return r.text().then(function (b) { t.done('warn', performance.now() - start2, 'POST failed (' + e.message + '); local mock: HTTP ' + r.status + ' ' + b.slice(0, 80)); }); })
+        .catch(function (e2) { t.done('fail', performance.now() - start, 'POST: ' + e.message + ' / mock: ' + e2.message); });
+    });
+}
+
+// T2 — image beacon to the ESP. Immune to CORS (only mixed-content or network can block it),
+// so it isolates pure REACHABILITY from header problems.
+function t2() {
+  var t = addTest('T2', 'ESP reachability: <img> ' + espBase() + '/EllaFi.webp');
+  var start = performance.now();
+  return new Promise(function (res) {
+    var img = new Image();
+    var timer = setTimeout(function () { img.src = ''; t.done('fail', performance.now() - start, 'timeout 8s — unreachable or silently blocked'); res(); }, 8000);
+    img.onload = function () { clearTimeout(timer); t.done('pass', performance.now() - start, 'loaded ' + img.naturalWidth + 'x' + img.naturalHeight + ' — ESP reachable from this browser'); res(); };
+    img.onerror = function () { clearTimeout(timer); t.done('fail', performance.now() - start, 'onerror — blocked (mixed content?) or unreachable'); res(); };
+    img.src = espBase() + '/EllaFi.webp?t=' + Date.now();
+  });
+}
+
+// T3 — fetch with mode:'no-cors'. Resolving proves the network round-trip worked even though the
+// response is opaque (status/body unreadable). Rejecting means blocked or unreachable.
+function t3() {
+  var t = addTest('T3', 'ESP fetch opaque: no-cors GET ' + espBase() + '/status');
+  var start = performance.now();
+  return withTimeout(fetch(espBase() + '/status', { mode: 'no-cors' }), 8000)
+    .then(function (r) { t.done('pass', performance.now() - start, 'resolved (type=' + r.type + ') — request reached the ESP; body not readable by design'); })
+    .catch(function (e) { t.done('fail', performance.now() - start, e.message + ' — blocked or unreachable'); });
+}
+
+// T4 — normal CORS fetch. EXPECTED TO FAIL today: the ESP sends no Access-Control-Allow-Origin
+// header. If this passes, CORS headers were added and the page can read ESP JSON directly.
+function t4() {
+  var t = addTest('T4', 'ESP fetch readable: cors GET ' + espBase() + '/status');
+  var start = performance.now();
+  return withTimeout(fetch(espBase() + '/status'), 8000)
+    .then(function (r) { return r.text().then(function (b) { t.done('pass', performance.now() - start, 'READABLE — CORS header present. HTTP ' + r.status + ': ' + b.slice(0, 100)); }); })
+    .catch(function (e) { t.done(outcome['T3'] === 'pass' ? 'warn' : 'fail', performance.now() - start, e.message + (outcome['T3'] === 'pass' ? ' — reachable (see T3) but response unreadable: ESP needs an Access-Control-Allow-Origin header' : '')); });
+}
+
+// T5 — WebSocket. WS is NOT subject to CORS, so if this opens, the page has a full two-way channel
+// to the ESP with zero firmware changes. The key test of the whole POC.
+function t5() {
+  var t = addTest('T5', 'ESP WebSocket: ws://…/ws (CORS-free channel)');
+  var start = performance.now();
+  return new Promise(function (res) {
+    var ws, opened = false, msgs = 0;
+    try { ws = new WebSocket('ws://' + document.getElementById('espIp').value.trim() + '/ws'); }
+    catch (e) { t.done('fail', 0, 'constructor threw: ' + e.message); return res(); }
+    var timer = setTimeout(function () {
+      if (opened) { t.done('pass', performance.now() - start, 'open, ' + msgs + ' message(s) in 5s — full two-way channel works'); }
+      else { t.done('fail', performance.now() - start, 'never opened in 10s'); }
+      try { ws.close(); } catch (e) {}
+      res();
+    }, opened ? 5000 : 10000);
+    ws.onopen = function () { opened = true; log('[T5] WS open at ' + Math.round(performance.now() - start) + 'ms — waiting 5s for messages'); };
+    ws.onmessage = function (ev) { msgs++; log('[T5] WS message: ' + String(ev.data).slice(0, 120)); };
+    ws.onerror = function () { log('[T5] WS error event (details hidden by browser)'); };
+    ws.onclose = function (ev) {
+      clearTimeout(timer);
+      if (opened) t.done('pass', performance.now() - start, 'opened then closed code=' + ev.code + ', ' + msgs + ' message(s)');
+      else t.done('fail', performance.now() - start, 'closed before open, code=' + ev.code + ' — blocked or unreachable');
+      res();
+    };
+  });
+}
+
+// T6 — https to the ESP. Expected to fail (the ESP has no TLS server). Only matters if the
+// controller serves this page over https: then http:// is blocked (see T2/T3) and https:// has
+// nothing to talk to — that combination is the mixed-content dead end.
+function t6() {
+  var t = addTest('T6', 'ESP https probe: https://…/status (expected fail — no TLS on ESP)');
+  var start = performance.now();
+  return withTimeout(fetch('https://' + document.getElementById('espIp').value.trim() + '/status', { mode: 'no-cors' }), 6000)
+    .then(function () { t.done('warn', performance.now() - start, 'unexpectedly resolved — is something terminating TLS for the ESP?'); })
+    .catch(function (e) { t.done('warn', performance.now() - start, 'failed as expected (' + e.message + ') — https page + http ESP would be a dead end'); });
+}
+
+// T7 — latency: 5 sequential opaque pings, the shape of option B's 1/s polling.
+function t7() {
+  var t = addTest('T7', 'ESP poll latency: 5 × no-cors GET /status');
+  var times = [];
+  var chain = Promise.resolve();
+  for (var i = 0; i < 5; i++) {
+    chain = chain.then(function () {
+      var s = performance.now();
+      return withTimeout(fetch(espBase() + '/status?t=' + Date.now(), { mode: 'no-cors' }), 8000)
+        .then(function () { times.push(Math.round(performance.now() - s)); })
+        .catch(function (e) { times.push(-1); log('[T7] ping failed: ' + e.message); });
+    });
+  }
+  return chain.then(function () {
+    var ok = times.filter(function (x) { return x >= 0; });
+    t.done(ok.length === 5 ? 'pass' : ok.length ? 'warn' : 'fail', ok.length ? ok.reduce(function (a, b) { return a + b; }) / ok.length : null,
+           'times ms: [' + times.join(', ') + '] — this is option B\'s poll cost per second');
+  });
+}
+
+// ── Verdict: map raw results onto the three POC questions ────────────────────
+function verdict() {
+  var v = document.getElementById('verdict');
+  v.innerHTML = '';
+  function add(q, cls, text) { var d = document.createElement('div'); d.style.borderLeftColor = cls === 'pass' ? '#4c4' : cls === 'warn' ? '#fb3' : '#e55'; d.innerHTML = '<b>' + q + '</b> — ' + text; v.appendChild(d); }
+
+  var reach = outcome['T2'] === 'pass' || outcome['T3'] === 'pass';
+  if (reach && outcome['T4'] === 'pass')
+    add('Q1 cross-origin', 'pass', 'captive browser reaches the ESP AND can read responses. Full REST coin API is viable.');
+  else if (reach && outcome['T5'] === 'pass')
+    add('Q1 cross-origin', 'pass', 'ESP reachable; plain fetch is unreadable (no CORS header) but the WebSocket works — reuse the existing WS protocol, zero new REST endpoints needed.');
+  else if (reach)
+    add('Q1 cross-origin', 'warn', 'ESP reachable but neither readable fetch nor WS — a CORS header on the ESP is required for a coin API.');
+  else
+    add('Q1 cross-origin', 'fail', 'the captive browser cannot reach the ESP at all — option B is dead in this browser; retest in a full browser and other phones.');
+
+  if (location.protocol === 'https:')
+    add('Q2 mixed content', reach ? 'warn' : 'fail', 'page is HTTPS. ' + (reach ? 'http calls still worked (unusual — some captive browsers skip mixed-content rules).' : 'http calls blocked as expected — serve the portal over HTTP, or option B needs rethinking.'));
+  else
+    add('Q2 mixed content', 'pass', 'page is HTTP — no mixed-content restriction in play. Confirm the controller portal stays HTTP in production config.');
+
+  add('Q3 grant model', 'warn', 'manual: run the voucher test below with a real code (model A). If it lands errorCode 0 and redirects, voucher-submit from a custom page works.');
+  log('verdict rendered');
+}
+
+function runAll() {
+  results.innerHTML = '<tr><th>#</th><th>Test</th><th>Status</th><th>ms</th><th>Detail</th></tr>';
+  outcome = {};
+  log('=== running all tests against ' + espBase() + ' ===');
+  t1().then(t2).then(t3).then(t4).then(t5).then(t6).then(t7).then(verdict);
+}
+
+// ── Manual WS full-protocol test — the real coin-session handshake ───────────
+var sessionWs = null;
+function testWsSession() {
+  var out = document.getElementById('wsSessionResult');
+  wsSessionStop();
+  var start = performance.now();
+  var pushes = 0;
+  out.textContent = 'connecting…';
+  try { sessionWs = new WebSocket('ws://' + document.getElementById('espIp').value.trim() + '/ws'); }
+  catch (e) { out.textContent = 'constructor threw: ' + e.message; return; }
+  sessionWs.onopen = function () {
+    log('[WS-session] open at ' + Math.round(performance.now() - start) + 'ms — sending startCoinInsert');
+    sessionWs.send(JSON.stringify({ action: 'startCoinInsert' }));
+    out.innerHTML = '<span class="run">open, startCoinInsert sent — waiting for pushes (insert a coin on the test rig!)</span>';
+  };
+  sessionWs.onmessage = function (ev) {
+    pushes++;
+    log('[WS-session] push ' + pushes + ': ' + String(ev.data).slice(0, 200));
+    out.innerHTML = '<span class="pass">' + pushes + ' push(es) received</span> — last: <code>' + String(ev.data).slice(0, 150) + '</code>';
+  };
+  sessionWs.onclose = function (ev) {
+    log('[WS-session] closed code=' + ev.code + ' after ' + pushes + ' push(es)');
+    out.innerHTML += ' — <span class="' + (pushes ? 'pass' : 'warn') + '">closed code=' + ev.code + '</span>';
+  };
+  sessionWs.onerror = function () { log('[WS-session] error event'); };
+}
+function wsSessionStop() { if (sessionWs) { try { sessionWs.close(); } catch (e) {} sessionWs = null; } }
+
+// ── Manual voucher auth (grant model A) ──────────────────────────────────────
+function testVoucherAuth() {
+  var code = document.getElementById('voucherCode').value.trim();
+  var out = document.getElementById('authResult');
+  if (!code) { out.textContent = 'enter a voucher code first'; return; }
+  var body = {
+    voucherCode: code,
+    clientMac: params.clientMac, apMac: params.apMac, gatewayMac: params.gatewayMac,
+    ssidName: params.ssidName, radioId: params.radioId ? Number(params.radioId) : undefined,
+    vid: params.vid, originUrl: params.originUrl
+  };
+  log('POST /portal/auth ' + JSON.stringify(body));
+  out.textContent = 'submitting…';
+  withTimeout(fetch('/portal/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), 10000)
+    .then(function (r) { return r.text(); })
+    .then(function (b) {
+      log('auth response: ' + b.slice(0, 300));
+      out.innerHTML = 'response: <b>' + b.slice(0, 200) + '</b>';
+      try { var d = JSON.parse(b); if (d.errorCode === 0) { out.innerHTML += ' — <span class="pass">AUTH OK</span>, landing: ' + (d.result || '(default)'); } } catch (e) {}
+    })
+    .catch(function (e) { log('auth error: ' + e.message); out.innerHTML = '<span class="fail">' + e.message + '</span>'; });
+}
+
+// Auto-run: captive browsers sometimes hide/ignore taps, so don't depend on the button.
+setTimeout(runAll, 600);
+</script>
+</body>
+</html>

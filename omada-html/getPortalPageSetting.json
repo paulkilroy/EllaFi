@@ -1,0 +1,15 @@
+{
+    "errorCode": 0,
+    "result": {
+        "site": "Bakhaw",
+        "authType": 11,
+        "hotspot": {
+            "enabledTypes": [3]
+        },
+        "portalCustomize": {
+            "buttonText": "Log In"
+        },
+        "landingUrl": "http://www.google.com",
+        "error": "ok"
+    }
+}
