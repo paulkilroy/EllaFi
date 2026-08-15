@@ -1,4 +1,15 @@
-# omada-html — POC for the Omada-hosted portal
+# omada-html — the Omada-hosted portal (option B)
+
+**`index.html`** is the production portal page, adapted from `web/index.html` for controller
+hosting: the ESP address is baked in as `ESP_HOST` (per site — edit before building!), `/status`
+carries Omada's redirect params (seeds the ESP session, firmware b76+), the WebSocket points at the
+ESP, and a voucher form POSTs same-origin `/portal/auth` (new capability — works even ESP-down).
+Everything else — UI states, coin modal, pause/resume, audio, AP map — is identical to the
+ESP-served page. `./make_zip.sh` stages assets fresh from `web/` and `data/` and builds
+`ellafi-poc.zip` (~168 KB of the 2 MB cap). **`diag.html`** (below) ships in the bundle too,
+reachable at the portal URL's `diag.html`.
+
+# diag.html — POC diagnostics
 
 Diagnostic test page for the "option B" architecture (controller serves the portal, ESP32 becomes a
 thin coin API). Answers the three open questions from `memory`/TODO with a real phone in the real

@@ -1,337 +1,711 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>EllaFi POC diagnostics</title>
-<style>
-  body { font-family: monospace; font-size: 13px; margin: 0; padding: 10px; background: #111; color: #ddd; }
-  h1 { font-size: 16px; margin: 0 0 10px; color: #6cf; }
-  h2 { font-size: 14px; margin: 18px 0 6px; color: #6cf; border-bottom: 1px solid #333; }
-  table { border-collapse: collapse; width: 100%; }
-  td, th { border: 1px solid #333; padding: 3px 6px; text-align: left; vertical-align: top; word-break: break-all; }
-  th { color: #999; }
-  .pass { color: #4c4; font-weight: bold; }
-  .fail { color: #e55; font-weight: bold; }
-  .warn { color: #fb3; font-weight: bold; }
-  .run  { color: #6cf; }
-  button { font-family: monospace; font-size: 13px; padding: 6px 12px; margin: 4px 4px 4px 0; background: #224; color: #ddd; border: 1px solid #558; }
-  input { font-family: monospace; font-size: 13px; padding: 5px; background: #000; color: #ddd; border: 1px solid #555; }
-  #log { width: 100%; height: 220px; background: #000; color: #9c9; border: 1px solid #333; font-size: 11px; white-space: pre; overflow: scroll; box-sizing: border-box; }
-  #verdict div { padding: 4px 8px; margin: 3px 0; border-left: 4px solid #555; background: #1a1a1a; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="http://192.168.1.3"><!-- keep in sync with ESP_HOST below -->
+  <title>Coin WiFi</title>
+  <style>
+    :root{
+      --bg:#3d4044;      /* page background */
+      --card:#191e2d;    /* main container / modals */
+      --card2:#1e272e;   /* sub-cards (status-holder) */
+      --panel:#2d3436;   /* status box */
+    }
+        body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 10px;
+      background-color: var(--bg);
+    }
+    .container {
+      background-color: var(--card);
+      padding: 20px;
+      max-width: 500px;
+      margin: 20px auto;
+      border: 2px solid #57606f;
+      border-radius: 5px;
+      color: #fff;
+    }
+    .info { color: #fff; margin-bottom: 5px; text-align: center; }
+    .info-ip, .info-mac { display: inline-block; margin: 4px 6px; font-size: 12px; }
+    .status-box {
+      color: #fff; border: 2px solid #576574; padding: 15px;
+      border-radius: 10px; margin: 15px 0; font-weight: bold;
+      text-align: center; font-size: 18px; background-color: var(--panel);
+    }
+    .blinking-red { animation: blinkRed 1.2s infinite; }
+    @keyframes blinkRed { 0%, 49% { color: #e74c3c; } 60%, 99% { color: transparent; } }
+    .blinking-yellow { animation: blinkYellow 1.2s infinite; }
+    @keyframes blinkYellow { 0%, 49% { color: #f39c12; } 60%, 99% { color: transparent; } }
+    .blinking-green { animation: blinkGreen 1.2s infinite; }
+    @keyframes blinkGreen { 0%, 49% { color: #4cd137; } 60%, 99% { color: transparent; } }
+    .blinking-blue { animation: blinkBlue 1.2s infinite; }
+    @keyframes blinkBlue { 0%, 49% { color: #3498db; } 60%, 99% { color: transparent; } }
+    .status-holder {
+      padding: 15px 10px; color: #fff; box-shadow: 0px 1px 5px #000;
+      margin: 10px 0; border-radius: 3px; background-color: var(--card2);
+    }
+    .info-title {
+      padding: 8px; margin-bottom: 10px; color: #fff;
+      border: 2px solid #485460; border-radius: 5px; font-weight: bold; font-size: 18px;
+      text-align: center;
+    }
+    .info-value { font-size: 20px; font-weight: bold; text-shadow: 1px 1px 3px #000; margin-top: 5px; text-align: center; }
+    .btn {
+      width: 100%; padding: 15px; margin: 10px 0; border: none;
+      border-radius: 5px; font-size: 16px; font-weight: bold;
+      cursor: pointer; text-shadow: 0px 1px 2px #000; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+    }
+    .btn-success { background-color: #28a745; color: #fff; }
+    .btn-success:hover { background-color: #218838; }
+    .btn-warning { background-color: #ffc107; color: #fff; }
+    .btn-warning:hover { background-color: #e0a800; }
+    .btn-danger { background-color: #dc3545; color: #fff; }
+    .btn-danger:hover { background-color: #c82333; }
+    .btn-primary { background-color: #2980b9; color: #fff; }
+    .btn-primary:hover { background-color: #2471a3; }
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background-color: rgba(0,0,0,0.8); display: none;
+      align-items: center; justify-content: center; z-index: 1000;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal-content {
+      background-color: var(--card); border: 2px solid #57606f;
+      border-radius: 5px; padding: 10px 20px; max-width: 500px; width: 90%; color: #fff;
+    }
+    .modal-header {
+      border-bottom: 2px solid #485460; padding-bottom: 10px; margin-bottom: 20px;
+    }
+    .modal-title {
+      font-size: 20px; font-weight: bold; color: #f1c40f;
+      text-shadow: 1px 1px 2px #000; margin: 0;
+    }
+    .coin-display {
+      font-size: 30px; margin: 25px 0; text-shadow: 1px 1px 3px #000; text-align: center;
+      font-weight: bold;
+    }
+    .progress {
+      height: 35px; background-color: #576574; border-radius: 5px;
+      overflow: hidden; margin: 15px 0; position: relative;
+    }
+    .progress-bar {
+      height: 100%; background: linear-gradient(90deg, #e67e22 0%, #d35400 100%);
+      transition: width 1s linear;
+      float: right;
+    }
+    .progress-bar.knight-rider {
+      float: none; position: absolute; width: 55%; transition: none;
+      background: #3498db;
+      box-shadow: 0 0 12px #3498db, 0 0 24px rgba(52, 152, 219, 0.4);
+      animation: knightRider 1.6s ease-in-out infinite alternate;
+    }
+    @keyframes knightRider {
+      from { left: -55%; }
+      to   { left: 100%; }
+    }
+    .progress-text {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: bold; color: white; font-size: 16px;
+      text-shadow: 0 1px 3px #000; z-index: 1;
+    }
+    .requesting-time {
+      font-size: 30px; font-weight: bold; color: #fff;
+      text-shadow: 1px 1px 3px #000; margin: 10px 0; text-align: center;
+    }
+    .logo-container {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .logo-container img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 5px;
+    }
+    #expirationBar .info-title, #pauseBar .info-title {
+      position: relative;
+      overflow: hidden;
+    }
+    #expiryBar {
+      position: absolute;
+      top: 0; left: 0;
+      height: 100%;
+      width: 0%;
+      background: rgba(76, 209, 55, 0.12);
+    }
+    #pausedBar {
+      position: absolute;
+      top: 0; left: 0;
+      height: 100%;
+      width: 100%;
+      background: rgba(241, 196, 15, 0.10);
+    }
+    .status-loading {
+      filter: blur(4px);
+      opacity: 0.3;
+      transition: filter 0.25s ease, opacity 0.25s ease;
+    }
+    .error-popup {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: #e74c3c;
+      color: white;
+      padding: 20px 30px;
+      border-radius: 10px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+      font-weight: bold;
+      font-size: 16px;
+      text-align: center;
+      z-index: 2000;
+      display: none;
+      width: 80%;
+      animation: fadeIn 0.3s ease-in;
+    }
+    .error-popup.show {
+      display: block;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translate(-50%, -60%); }
+      to { opacity: 1; transform: translate(-50%, -50%); }
+    }
+  
+    /* AP coverage map */
+    #apMapCard svg { width: 56%; height: auto; display: block; margin: 4px auto 0; border-radius: 5px; }
+    #apMapCard .dot { fill:#7a7f87; transition: fill .3s; }
+    #apMapCard .dot.up   { fill:#4cd137; filter: drop-shadow(0 0 4px #4cd137); }
+    #apMapCard .dot.down { fill:#e74c3c; filter: drop-shadow(0 0 4px #e74c3c); }
+    #apMapCard .dot.warn { fill:#f39c12; filter: drop-shadow(0 0 4px #f39c12); animation: apPulse 1.1s infinite; }
+    @keyframes apPulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+    .ap-legend { display:flex; gap:12px; justify-content:center; margin-top:9px; font-size:11px; color:#aeb6c2; }
+    .ap-legend span { display:flex; align-items:center; gap:5px; }
+    .ap-legend i { width:9px; height:9px; border-radius:50%; }
+
+    /* Voucher login */
+    .voucher-input {
+      width: 100%; box-sizing: border-box; padding: 12px; font-size: 18px; text-align: center;
+      letter-spacing: 3px; border: 2px solid #485460; border-radius: 5px;
+      background: var(--panel); color: #fff;
+    }
+    .voucher-input::placeholder { letter-spacing: normal; font-size: 15px; color: #8a95a5; }
+  </style>
+  <link rel="stylesheet" href="theme.css">
 </head>
 <body>
-<h1>EllaFi POC diagnostics — Omada-hosted portal &rarr; ESP32</h1>
+  <div class="container" id="mainContainer">
+    <div class="logo-container">
+      <img src="EllaFi.webp" alt="logo">
+    </div>
+    <div class="status-box status-loading" id="statusBox">
+      Status: <span id="statusText" class="blinking-red">Disconnected</span>
+    </div>
 
-<h2>1 &middot; Environment</h2>
-<table id="env"></table>
+    <div id="expirationBar" class="status-holder" style="display: none;">
+      <div class="info-title">
+        <div id="expiryBar"></div>
+        Expires: <span id="expirationTime"></span>
+      </div>
+    </div>
 
-<h2>2 &middot; Portal query parameters (from Omada redirect)</h2>
-<table id="params"></table>
+    <div id="pauseBar" class="status-holder" style="display: none;">
+      <div class="info-title">
+        <div id="pausedBar"></div>
+        Remaining: <span id="pausedTime"></span>
+      </div>
+    </div>
 
-<h2>3 &middot; ESP32 target</h2>
-ESP IP: <input id="espIp" value="192.168.1.3" size="16">
-<button onclick="saveIp();runAll()">Run all tests</button>
-<button onclick="location.reload()">Reload page</button>
+    <button class="btn btn-warning" id="pauseBtn" style="display: none;" onclick="pauseSession()">PAUSE</button>
+    <button class="btn btn-success" id="resumeBtn" style="display: none;" onclick="resumeSession()">RESUME</button>
+    <button class="btn btn-success" id="insertBtn" style="display: block;" onclick="insertCoins()">INSERT COINS</button>
 
-<h2>4 &middot; Test results</h2>
-<table id="results">
-  <tr><th>#</th><th>Test</th><th>Status</th><th>ms</th><th>Detail</th></tr>
-</table>
+    <!-- Voucher login — same-origin POST to the controller's own /portal/auth. Only possible on the
+         controller-hosted build (the ESP-served page had no same-origin path to Omada auth), and it
+         keeps working even when the ESP is down. -->
+    <div class="status-holder" id="voucherCard">
+      <div class="info-title" style="font-size:13px;letter-spacing:.06em">HAVE A VOUCHER?</div>
+      <input id="voucherCode" class="voucher-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Voucher code">
+      <button class="btn btn-primary" id="voucherBtn" onclick="submitVoucher()">CONNECT WITH VOUCHER</button>
+      <div id="voucherMsg" style="text-align:center;font-size:13px;min-height:1em;"></div>
+    </div>
 
-<h2>5 &middot; Verdict (the three POC questions)</h2>
-<div id="verdict"><div>Run the tests first.</div></div>
+        <div class="status-holder" id="apMapCard" style="display:none;">
+      <div class="info-title" style="font-size:13px;letter-spacing:.06em">NETWORK</div>
+      <div id="mapHolder"></div>
+      <div class="ap-legend"><span><i style="background:#4cd137"></i>Online</span><span><i style="background:#f39c12"></i>Issue</span><span><i style="background:#e74c3c"></i>Offline</span></div>
+    </div>
 
-<h2>6 &middot; WS full-protocol test (manual — claims the coin slot on the target ESP!)</h2>
-<p>Sends a bare <code>{action:'startCoinInsert'}</code> over the WebSocket and reports every push the
-ESP sends back. Run AFTER the test battery: T4's <code>/status?clientMac=…</code> seeds the session,
-so a push here (instead of <code>no_session</code>) proves the whole seed→claim chain. This is the
-real coin-session handshake — the target ESP's coin slot powers up for this client until the socket
-closes or the insert window times out. Don't run it mid-sale on a live node.</p>
-<button onclick="testWsSession()">Open WS + send startCoinInsert</button>
-<button onclick="wsSessionStop()">Close WS session</button>
-<div id="wsSessionResult" style="margin-top:6px">not run</div>
 
-<h2>7 &middot; Voucher auth test (manual — consumes a real voucher!)</h2>
-Voucher code: <input id="voucherCode" size="12">
-<button onclick="testVoucherAuth()">POST /portal/auth (same-origin)</button>
-<div id="authResult" style="margin-top:6px"></div>
+    <div class="info">
+      <div class="info-ip">
+        <svg width="18" height="18" viewBox="1 1 13 15" style="vertical-align: middle; display: inline-block;" xmlns="http://www.w3.org/2000/svg">
+          <!-- Map marker pin - split into two paths with gap from 1-3 o'clock -->
+          <!-- Left side: from top, around left, to bottom, up to 5 o'clock position -->
+          <path d="M8 3C5.79086 3 4 4.79086 4 7C4 9.5 8 14 8 14C8 14 10 11.5 10.5 9.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <!-- Right side: from 1 o'clock position, around top right -->
+          <path d="M9.2 4.5C9.8 3.9 10 3.5 10 3.2C10.2 3.1 9.5 3 8 3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <!-- IP text -->
+          <text x="8" y="10" font-family="Arial, sans-serif" font-size="8" font-weight="bold" fill="currentColor" text-anchor="middle">IP</text>
+        </svg>
+        <span id="clientIp">Loading...</span>
+      </div>
+      <div class="info-mac">
+        <svg width="18" height="18" viewBox="0 0 24 24" style="vertical-align: middle; display: inline-block;" xmlns="http://www.w3.org/2000/svg">
+          <!-- Monitor screen -->
+          <rect x="3" y="4" width="18" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <!-- Monitor stand -->
+          <path d="M9 16 L12 19 L15 16" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <line x1="8" y1="19" x2="16" y2="19" stroke="currentColor" stroke-width="1.5"/>
+          <!-- Checkmark -->
+          <path d="M7 10 L10 13 L17 6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span id="clientMac">Loading...</span>
+      </div>
+    </div>
+    <a id="openBrowserBtn" href="http://ellafi.local" target="_blank" rel="noopener" onclick="window.open('http://ellafi.local','_blank'); return false;" style="display:none; text-decoration:none;">
+      <button class="btn btn-primary">Open EllaFi.local</button>
+    </a>
+  </div>
 
-<h2>8 &middot; Raw log</h2>
-<button onclick="copyLog()">Select all (then copy manually)</button>
-<textarea id="log" readonly></textarea>
+  <div class="modal-overlay" id="coinModal">
+    <div class="modal-content">
+      <div class="modal-body" style="padding: 5px 0;">
+        <center>
+          <div class="status-box">Status: <span class="blinking-yellow">Insert Coins</span></div>
+          <div class="coin-display" style="color: #fff;">₱ <span id="modalCoins">0</span></div>
+          <div class="requesting-time"><span id="requestingMinutes">0</span></div>
+          <div class="progress">
+            <div class="progress-bar" id="progressBar" style="width: 100%;"></div>
+            <div class="progress-text" id="progressText">10 seconds remaining</div>
+          </div>
+        </center>
+      </div>
+    </div>
+  </div>
 
-<script>
-// Captive mini-browsers have no devtools — EVERYTHING gets logged on-screen with timestamps.
-var t0 = Date.now();
-function log(msg) {
-  var el = document.getElementById('log');
-  el.value += ((Date.now() - t0) / 1000).toFixed(2) + 's  ' + msg + '\n';
-  el.scrollTop = el.scrollHeight;
-}
-window.onerror = function (m, s, l, c) { log('JS ERROR: ' + m + ' @' + (s || '?') + ':' + l + ':' + c); return false; };
-window.addEventListener('unhandledrejection', function (e) { log('UNHANDLED REJECTION: ' + (e.reason && e.reason.message || e.reason)); });
+  <div class="modal-overlay" id="processingModal">
+    <div class="modal-content">
+      <div class="modal-body" style="padding: 5px 0;">
+        <center>
+          <div class="status-box">Status: <span class="blinking-blue">Processing</span></div>
+          <div class="progress" style="margin: 30px 0 5px;">
+            <div class="progress-bar knight-rider" id="processingBar"></div>
+            <div class="progress-text" id="processingText">Please wait...</div>
+          </div>
+        </center>
+      </div>
+    </div>
+  </div>
 
-function copyLog() { var el = document.getElementById('log'); el.focus(); el.select(); log('log selected — use the OS copy action'); }
+  <div class="error-popup" id="errorPopup"></div>
 
-// ── Environment ──────────────────────────────────────────────────────────────
-function row(tbl, k, v) { var r = tbl.insertRow(); r.insertCell().textContent = k; r.insertCell().textContent = v; }
-var env = document.getElementById('env');
-row(env, 'userAgent', navigator.userAgent);
-row(env, 'page URL', location.href);
-row(env, 'protocol', location.protocol + '   (https means every http:// call below is MIXED CONTENT)');
-row(env, 'origin', location.origin);
-row(env, 'referrer', document.referrer || '(none)');
-row(env, 'screen', screen.width + 'x' + screen.height + ' @' + (window.devicePixelRatio || 1) + 'x, viewport ' + innerWidth + 'x' + innerHeight);
-row(env, 'navigator.onLine', String(navigator.onLine));
-row(env, 'cookies enabled', String(navigator.cookieEnabled));
-row(env, 'localStorage', (function () { try { localStorage.setItem('_t', '1'); localStorage.removeItem('_t'); return 'works'; } catch (e) { return 'BLOCKED: ' + e.message; } })());
+  <script>
+    // ── Site config (controller-hosted build) ───────────────────────────────────
+    // This page is served by the Omada controller (Import Customized Page), not the ESP, so the
+    // ESP's address can't come from location.host — it's baked per site here. Omada's redirect
+    // params ride every /status call so the ESP can seed its session cache (firmware b76+).
+    const ESP_HOST = '192.168.1.3';
+    const PORTAL_QS = (() => {
+      const q = new URLSearchParams(location.search);
+      const out = new URLSearchParams();
+      for (const k of ['clientMac', 'apMac', 'ssidName', 'radioId']) if (q.get(k)) out.set(k, q.get(k));
+      const s = out.toString();
+      return s ? '?' + s : '';
+    })();
 
-// The params Omada appends when redirecting a client here (same set the stock portal reads).
-var PARAM_NAMES = ['clientMac', 'apMac', 'gatewayMac', 'ssidName', 'radioId', 'vid', 'clientIp', 'originUrl', 'previewSite', 't'];
-var params = {};
-var ptbl = document.getElementById('params');
-PARAM_NAMES.forEach(function (n) {
-  var m = new RegExp('[?&]' + n + '=([^&]*)').exec(location.search);
-  params[n] = m ? decodeURIComponent(m[1]) : '';
-  row(ptbl, n, params[n] || '(missing)');
-});
-log('page loaded. clientMac=' + (params.clientMac || 'MISSING') + ' apMac=' + (params.apMac || 'MISSING'));
-
-// ── Test harness ─────────────────────────────────────────────────────────────
-var results = document.getElementById('results');
-var outcome = {};   // testId -> 'pass' | 'fail' | 'warn'
-function addTest(id, name) {
-  var r = results.insertRow();
-  r.insertCell().textContent = id;
-  r.insertCell().textContent = name;
-  r.insertCell().innerHTML = '<span class="run">…</span>';
-  r.insertCell().textContent = '';
-  r.insertCell().textContent = '';
-  return {
-    done: function (status, ms, detail) {
-      r.cells[2].innerHTML = '<span class="' + status + '">' + status.toUpperCase() + '</span>';
-      r.cells[3].textContent = ms != null ? Math.round(ms) : '';
-      r.cells[4].textContent = detail;
-      outcome[id] = status;
-      log('[' + id + '] ' + status.toUpperCase() + ' (' + (ms != null ? Math.round(ms) + 'ms' : '-') + ') ' + detail);
+    // ── Local-preview shim ──────────────────────────────────────────────────────
+    // Active ONLY when opened as a file:// (inert on the device, which is http://). Browsers block
+    // fetch() of file:// URLs and there's no server here, so fake the runtime layer: canned /status
+    // (so the UI leaves its "loading" blur and renders) and a no-op WebSocket. The map still loads
+    // via the <object> fallback in loadMap(). Lets you double-click web/index.html and see the page.
+    if (location.protocol === 'file:') {
+      const SAMPLE = { type: 'status', clientMac: 'AA:BB:CC:DD:EE:FF', clientIp: '192.168.0.142',
+        sessionStartMillis: 0, sessionEndMillis: 0, pausedRemainingMillis: 0,
+        coinCount: 0, coinInsertTimeLeft: 0, minutesPerCoin: 24, devices: {} };
+      const realFetch = window.fetch.bind(window);
+      window.fetch = (url, ...a) => String(url).includes('status')
+        ? Promise.resolve(new Response(JSON.stringify(SAMPLE), { headers: { 'Content-Type': 'application/json' } }))
+        : realFetch(url, ...a);
+      window.WebSocket = function () { return { close() {}, send() {} }; };
     }
-  };
-}
-function withTimeout(promise, ms) {
-  return Promise.race([promise, new Promise(function (_, rej) { setTimeout(function () { rej(new Error('timeout after ' + ms + 'ms')); }, ms); })]);
-}
-function espBase() { return 'http://' + document.getElementById('espIp').value.trim(); }
-function saveIp() { try { localStorage.setItem('espIp', document.getElementById('espIp').value.trim()); } catch (e) {} }
-try { var saved = localStorage.getItem('espIp'); if (saved) document.getElementById('espIp').value = saved; } catch (e) {}
 
-// ── The tests ────────────────────────────────────────────────────────────────
+    let ws = null;
+    let pendingAction = null;
+    let expiryTimer = null;
+    let coinInsertMode = false;
+    let processingMode = false;
+    let lastCoinCount = 0;
 
-// T1 — same-origin controller API. On the real controller this returns portal settings; when
-// previewing the zip locally it falls back to the bundled getPortalPageSetting.json mock.
-function t1() {
-  var t = addTest('T1', 'controller API same-origin: POST /portal/getPortalPageSetting');
-  var start = performance.now();
-  return withTimeout(fetch('/portal/getPortalPageSetting', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }), 8000)
-    .then(function (r) { return r.text().then(function (b) { t.done(r.ok ? 'pass' : 'warn', performance.now() - start, 'HTTP ' + r.status + ': ' + b.slice(0, 120)); }); })
-    .catch(function (e) {
-      var start2 = performance.now();
-      return withTimeout(fetch('getPortalPageSetting.json'), 4000)
-        .then(function (r) { return r.text().then(function (b) { t.done('warn', performance.now() - start2, 'POST failed (' + e.message + '); local mock: HTTP ' + r.status + ' ' + b.slice(0, 80)); }); })
-        .catch(function (e2) { t.done('fail', performance.now() - start, 'POST: ' + e.message + ' / mock: ' + e2.message); });
+    const audioBg   = new Audio('assets/insertcoinbg.mp3');
+    audioBg.loop    = true;
+    const audioCoin = new Audio('assets/coin-received.mp3');
+
+    function formatMinutesToHM(totalMinutes) {
+      const hours = Math.floor(totalMinutes / 60);
+      const mins = totalMinutes % 60;
+      return (hours < 10 ? '0' : '') + hours + ' H : ' + (mins < 10 ? '0' : '') + mins + ' M';
+    }
+
+    function showErrorPopup(message, detail) {
+      const popup = document.getElementById('errorPopup');
+      popup.innerHTML = message;
+      if (detail) {
+        popup.innerHTML += '<div style="font-size:12px;font-weight:normal;margin-top:6px;opacity:0.85">' + detail + '</div>';
+      }
+      popup.classList.add('show');
+      setTimeout(() => { popup.classList.remove('show'); }, detail ? 5000 : 3000);
+    }
+
+    function showRefundable(data) {
+      document.getElementById('statusText').className = 'blinking-red';
+      document.getElementById('statusText').textContent = 'Payment error';
+      document.getElementById('expirationBar').style.display = 'none';
+      document.getElementById('pauseBar').style.display = 'none';
+      document.getElementById('pauseBtn').style.display = 'none';
+      document.getElementById('resumeBtn').style.display = 'none';
+      document.getElementById('insertBtn').style.display = 'none';
+      document.getElementById('statusBox').classList.remove('status-loading');
+      const popup = document.getElementById('errorPopup');
+      let html = 'Payment error \u2014 coins not applied. Show this code to the operator:';
+      if (data.refundCode) {
+        html += '<div style="font-size:28px;font-weight:bold;letter-spacing:6px;margin:10px 0;font-family:monospace">' + data.refundCode + '</div>';
+      }
+      if (data.coins && data.minutes) {
+        html += '<div style="font-size:13px;font-weight:normal;margin-bottom:4px">' + data.coins + ' coin' + (data.coins !== 1 ? 's' : '') + ' \u00b7 ' + data.minutes + ' minutes owed</div>';
+      }
+      if (data.message) {
+        html += '<div style="font-size:11px;font-weight:normal;margin-top:4px;opacity:0.75">' + data.message + (data.detail ? ': ' + data.detail : '') + '</div>';
+      }
+      popup.innerHTML = html;
+      popup.style.backgroundColor = '#c0392b';
+      popup.classList.add('show');
+    }
+
+    function showNoSession(detail) {
+      document.getElementById('statusText').className = 'blinking-red';
+      document.getElementById('statusText').textContent = 'No session';
+      document.getElementById('expirationBar').style.display = 'none';
+      document.getElementById('pauseBar').style.display = 'none';
+      document.getElementById('pauseBtn').style.display = 'none';
+      document.getElementById('resumeBtn').style.display = 'none';
+      document.getElementById('insertBtn').style.display = 'none';
+      document.getElementById('statusBox').classList.remove('status-loading');
+      const popup = document.getElementById('errorPopup');
+      popup.innerHTML = 'No active session — turn WiFi off and on again on your device, then refresh this page';
+      if (detail) {
+        popup.innerHTML += '<div style="font-size:11px;font-weight:normal;margin-top:6px;opacity:0.75">' + detail + '</div>';
+      }
+      popup.style.backgroundColor = '#c0392b';
+      popup.classList.add('show');
+    }
+
+    function connectWebSocket() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        return;
+      }
+
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+        ws = null;
+      }
+
+      console.log('[EllaFi] WS connecting', performance.now().toFixed(0) + 'ms');
+      ws = new WebSocket('ws://' + ESP_HOST + '/ws');   // page origin is the controller; the WS goes to the ESP
+
+      ws.onopen = function() {
+        console.log('[EllaFi] WS open', performance.now().toFixed(0) + 'ms');
+        if (pendingAction) {
+          ws.send(JSON.stringify(pendingAction));
+          pendingAction = null;
+        }
+      };
+
+      ws.onmessage = function(event) {
+        let data;
+        try {
+          data = JSON.parse(event.data);
+        } catch (e) {
+          showErrorPopup('Invalid JSON from server', event.data);
+          return;
+        }
+        handleServerMessage(data);
+      };
+
+      ws.onclose = function(event) {
+        console.log('[EllaFi] WS close', event.code, performance.now().toFixed(0) + 'ms');
+        ws = null;
+        if (!document.getElementById('statusBox').classList.contains('status-loading')) {
+          const st = document.getElementById('statusText');
+          st.className = 'blinking-yellow';
+          st.textContent = 'Reconnecting...';
+          document.getElementById('expirationBar').style.display = 'none';
+          document.getElementById('pauseBar').style.display = 'none';
+          document.getElementById('pauseBtn').style.display = 'none';
+          document.getElementById('resumeBtn').style.display = 'none';
+          document.getElementById('insertBtn').style.display = 'none';
+        }
+        scheduleReconnect();
+      };
+
+      ws.onerror = function() {};
+    }
+
+    function scheduleReconnect() {
+      setTimeout(connectWebSocket, 1000);
+    }
+
+    // Coverage map: load /map.svg once (card stays hidden if none); color dots by MAC each update.
+    let lastDevices = null;   // last {mac:status} seen, so a map that loads AFTER /status still colors
+    function loadMap() {
+      // device: fetch + inline so the dots live in the page DOM and color live.
+      // file:// preview: browsers block fetch of local files → fall back to <object>, which still
+      // renders the map (dots stay grey, since they're in the object's own document).
+      fetch('map.svg')
+        .then(r => r.ok ? r.text() : Promise.reject('nomap'))
+        .then(svg => {
+          document.getElementById('mapHolder').innerHTML = svg;
+          document.getElementById('apMapCard').style.display = 'block';
+          if (lastDevices) updateAps(lastDevices);   // /status may have arrived before the dots existed
+        })
+        .catch(err => {
+          if (err === 'nomap') return;   // genuinely no /map.svg → keep the card hidden
+          document.getElementById('mapHolder').innerHTML =
+            '<object type="image/svg+xml" data="map.svg" style="width:56%;display:block;margin:4px auto 0"></object>';
+          document.getElementById('apMapCard').style.display = 'block';
+        });
+    }
+    function updateAps(devices) {
+      lastDevices = devices;   // remember so loadMap can re-apply if the SVG wasn't in the DOM yet
+      const cls = ['down','warn','up'];
+      for (const mac in devices) {
+        const d = document.querySelector('#apMapCard .dot[data-mac="' + mac + '"]');
+        if (d) d.setAttribute('class', 'dot ' + (cls[devices[mac]] || ''));
+      }
+    }
+    window.addEventListener('load', loadMap);
+
+    function fetchStatus() {
+      // Cross-origin to the ESP, with the redirect params — readable via the b76 CORS header, and
+      // each call (re)seeds the session server-side, so reboots can't strand a paused customer.
+      fetch('http://' + ESP_HOST + '/status' + PORTAL_QS)
+        .then(r => r.json())
+        .then(handleServerMessage)
+        .catch(() => setTimeout(fetchStatus, 2000));
+    }
+
+    function handleServerMessage(data) {
+      if (data.devices) updateAps(data.devices);
+      if (data.type === 'authenticated') {
+        window.location.reload();
+      } else if (data.type === 'status') {
+        updateUI(data);
+      } else if (data.type === 'paused' || data.type === 'resumed') {
+        stopProcessing();
+        updateUI(data);
+        if (ws) { ws.onclose = null; ws.close(); ws = null; }
+      } else if (data.type === 'error') {
+        stopCoinInsert();
+        stopProcessing();
+        if (ws) { ws.onclose = null; ws.close(); ws = null; }
+        if (data.subtype === 'no_session') {
+          showNoSession(data.message);
+        } else if (data.subtype === 'refundable') {
+          showRefundable(data);
+        } else {
+          showErrorPopup(data.message || 'Server error', data.detail);
+        }
+      } else {
+        showErrorPopup('Unknown message type: ' + data.type, JSON.stringify(data));
+      }
+    }
+
+    // Reconnect when tab becomes visible — always force fresh connection on iOS
+    document.addEventListener('visibilitychange', function() {
+      if (!document.hidden) {
+        if (ws) { ws.onclose = null; ws.close(); ws = null; }
+        fetchStatus();
+      }
     });
-}
 
-// T2 — image beacon to the ESP. Immune to CORS (only mixed-content or network can block it),
-// so it isolates pure REACHABILITY from header problems.
-function t2() {
-  var t = addTest('T2', 'ESP reachability: <img> ' + espBase() + '/EllaFi.webp');
-  var start = performance.now();
-  return new Promise(function (res) {
-    var img = new Image();
-    var timer = setTimeout(function () { img.src = ''; t.done('fail', performance.now() - start, 'timeout 8s — unreachable or silently blocked'); res(); }, 8000);
-    img.onload = function () { clearTimeout(timer); t.done('pass', performance.now() - start, 'loaded ' + img.naturalWidth + 'x' + img.naturalHeight + ' — ESP reachable from this browser'); res(); };
-    img.onerror = function () { clearTimeout(timer); t.done('fail', performance.now() - start, 'onerror — blocked (mixed content?) or unreachable'); res(); };
-    img.src = espBase() + '/EllaFi.webp?t=' + Date.now();
-  });
-}
+    function stopCoinInsert() {
+      coinInsertMode = false;
+      lastCoinCount = 0;
+      document.getElementById('coinModal').classList.remove('show');
+      audioBg.pause();
+      audioBg.currentTime = 0;
+    }
 
-// T3 — fetch with mode:'no-cors'. Resolving proves the network round-trip worked even though the
-// response is opaque (status/body unreadable). Rejecting means blocked or unreachable.
-function t3() {
-  var t = addTest('T3', 'ESP fetch opaque: no-cors GET ' + espBase() + '/status');
-  var start = performance.now();
-  return withTimeout(fetch(espBase() + '/status', { mode: 'no-cors' }), 8000)
-    .then(function (r) { t.done('pass', performance.now() - start, 'resolved (type=' + r.type + ') — request reached the ESP; body not readable by design'); })
-    .catch(function (e) { t.done('fail', performance.now() - start, e.message + ' — blocked or unreachable'); });
-}
+    function showProcessing() {
+      processingMode = true;
+      document.getElementById('processingModal').classList.add('show');
+    }
 
-// T4 — readable CORS fetch WITH the Omada redirect params: /status?clientMac=... This is the real
-// option-B browsing call (firmware b76+): it seeds the session cache server-side AND returns
-// readable JSON. Fails on firmware <76 (no Access-Control-Allow-Origin header).
-function statusUrlWithParams() {
-  var q = ['clientMac', 'apMac', 'ssidName', 'radioId']
-    .filter(function (n) { return params[n]; })
-    .map(function (n) { return n + '=' + encodeURIComponent(params[n]); })
-    .join('&');
-  return espBase() + '/status' + (q ? '?' + q : '');
-}
-function t4() {
-  var t = addTest('T4', 'ESP status readable + session seed: GET /status?clientMac=…');
-  var start = performance.now();
-  return withTimeout(fetch(statusUrlWithParams()), 8000)
-    .then(function (r) { return r.text().then(function (b) {
-      var seeded = '';
-      try { var d = JSON.parse(b); seeded = ' — session seeded: clientMac=' + (d.clientMac || '(none: firmware <76?)') + ' paused=' + d.pausedRemainingMillis + 'ms'; } catch (e) {}
-      t.done('pass', performance.now() - start, 'READABLE, HTTP ' + r.status + seeded + ' : ' + b.slice(0, 100));
-    }); })
-    .catch(function (e) { t.done(outcome['T3'] === 'pass' ? 'warn' : 'fail', performance.now() - start, e.message + (outcome['T3'] === 'pass' ? ' — reachable (see T3) but unreadable: firmware <76 (no CORS header on /status)' : '')); });
-}
+    function stopProcessing() {
+      processingMode = false;
+      document.getElementById('processingModal').classList.remove('show');
+    }
 
-// T5 — WebSocket. WS is NOT subject to CORS, so if this opens, the page has a full two-way channel
-// to the ESP with zero firmware changes. The key test of the whole POC.
-function t5() {
-  var t = addTest('T5', 'ESP WebSocket: ws://…/ws (CORS-free channel)');
-  var start = performance.now();
-  return new Promise(function (res) {
-    var ws, opened = false, msgs = 0;
-    try { ws = new WebSocket('ws://' + document.getElementById('espIp').value.trim() + '/ws'); }
-    catch (e) { t.done('fail', 0, 'constructor threw: ' + e.message); return res(); }
-    var timer = setTimeout(function () {
-      if (opened) { t.done('pass', performance.now() - start, 'open, ' + msgs + ' message(s) in 5s — full two-way channel works'); }
-      else { t.done('fail', performance.now() - start, 'never opened in 10s'); }
-      try { ws.close(); } catch (e) {}
-      res();
-    }, opened ? 5000 : 10000);
-    ws.onopen = function () { opened = true; log('[T5] WS open at ' + Math.round(performance.now() - start) + 'ms — waiting 5s for messages'); };
-    ws.onmessage = function (ev) { msgs++; log('[T5] WS message: ' + String(ev.data).slice(0, 120)); };
-    ws.onerror = function () { log('[T5] WS error event (details hidden by browser)'); };
-    ws.onclose = function (ev) {
-      clearTimeout(timer);
-      if (opened) t.done('pass', performance.now() - start, 'opened then closed code=' + ev.code + ', ' + msgs + ' message(s)');
-      else t.done('fail', performance.now() - start, 'closed before open, code=' + ev.code + ' — blocked or unreachable');
-      res();
-    };
-  });
-}
+    function showCoinInsert(data) {
+      if (!coinInsertMode) {
+        audioBg.play().catch(() => {});
+      }
+      if (data.coinCount > lastCoinCount) {
+        audioCoin.currentTime = 0;
+        audioCoin.play().catch(() => {});
+      }
+      lastCoinCount = data.coinCount;
+      coinInsertMode = true;
+      processingMode = false;
+      document.getElementById('coinModal').classList.add('show');
+      document.getElementById('progressBar').style.width = (data.coinInsertTimeLeft / 10) * 100 + '%';
+      document.getElementById('progressText').textContent = data.coinInsertTimeLeft + ' seconds remaining';
+      document.getElementById('modalCoins').textContent = data.coinCount;
+      document.getElementById('requestingMinutes').textContent = formatMinutesToHM(data.coinCount * data.minutesPerCoin);
+    }
 
-// T6 — https to the ESP. Expected to fail (the ESP has no TLS server). Only matters if the
-// controller serves this page over https: then http:// is blocked (see T2/T3) and https:// has
-// nothing to talk to — that combination is the mixed-content dead end.
-function t6() {
-  var t = addTest('T6', 'ESP https probe: https://…/status (expected fail — no TLS on ESP)');
-  var start = performance.now();
-  return withTimeout(fetch('https://' + document.getElementById('espIp').value.trim() + '/status', { mode: 'no-cors' }), 6000)
-    .then(function () { t.done('warn', performance.now() - start, 'unexpectedly resolved — is something terminating TLS for the ESP?'); })
-    .catch(function (e) { t.done('warn', performance.now() - start, 'failed as expected (' + e.message + ') — https page + http ESP would be a dead end'); });
-}
+    function showPaused(data) {
+      document.getElementById('statusText').className = 'blinking-yellow';
+      document.getElementById('statusText').textContent = 'Paused';
+      document.getElementById('expirationBar').style.display = 'none';
+      document.getElementById('pausedTime').textContent = formatMinutesToHM(Math.ceil(data.pausedRemainingMillis / 60000));
+      document.getElementById('pauseBar').style.display = '';
+      document.getElementById('pauseBtn').style.display = 'none';
+      document.getElementById('resumeBtn').style.display = 'block';
+      document.getElementById('insertBtn').style.display = 'none';
+    }
 
-// T7 — latency: 5 sequential opaque pings, the shape of option B's 1/s polling.
-function t7() {
-  var t = addTest('T7', 'ESP poll latency: 5 × no-cors GET /status');
-  var times = [];
-  var chain = Promise.resolve();
-  for (var i = 0; i < 5; i++) {
-    chain = chain.then(function () {
-      var s = performance.now();
-      return withTimeout(fetch(espBase() + '/status?t=' + Date.now(), { mode: 'no-cors' }), 8000)
-        .then(function () { times.push(Math.round(performance.now() - s)); })
-        .catch(function (e) { times.push(-1); log('[T7] ping failed: ' + e.message); });
-    });
-  }
-  return chain.then(function () {
-    var ok = times.filter(function (x) { return x >= 0; });
-    t.done(ok.length === 5 ? 'pass' : ok.length ? 'warn' : 'fail', ok.length ? ok.reduce(function (a, b) { return a + b; }) / ok.length : null,
-           'times ms: [' + times.join(', ') + '] — this is option B\'s poll cost per second');
-  });
-}
+    function showConnected(data) {
+      const expiresInMillis = data.sessionEndMillis - Date.now();
+      document.getElementById('statusText').className = 'blinking-green';
+      document.getElementById('statusText').textContent = 'Connected';
+      document.getElementById('expirationTime').textContent = new Date(data.sessionEndMillis).toLocaleString([], {
+        month: '2-digit', day: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      }).replace(',', '');
+      document.getElementById('expirationBar').style.display = '';
+      document.getElementById('pauseBar').style.display = 'none';
+      const bar = document.getElementById('expiryBar');
+      bar.style.transition = 'none';
+      bar.style.width = (expiresInMillis / (data.sessionEndMillis - data.sessionStartMillis) * 100).toFixed(2) + '%';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        bar.style.transition = 'width ' + (expiresInMillis / 1000).toFixed(1) + 's linear';
+        bar.style.width = '0%';
+      }));
+      document.getElementById('pauseBtn').style.display = 'block';
+      document.getElementById('resumeBtn').style.display = 'none';
+      document.getElementById('insertBtn').style.display = 'block';
 
-// ── Verdict: map raw results onto the three POC questions ────────────────────
-function verdict() {
-  var v = document.getElementById('verdict');
-  v.innerHTML = '';
-  function add(q, cls, text) { var d = document.createElement('div'); d.style.borderLeftColor = cls === 'pass' ? '#4c4' : cls === 'warn' ? '#fb3' : '#e55'; d.innerHTML = '<b>' + q + '</b> — ' + text; v.appendChild(d); }
+      if (expiryTimer) clearTimeout(expiryTimer);
+      expiryTimer = setTimeout(fetchStatus, expiresInMillis + 1000);
+    }
 
-  var reach = outcome['T2'] === 'pass' || outcome['T3'] === 'pass';
-  if (reach && outcome['T4'] === 'pass')
-    add('Q1 cross-origin', 'pass', 'captive browser reaches the ESP AND can read responses. Full REST coin API is viable.');
-  else if (reach && outcome['T5'] === 'pass')
-    add('Q1 cross-origin', 'pass', 'ESP reachable; plain fetch is unreadable (no CORS header) but the WebSocket works — reuse the existing WS protocol, zero new REST endpoints needed.');
-  else if (reach)
-    add('Q1 cross-origin', 'warn', 'ESP reachable but neither readable fetch nor WS — a CORS header on the ESP is required for a coin API.');
-  else
-    add('Q1 cross-origin', 'fail', 'the captive browser cannot reach the ESP at all — option B is dead in this browser; retest in a full browser and other phones.');
+    function showDisconnected() {
+      document.getElementById('statusText').className = 'blinking-red';
+      document.getElementById('statusText').textContent = 'Disconnected';
+      document.getElementById('expirationBar').style.display = 'none';
+      document.getElementById('pauseBar').style.display = 'none';
+      document.getElementById('pauseBtn').style.display = 'none';
+      document.getElementById('resumeBtn').style.display = 'none';
+      document.getElementById('insertBtn').style.display = 'block';
+    }
 
-  if (location.protocol === 'https:')
-    add('Q2 mixed content', reach ? 'warn' : 'fail', 'page is HTTPS. ' + (reach ? 'http calls still worked (unusual — some captive browsers skip mixed-content rules).' : 'http calls blocked as expected — serve the portal over HTTP, or option B needs rethinking.'));
-  else
-    add('Q2 mixed content', 'pass', 'page is HTTP — no mixed-content restriction in play. Confirm the controller portal stays HTTP in production config.');
+    function updateUI(data) {
+      document.getElementById('statusBox').classList.remove('status-loading');
+      if (data.clientMac) document.getElementById('clientMac').textContent = data.clientMac;
+      if (data.clientIp) document.getElementById('clientIp').textContent = data.clientIp;
+      document.getElementById('errorPopup').classList.remove('show');
 
-  add('Q3 grant model', 'warn', 'manual: run the voucher test below with a real code (model A). If it lands errorCode 0 and redirects, voucher-submit from a custom page works.');
-  log('verdict rendered');
-}
+      if (data.coinInsertTimeLeft > 0) {
+        showCoinInsert(data);
+        return;
+      }
+      // If we were showing coin insert but server says time left is 0, switch to processing
+      if (coinInsertMode) {
+        stopCoinInsert();
+        showProcessing();
+        return;
+      }
+      // While processing auth, ignore all status updates — only authenticated/error/paused exit this state
+      if (processingMode) return;
 
-function runAll() {
-  results.innerHTML = '<tr><th>#</th><th>Test</th><th>Status</th><th>ms</th><th>Detail</th></tr>';
-  outcome = {};
-  log('=== running all tests against ' + espBase() + ' ===');
-  t1().then(t2).then(t3).then(t4).then(t5).then(t6).then(t7).then(verdict);
-}
+      if (data.pausedRemainingMillis > 0) {
+        showPaused(data);
+      } else if (data.sessionEndMillis > Date.now()) {
+        showConnected(data);
+      } else {
+        showDisconnected();
+      }
+    }
 
-// ── Manual WS full-protocol test — the real coin-session handshake ───────────
-var sessionWs = null;
-function testWsSession() {
-  var out = document.getElementById('wsSessionResult');
-  wsSessionStop();
-  var start = performance.now();
-  var pushes = 0;
-  out.textContent = 'connecting…';
-  try { sessionWs = new WebSocket('ws://' + document.getElementById('espIp').value.trim() + '/ws'); }
-  catch (e) { out.textContent = 'constructor threw: ' + e.message; return; }
-  sessionWs.onopen = function () {
-    log('[WS-session] open at ' + Math.round(performance.now() - start) + 'ms — sending startCoinInsert');
-    sessionWs.send(JSON.stringify({ action: 'startCoinInsert' }));
-    out.innerHTML = '<span class="run">open, startCoinInsert sent — waiting for pushes (insert a coin on the test rig!)</span>';
-  };
-  sessionWs.onmessage = function (ev) {
-    pushes++;
-    log('[WS-session] push ' + pushes + ': ' + String(ev.data).slice(0, 200));
-    out.innerHTML = '<span class="pass">' + pushes + ' push(es) received</span> — last: <code>' + String(ev.data).slice(0, 150) + '</code>';
-  };
-  sessionWs.onclose = function (ev) {
-    log('[WS-session] closed code=' + ev.code + ' after ' + pushes + ' push(es)');
-    out.innerHTML += ' — <span class="' + (pushes ? 'pass' : 'warn') + '">closed code=' + ev.code + '</span>';
-  };
-  sessionWs.onerror = function () { log('[WS-session] error event'); };
-}
-function wsSessionStop() { if (sessionWs) { try { sessionWs.close(); } catch (e) {} sessionWs = null; } }
+    function insertCoins() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        pendingAction = { action: 'startCoinInsert' };
 
-// ── Manual voucher auth (grant model A) ──────────────────────────────────────
-function testVoucherAuth() {
-  var code = document.getElementById('voucherCode').value.trim();
-  var out = document.getElementById('authResult');
-  if (!code) { out.textContent = 'enter a voucher code first'; return; }
-  var body = {
-    voucherCode: code,
-    clientMac: params.clientMac, apMac: params.apMac, gatewayMac: params.gatewayMac,
-    ssidName: params.ssidName, radioId: params.radioId ? Number(params.radioId) : undefined,
-    vid: params.vid, originUrl: params.originUrl
-  };
-  log('POST /portal/auth ' + JSON.stringify(body));
-  out.textContent = 'submitting…';
-  withTimeout(fetch('/portal/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }), 10000)
-    .then(function (r) { return r.text(); })
-    .then(function (b) {
-      log('auth response: ' + b.slice(0, 300));
-      out.innerHTML = 'response: <b>' + b.slice(0, 200) + '</b>';
-      try { var d = JSON.parse(b); if (d.errorCode === 0) { out.innerHTML += ' — <span class="pass">AUTH OK</span>, landing: ' + (d.result || '(default)'); } } catch (e) {}
-    })
-    .catch(function (e) { log('auth error: ' + e.message); out.innerHTML = '<span class="fail">' + e.message + '</span>'; });
-}
+        connectWebSocket();
+        return;
+      }
+      ws.send(JSON.stringify({ action: 'startCoinInsert' }));
+    }
 
-// Auto-run: captive browsers sometimes hide/ignore taps, so don't depend on the button.
-setTimeout(runAll, 600);
-</script>
+    function pauseSession() {
+      showProcessing();
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        pendingAction = { action: 'pause' };
+        connectWebSocket();
+        return;
+      }
+      ws.send(JSON.stringify({ action: 'pause' }));
+    }
+
+    function resumeSession() {
+      showProcessing();
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        pendingAction = { action: 'resume' };
+        connectWebSocket();
+        return;
+      }
+      ws.send(JSON.stringify({ action: 'resume' }));
+    }
+
+    // Voucher auth — same-origin POST to the controller, body per TP-Link's stock portal page
+    // (demo.zip): voucherCode + the redirect params. errorCode 0 → authorized; anything else shows
+    // the code so the seller can help.
+    function submitVoucher() {
+      const code = document.getElementById('voucherCode').value.trim();
+      const msg = document.getElementById('voucherMsg');
+      if (!code) { msg.textContent = 'Enter your voucher code first'; return; }
+      const q = new URLSearchParams(location.search);
+      const body = { voucherCode: code };
+      for (const k of ['clientMac', 'apMac', 'gatewayMac', 'ssidName', 'vid', 'originUrl']) if (q.get(k)) body[k] = q.get(k);
+      if (q.get('radioId')) body.radioId = Number(q.get('radioId'));
+      document.getElementById('voucherBtn').disabled = true;
+      msg.textContent = 'Connecting…';
+      fetch('/portal/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+        .then(r => r.json())
+        .then(d => {
+          if (d.errorCode === 0) {
+            msg.textContent = 'Connected!';
+            window.location.href = d.result || q.get('originUrl') || '/';
+          } else {
+            document.getElementById('voucherBtn').disabled = false;
+            msg.textContent = 'Not accepted (code ' + d.errorCode + ') — check the voucher and try again';
+          }
+        })
+        .catch(e => {
+          document.getElementById('voucherBtn').disabled = false;
+          msg.textContent = 'Could not reach the controller — try again';
+        });
+    }
+
+    if (new URLSearchParams(window.location.search).has('clientMac')) {
+      document.getElementById('openBrowserBtn').style.display = 'block';
+    }
+
+    console.log('[EllaFi] page JS ready', performance.now().toFixed(0) + 'ms');
+    fetchStatus();
+  </script>
 </body>
 </html>
