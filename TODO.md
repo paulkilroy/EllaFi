@@ -27,6 +27,22 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ## 🟡 Resilience / ops
 
+- **Consider serving the captive portal from Omada instead of the ESP (scalability).** Today the ESP is
+  Omada's *External Portal Server* — it serves the portal HTML/WS to every client, putting it in the
+  client-facing hot path (the 16-LWIP-socket limit behind the OUT-OF-SERVICE saga; now mitigated by
+  close-after-response + TCP keepalive, b66/67 — see `memory/esp32_socket_starvation_fix.md` / ~/.claude).
+  JuanFi-style alternative: upload the portal to Omada's **Import Customized Page** (Settings → Authentication
+  → Portal Customization; the controller serves it — 2 MB self-contained, our bundle is only ~194 KB), and
+  demote the ESP to a thin **coin API**: `POST /coin/claim {clientMac,apMac,ssid,radioId}` seeds the session +
+  claims the single coin slot, `GET /coin/status` polls, then grant. Auth stays native — the page POSTs to
+  Omada's own `/portal/auth` (same-origin, no CORS). The ESP then holds ~zero client sockets → scales like a
+  PisoWiFi. **Open questions before committing (need a real-phone POC):** (a) the captive mini-browser (CNA)
+  may block cross-origin fetch to the ESP; (b) mixed content if Omada serves the portal over HTTPS but the ESP
+  is HTTP; (c) grant model — **A** ESP mints a voucher → page submits it (native, but pollutes seller sales
+  tracking) vs **B** ESP authorizes the MAC directly via the current API (cleaner, but unverified under a
+  *local* custom portal). Format reference: `demo.zip` (Omada sample) analyzed; POC test page in scratchpad.
+  Not urgent — the socket fix removed the immediate pressure; this is the structural escape hatch if load grows.
+
 - **Move blocking Omada TLS off the HTTP thread — responsiveness, NOT a crash fix.** The voucher handlers
   (`getVoucherGroupsJson` / `createVoucherGroup` / `getVoucherHistoryJson` / `getVoucherCodesJson`) make
   live Omada calls on the esp_http_server thread; during a controller outage each blocks the handler for

@@ -84,6 +84,10 @@
 #include <HTTPClient.h>
 #include <LittleFS.h>
 #include <esp_log.h>
+#include <esp_system.h>       // esp_reset_reason() — crash vs clean-reboot forensics
+#include <esp_heap_caps.h>    // heap_caps_register_failed_alloc_callback()
+#include <nvs.h>              // nvs_get_stats() — where the money record lives
+#include <freertos/task.h>   // uxTaskGetSystemState() — per-task stack head-room
 #include "logger.h"
 
 #define RETRY_ON_FAIL(fn) do { while (!(fn)) { ledError(); vTaskDelay(pdMS_TO_TICKS(1000)); } } while(0)
@@ -99,6 +103,32 @@ PsychicWebSocketHandler WEBSOCKET_HANDLER;
 QueueHandle_t     WEBSOCKET_JOB_QUEUE = NULL;
 QueueHandle_t     COIN_PULSE_QUEUE    = NULL;
 QueueHandle_t     COIN_SESSION_QUEUE  = NULL;
+
+// Alloc-failure counters — the registered hook bumps these the instant ANY malloc fails. The hook must
+// not allocate (it would re-enter), so it only counts; the count surfaces in logResources().
+static std::atomic<uint32_t> ALLOC_FAIL_COUNT{0};
+static std::atomic<uint32_t> ALLOC_FAIL_LAST{0};   // byte size of the most recent failed allocation
+
+static void logResources(const char* ctx);   // defined below; called from setup()'s boot baseline
+static void logStacks(const char* ctx);
+
+// PANIC/WDT/BROWNOUT = crash (heap/socket logs won't show it); SW = clean 3am reboot; POWERON = power cut.
+static const char* resetReasonStr() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON:   return "POWERON (power cut)";
+    case ESP_RST_SW:        return "SW (clean restart)";
+    case ESP_RST_PANIC:     return "PANIC (crash)";
+    case ESP_RST_INT_WDT:   return "INT_WDT (watchdog)";
+    case ESP_RST_TASK_WDT:  return "TASK_WDT (watchdog)";
+    case ESP_RST_WDT:       return "WDT (watchdog)";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT (power dip)";
+    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+    default:                return "other";
+  }
+}
+
+static TaskHandle_t COIN_SESSION_TASK = nullptr;   // heaviest stacks (TLS+JSON) — watched by logStacks()
+static TaskHandle_t WEBSOCKET_TASK    = nullptr;
 TaskHandle_t      UPDATE_CLIENT_TASK  = NULL;
 
 bool IS_MASTER = false;
@@ -159,6 +189,16 @@ static bool setupWifi() {
         ESP_LOGE(TAG, "WiFi.config(static) failed — using DHCP");
     }
   }
+  // IPv6 link-local on every (re)connect: without it mDNS never answers AAAA queries and Apple
+  // resolvers wait out a 5s timeout on EVERY ellafi.local connection (the record can't be
+  // negatively cached). On the event, not one-shot — a WiFi drop would otherwise lose the address.
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t) {
+    bool ok = WiFi.enableIpV6();
+    if (!ok) ESP_LOGE(TAG, "enableIpV6 failed — ellafi.local will stall 5s on Apple resolvers");
+  }, ARDUINO_EVENT_WIFI_STA_GOT_IP);   // GOT_IP, not CONNECTED — the netif isn't up yet at CONNECTED
+  WiFi.onEvent([](WiFiEvent_t, WiFiEventInfo_t info) {
+    ESP_LOGI(TAG, "IPv6 link-local up: " IPV6STR, IPV62STR(info.got_ip6.ip6_info.ip));
+  }, ARDUINO_EVENT_WIFI_STA_GOT_IP6);
   WiFi.begin(MANAGEMENT_SSID.c_str(), MANAGEMENT_PASSWORD.c_str());
   ESP_LOGI(TAG, "Connecting to WiFi: %s", MANAGEMENT_SSID.c_str());
   for (int i = 0; i < 5; i++) {
@@ -211,8 +251,8 @@ static void setupQueues() {
 static void setupTasks() {
   xTaskCreatePinnedToCore(coinPulseTask, "CoinPulseTask", 4096, NULL, 6, NULL, 1);
   if (IS_MASTER) {
-    xTaskCreatePinnedToCore(coinSessionTask,  "CoinSessionTask",  8192, NULL, 5, NULL,               1);
-    xTaskCreatePinnedToCore(webSocketTask,    "WebSocketTask",    8192, NULL, 4, NULL,               0);
+    xTaskCreatePinnedToCore(coinSessionTask,  "CoinSessionTask",  8192, NULL, 5, &COIN_SESSION_TASK, 1);
+    xTaskCreatePinnedToCore(webSocketTask,    "WebSocketTask",    8192, NULL, 4, &WEBSOCKET_TASK,    0);
     xTaskCreatePinnedToCore(updateClientTask, "UpdateClientTask", 4096, NULL, 3, &UPDATE_CLIENT_TASK, 1);
   }
 }
@@ -221,6 +261,11 @@ void setup() {
   delay(1000);
   Serial.begin(115200);
   logBufferSetup();
+  // Count every failed heap allocation from the very start. The hook must NOT allocate (it would re-enter),
+  // so it only bumps counters; logResources() surfaces them.
+  heap_caps_register_failed_alloc_callback([](size_t size, uint32_t, const char*) {
+    ALLOC_FAIL_COUNT.fetch_add(1); ALLOC_FAIL_LAST.store((uint32_t)size);
+  });
   delay(5000);
 
   pinMode(COINSLOT_POWER_PIN, OUTPUT);
@@ -238,6 +283,10 @@ void setup() {
   RUNNING_IMAGE_SIZE = ESP.getSketchSize();  // our true image size, for serving slave OTA
   ESP_LOGI(TAG, "Running firmware: build %d (%s), image %u bytes",
            FIRMWARE_BUILD, FIRMWARE_VERSION, (unsigned)RUNNING_IMAGE_SIZE);
+  // Early INFO for anyone watching serial; the persisted WARN copy is at the END of setup(), after
+  // the NTP attempt — a power-cut reset (POWERON/BROWNOUT) wipes the clock, and a pre-sync WARN here
+  // got stamped 1970 and purged, losing the forensics for exactly the resets brownouts cause.
+  ESP_LOGI(TAG, "BOOT: build %d, last reset = %s", FIRMWARE_BUILD, resetReasonStr());
   setupNetwork();
   setupNtp();          // best-effort — never block the admin; loop() retries until synced
   setupLogs();
@@ -247,6 +296,12 @@ void setup() {
     setupOmada();      // best-effort — loop() retries login + site-load in the background
   }
   setupTasks();
+  // Persisted boot forensics — logged here (after the NTP attempt) so the timestamp is valid whenever
+  // sync succeeded. On a WAN-down boot the clock is still bad, but appendErrorLog now keeps pre-sync
+  // entries as boot-relative instead of 1970-stamping them into the purge.
+  ESP_LOGW(TAG, "BOOT: build %d, last reset = %s", FIRMWARE_BUILD, resetReasonStr());
+  logResources("boot");   // healthy baseline for later comparison
+  logStacks("boot");
   ledReady();
 }
 
@@ -254,6 +309,57 @@ void setup() {
 // loses internet, the pings stop and Healthchecks alerts after its grace period — the one failure mode
 // the device can't report itself. Bounded timeout so a dead link can't stall the loop (and selling is
 // already off when there's no internet). Disabled when healthchecks_url is empty.
+// Snapshot the resources whose exhaustion hangs or drops the firmware, logged at WARN so it persists to
+// errors.log (survives the reboot). A future "it hung at time X" then always carries the state at that moment:
+//   sockets  — web pool usage; shares the 16 LWIP sockets with every OUTBOUND TLS call, so near-full = outbound starves
+//   largest  — largest contiguous internal-DRAM block; mbedTLS needs ~40 KB or the handshake fails (-32512 / read timeout)
+//   minHeap  — lowest internal-DRAM the firmware has ever seen (the true low-water mark)
+//   psram    — 8 MB pool where the big JSON parses live now; should stay large
+//   wsq/tls  — WS job backlog and concurrent TLS handshakes (contention)
+static void logResources(const char* ctx) {
+  // Two <128-char lines (LOG_BUF_MSG_LEN) so neither truncates in the ring buffer / errors.log.
+  ESP_LOGW(TAG, "RES %s mem: dramFree=%u largest=%u minHeap=%u psram=%u allocFails=%u(last=%u)",
+           ctx,
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+           (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+           (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
+           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+           (unsigned)ALLOC_FAIL_COUNT.load(), (unsigned)ALLOC_FAIL_LAST.load());
+
+  nvs_stats_t nv = {}; nvs_get_stats(nullptr, &nv);
+  size_t fsTot = LittleFS.totalBytes();
+  ESP_LOGW(TAG, "RES %s io: sockets=%u/%u wsq=%u pulseQ=%u sessQ=%u tls=%d fsFree=%u nvsFree=%u/%u",
+           ctx,
+           (unsigned)HTTP_SERVER.getClientList().size(), (unsigned)HTTP_SERVER.config.max_open_sockets,
+           (unsigned)uxQueueMessagesWaiting(WEBSOCKET_JOB_QUEUE),
+           (unsigned)(COIN_PULSE_QUEUE   ? uxQueueMessagesWaiting(COIN_PULSE_QUEUE)   : 0),
+           (unsigned)(COIN_SESSION_QUEUE ? uxQueueMessagesWaiting(COIN_SESSION_QUEUE) : 0),
+           omadaTlsInFlight(),
+           (unsigned)(fsTot ? fsTot - LittleFS.usedBytes() : 0),
+           (unsigned)nv.free_entries, (unsigned)nv.total_entries);
+}
+
+// Per-task stack head-room — the tightest task is the crash risk (stack overflow → panic reboot, which
+// heap/socket metrics never show). Enumerates all tasks; logs the minimum high-water mark and which task.
+// WARN (→ errors.log) only for the once-per-boot baseline or when head-room is actually tight — the
+// healthy every-10-min line stays at INFO (ring buffer only) so it can't drown errors.log.
+constexpr UBaseType_t STACK_TIGHT_FREE_BYTES = 1536;
+static void logStacks(const char* ctx) {
+  // uxTaskGetSystemState needs the trace facility (off here), so poll the risk tasks by handle instead.
+  UBaseType_t minHW = uxTaskGetStackHighWaterMark(nullptr); const char* who = "loop";   // current (loop) task
+  TaskHandle_t hs[] = { COIN_SESSION_TASK, WEBSOCKET_TASK, UPDATE_CLIENT_TASK };
+  const char*  ns[] = { "CoinSession",     "WebSocket",    "UpdateClient" };
+  for (int i = 0; i < 3; i++) {
+    if (!hs[i]) continue;
+    UBaseType_t hw = uxTaskGetStackHighWaterMark(hs[i]);
+    if (hw < minHW) { minHW = hw; who = ns[i]; }
+  }
+  if (minHW < STACK_TIGHT_FREE_BYTES || strcmp(ctx, "boot") == 0)
+    ESP_LOGW(TAG, "STACK %s: minFree=%u in '%s' (of loop/coin/ws/upd)", ctx, (unsigned)minHW, who);
+  else
+    ESP_LOGI(TAG, "STACK %s: minFree=%u in '%s' (of loop/coin/ws/upd)", ctx, (unsigned)minHW, who);
+}
+
 static void pingHealthcheck() {
   if (HEALTHCHECK_URL.isEmpty() || WiFi.status() != WL_CONNECTED) return;
 
@@ -294,8 +400,10 @@ static void pingHealthcheck() {
   // the Omada job backlog; dram/largest expose heap squeeze/fragmentation. All ~equal across many
   // failures + tls=0 + healthy heap = the WAN is dropping, not the firmware.
   if (code != 200)
-    ESP_LOGW(TAG, "healthcheck ping failed (HTTP %d) after %lums — tls=%d wsq=%u rssi=%d dram=%u largest=%u",
-             code, millis() - t0, omadaTlsInFlight(),
+    ESP_LOGW(TAG, "healthcheck ping failed (HTTP %d) after %lums — sockets=%u/%u tls=%d wsq=%u rssi=%d dram=%u largest=%u",
+             code, millis() - t0,
+             (unsigned)HTTP_SERVER.getClientList().size(), (unsigned)HTTP_SERVER.config.max_open_sockets,
+             omadaTlsInFlight(),
              (unsigned)uxQueueMessagesWaiting(WEBSOCKET_JOB_QUEUE), WiFi.RSSI(),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
@@ -329,6 +437,14 @@ void loop() {
     broadcastHeartbeat();
   }
 
+  // Periodic stack head-room check (all nodes) — slow-moving, so 10 min is plenty; catches a task creeping
+  // toward overflow before it panics.
+  static unsigned long lastStackCheck = 0;
+  if (millis() - lastStackCheck > 10 * MILLIS_PER_MINUTE) {
+    lastStackCheck = millis();
+    logStacks("periodic");
+  }
+
   // Service-health monitor (master): keep /admin reachable when NTP/Omada are down, retry them in
   // the background, and reflect the state on the LED. Coin selling is gated on isServiceReady().
   if (IS_MASTER) {
@@ -339,7 +455,22 @@ void loop() {
       ready ? ledReady() : ledError();   // solid idle when healthy, red blink when out of service
       ESP_LOGW(TAG, ready ? "Service restored — coin selling enabled"
                           : "OUT OF SERVICE — NTP/controller down; coin selling paused (admin still up)");
+      if (!ready) logResources("at OUT OF SERVICE");   // capture WHAT was exhausted at the moment we dropped
       wasReady = ready;
+    }
+
+    // Proactive early-warning: if sockets are near the pool cap or DRAM can't fit a TLS handshake, record it
+    // BEFORE it turns into an outage — so a slow degradation leaves a breadcrumb trail. The check runs every
+    // 5s (the heap-walk isn't free, so NOT every loop); the WARN itself is throttled to once / 2 min while tight.
+    static unsigned long lastResCheck = 0, lastResWarn = 0;
+    if (millis() - lastResCheck > 5000) {
+      lastResCheck = millis();
+      if ((HTTP_SERVER.getClientList().size() >= HTTP_SERVER.config.max_open_sockets - 1u ||
+           heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 45000u) &&
+          millis() - lastResWarn > 2 * MILLIS_PER_MINUTE) {
+        lastResWarn = millis();
+        logResources("TIGHT");
+      }
     }
     if (!ready && millis() - lastServiceRetry > 30000) {
       lastServiceRetry = millis();

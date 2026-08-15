@@ -181,6 +181,7 @@
   <button onclick="showTab('logs',this)">Logs</button>
   <button onclick="showTab('settings',this)">Settings</button>
   <button onclick="showTab('system',this)">System</button>
+  <button onclick="refreshActiveTab()" title="Reload this tab" style="margin-left:auto">↻ Refresh</button>
 </nav>
 
 <!-- ── DASHBOARD ──────────────────────────────────────────────────── -->
@@ -195,7 +196,7 @@
     <div class="section-title">Node Health</div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th></th><th>Role</th><th>Nickname</th><th>Commission</th><th class="col-ip">IP</th><th class="col-uptime">Uptime</th><th>Version</th><th>RSSI</th><th title="Coin pulses rejected by the width/interval filters since boot (resets at the 3am reboot). Click to see the log lines.">Rejects</th></tr></thead>
+        <thead><tr><th></th><th>Role</th><th>Nickname</th><th>Commission</th><th class="col-ip">IP</th><th class="col-uptime">Uptime</th><th>Version</th><th>RSSI</th><th title="ESP32-S3 on-die temperature (chip, not room). Master node only for now.">Temp</th><th title="Coin pulses rejected by the width/interval filters since boot (resets at the 3am reboot). Click to see the log lines.">Rejects</th></tr></thead>
         <tbody id="nodes-tbody"></tbody>
       </table>
     </div>
@@ -206,6 +207,16 @@
       <table>
         <thead><tr><th>Metric</th><th>Value</th></tr></thead>
         <tbody id="sys-health-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Socket Pool <span id="sock-summary" style="font-weight:normal;text-transform:none;letter-spacing:0;color:#8b98a5"></span></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Client IP</th><th>Sockets</th><th>Type</th></tr></thead>
+        <tbody id="sockets-tbody"></tbody>
       </table>
     </div>
   </div>
@@ -637,6 +648,19 @@ function showTab(name, btn) {
   if (name === 'system')    checkGithub();
 }
 
+// Manual refresh — re-run the active tab's loaders. Nothing auto-polls anymore (conservative on
+// connections); the only automatic fetch left is the reconnect watchdog, and only while the device is down.
+function refreshActiveTab() {
+  const p = document.querySelector('.panel.active');
+  const name = p ? p.id.replace('panel-', '') : 'dashboard';
+  if      (name === 'dashboard') loadDashboard();
+  else if (name === 'sales')     loadSales();
+  else if (name === 'vouchers')  { loadSellers(); loadVouchers(); }
+  else if (name === 'logs')      { pollDevLog(); loadErrors(); loadRefunds(); }
+  else if (name === 'settings')  { loadConfig(); loadSellers().then(renderPeopleSection); }
+  else if (name === 'system')    checkGithub();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
@@ -677,7 +701,10 @@ function renderNodeHealth(nodes) {
     const dot      = `<span class="node-dot ${statusClass}"></span>`;
     const role     = `<span class="tag ${n.role === 'master' ? 'tag-coin' : 'tag-vchr'}">${n.role.toUpperCase()}</span>`;
     const rssi     = (n.online && n.rssi) ? `<span style="color:${rssiColor(n.rssi)}">${n.rssi} dBm</span>` : '<span class="muted">—</span>';
-    // Acceptor health: pulses the coin filters rejected today (counters reset at the 3am reboot).
+    // On-die temp (°C), master only for now — slaves have no tempC field until the heartbeat carries it.
+    const temp     = (n.online && n.tempC != null)
+      ? `<span style="color:${n.tempC >= 85 ? '#e74c3c' : n.tempC >= 75 ? '#f0b429' : 'inherit'}">${n.tempC}&deg;C</span>`
+      : '<span class="muted">—</span>';
     const rejTotal = (n.rejW || 0) + (n.rejI || 0);
     const rejects  = rejTotal === 0
       ? '<span class="muted">0</span>'
@@ -700,6 +727,7 @@ function renderNodeHealth(nodes) {
       <td class="col-uptime muted">${uptime}</td>
       <td>${ver}</td>
       <td>${rssi}</td>
+      <td>${temp}</td>
       <td>${rejects}</td>
     </tr>`;
   }).join('');
@@ -754,6 +782,30 @@ function renderPerformance(salesData, leaderboard, nodeRevMap) {
   }).join('');
 }
 
+async function loadSockets() {
+  const sum = document.getElementById('sock-summary');
+  const tb  = document.getElementById('sockets-tbody');
+  try {
+    const r = await fetch('/admin/sockets');
+    if (!r.ok) throw 0;
+    const d = await r.json();
+    const near = d.count >= d.max - 1;
+    sum.innerHTML = `<span style="color:${near ? '#e74c3c' : '#3fb950'};font-weight:bold">${d.count}/${d.max}</span>`
+                  + ` &middot; ${d.http} HTTP &middot; ${d.ws} WS`;
+    const byIp = {};
+    (d.sockets || []).forEach(s => { (byIp[s.ip] = byIp[s.ip] || []).push(s); });
+    const rows = Object.keys(byIp).sort((a, b) => byIp[b].length - byIp[a].length);
+    tb.innerHTML = rows.map(ip => {
+      const list = byIp[ip], ws = list.filter(s => s.ws).length, http = list.length - ws;
+      const types = [http ? http + ' HTTP' : '', ws ? ws + ' WS' : ''].filter(Boolean).join(' + ');
+      return `<tr><td style="font-family:monospace;font-size:12px">${ip}</td><td>${list.length}</td><td class="muted">${types}</td></tr>`;
+    }).join('') || '<tr><td colspan="3" class="muted">no open sockets</td></tr>';
+  } catch {
+    sum.textContent = '—';
+    tb.innerHTML = '<tr><td colspan="3" class="muted">unavailable</td></tr>';
+  }
+}
+
 async function loadDashboard(skipRecheck) {
   // Controller status is only refreshed on coin/session events, so force one fresh check whenever the
   // dashboard opens — otherwise a controller that died while idle wouldn't surface here. Fire-and-forget
@@ -793,6 +845,8 @@ async function loadDashboard(skipRecheck) {
     document.getElementById('d-errors').textContent = r.ok
       ? ((await r.text()).match(/^\d{4}-\d{2}-\d{2}/gm) || []).length : '0';
   } catch { document.getElementById('d-errors').textContent = '—'; }
+
+  loadSockets();
 
   try {
     const r = await fetch('/refunds');
@@ -1748,9 +1802,7 @@ async function pollDevLog() {
 }
 
 function startDevLog() {
-  if (devLogTimer) return;
-  pollDevLog();
-  devLogTimer = setInterval(pollDevLog, 2000);
+  pollDevLog();   // one-shot load on open; use ↻ Refresh to update (no 2s auto-poll — conservative on connections)
 }
 
 function stopDevLog() {

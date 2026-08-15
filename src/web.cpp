@@ -13,6 +13,7 @@
 #include <Preferences.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include "lwip/sockets.h"   // setsockopt + SO_KEEPALIVE / TCP_KEEPIDLE for per-socket TCP keepalive
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <PsychicUploadHandler.h>
@@ -26,24 +27,20 @@ static const char* TAG = "EllaFi";
 
 // ── Admin auth: challenge-response login + IP-bound session token ──────────────
 // HTTP Basic mailed the Omada password (base64) on every request. Instead, the browser sends
-// sha256(nonce:password) — the password never crosses the wire — and on success we mint a random
-// token bound to the client IP. The server is single-threaded (one httpd task), so these tables
-// need no lock. All state is RAM and clears on the daily reboot.
+// sha256(nonce:password) — the password never crosses the wire — and on success the cookie is a
+// token DERIVED from the password (sha256 of a salt + password), not a random session: no server
+// state, so it survives the daily reboot and brownouts, and every admin device shares it. Changing
+// the password is the revocation. The server is single-threaded (one httpd task), so these tables
+// need no lock.
 
 static const uint32_t ADMIN_NONCE_TTL_MS     = 60000UL;        // 1 min to finish a login
-static const uint32_t ADMIN_SESSION_TTL_MS   = 30UL * 60000UL; // session-slot reclaim window (NOT a logout
-                                                              // timeout — the session itself never expires;
-                                                              // this just lets a stale slot be reused so 4
-                                                              // never-expiring tokens can't fill the array)
 static const int      ADMIN_MAX_FAILS        = 5;              // failed logins per IP before cooldown
 static const uint32_t ADMIN_FAIL_COOLDOWN_MS = 60000UL;        // lockout window once tripped
 
 struct AdminNonce   { String nonce; uint32_t expiresMs; };
-struct AdminSession { String token; uint32_t ip; uint32_t expiresMs; };
 struct AdminFails   { uint32_t ip; int count; uint32_t untilMs; };
 
 static AdminNonce   ADMIN_NONCES[8];
-static AdminSession ADMIN_SESSIONS[4];
 static AdminFails   ADMIN_FAILS[8];
 
 static bool ttlLive(uint32_t expiresMs, uint32_t now) { return (int32_t)(expiresMs - now) > 0; }
@@ -91,20 +88,21 @@ static String cookieValue(PsychicRequest* request, const char* name) {
   return v;
 }
 
-// True if the request carries a session cookie bound to its own IP.
-// No timeout: a session lives until the browser closes (session cookie) or the daily reboot wipes RAM.
+// The persistent admin cookie value: derived from the password, computed once. Not IP-bound (phones
+// hop DHCP leases) and never expires — accepted tradeoff on this LAN; rotate the password to revoke.
+static String persistentToken() {
+  static String token;
+  if (token.isEmpty()) token = sha256Hex("ellafi-cookie-v1:" + ADMIN_PASSWORD);
+  return token;
+}
+
 static bool isAuthorized(PsychicRequest* request) {
-  String token = cookieValue(request, "ellafi_admin");
-  if (token.isEmpty()) return false;
-  uint32_t ip = reqIpU32(request);
-  for (auto& s : ADMIN_SESSIONS)
-    if (!s.token.isEmpty() && s.token == token && s.ip == ip) return true;
-  return false;
+  return ctEqual(cookieValue(request, "ellafi_admin"), persistentToken());
 }
 
 // Admin gate as a pipeline middleware — attach with ->addMiddleware(adminAuth) on protected routes.
 // Runs before the handler; 401s unauthenticated requests so the policy lives in the route table (not
-// scattered through handler bodies). Auth model unchanged: isAuthorized() (cookie token, IP-bound, TTL).
+// scattered through handler bodies).
 static PsychicMiddlewareCallback adminAuth =
   [](PsychicRequest* request, PsychicResponse* response, PsychicMiddlewareNext next) -> esp_err_t {
     if (!isAuthorized(request))
@@ -162,23 +160,13 @@ static esp_err_t handleAdminLogin(PsychicRequest* request, PsychicResponse* resp
   }
   clearFails(ip);
 
-  String token = randomHex(16);
-  int slot = 0; uint32_t oldest = 0xffffffffUL;
-  for (int i = 0; i < 4; i++) {
-    if (!ttlLive(ADMIN_SESSIONS[i].expiresMs, now)) { slot = i; break; }
-    if (ADMIN_SESSIONS[i].expiresMs < oldest) { oldest = ADMIN_SESSIONS[i].expiresMs; slot = i; }
-  }
-  ADMIN_SESSIONS[slot] = { token, ip, now + ADMIN_SESSION_TTL_MS };
-
-  // Session cookie (no Max-Age) — the browser clears it on close; no time-based logout.
-  String cookie = "ellafi_admin=" + token + "; Path=/; HttpOnly; SameSite=Strict";
+  // Persistent cookie (10 years) — survives the daily reboot and brownouts; no re-login.
+  String cookie = "ellafi_admin=" + persistentToken() + "; Path=/; Max-Age=315360000; HttpOnly; SameSite=Strict";
   response->addHeader("Set-Cookie", cookie.c_str());
   return response->send(200, "application/json", "{\"ok\":true}");
 }
 
 static esp_err_t handleAdminLogout(PsychicRequest* request, PsychicResponse* response) {
-  String token = cookieValue(request, "ellafi_admin");
-  for (auto& s : ADMIN_SESSIONS) if (!s.token.isEmpty() && s.token == token) s = {};
   response->addHeader("Set-Cookie", "ellafi_admin=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict");
   return response->send(200, "application/json", "{\"ok\":true}");
 }
@@ -343,7 +331,11 @@ esp_err_t handleErrors(PsychicRequest* request, PsychicResponse* response) {
     if (idx++ < skip) continue;
     JsonDocument doc;
     if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
-    out += formatTimestamp(doc["ts"] | 0L);
+    long ts = doc["ts"] | 0L;
+    if (ts < NTP_EPOCH_MIN)   // logged before clock sync (power-cut boot) — only boot-relative time exists
+      out += "(boot +" + String((doc["ms"] | 0UL) / 1000) + "s)      ";
+    else
+      out += formatTimestamp(ts);
     out += "  [" + String(doc["tag"] | "?") + "]";
     out += "  " + String(doc["msg"] | "?");
     out += "\n";
@@ -784,6 +776,7 @@ esp_err_t handleAdminNodes(PsychicRequest* request, PsychicResponse* response) {
     n["uptimeSec"] = millis() / 1000UL;
     n["freeHeap"]  = ESP.getFreeHeap();
     n["rssi"]      = (int)WiFi.RSSI();
+    n["tempC"]     = (int)temperatureRead();   // ESP32-S3 on-die temp (die, not ambient); master only for now
     n["rejW"]      = COIN_REJECT_WIDTH_COUNT.load();
     n["rejI"]      = COIN_REJECT_INTERVAL_COUNT.load();
     n["online"]    = true;
@@ -944,6 +937,33 @@ esp_err_t handleDiagHammer(PsychicRequest* request, PsychicResponse* response) {
   return response->send(200, "application/json", "{\"ok\":true}");
 }
 #endif
+
+// ── Socket-pool diagnostic ────────────────────────────────────────────────────
+// Enumerate the web server's open sockets so we can see what's actually pinning the pool:
+// how many are WebSockets vs plain HTTP, and which client IPs hold them (many distinct IPs =
+// a portal storm; a few IPs each holding several = lingering keep-alive). The viewer's own
+// request is one of the sockets listed.
+esp_err_t handleAdminSockets(PsychicRequest* request, PsychicResponse* response) {
+  JsonDocument doc;
+  doc["max"] = HTTP_SERVER.config.max_open_sockets;
+  int nWs = 0;
+  JsonArray arr = doc["sockets"].to<JsonArray>();
+  for (PsychicClient* c : HTTP_SERVER.getClientList()) {
+    int fd  = c->socket();
+    bool ws = WEBSOCKET_HANDLER.getClient(fd) != nullptr;
+    if (ws) nWs++;
+    JsonObject o = arr.add<JsonObject>();
+    o["fd"] = fd;
+    o["ip"] = c->remoteIP().toString();
+    o["ws"] = ws;
+  }
+  doc["count"] = (int)arr.size();
+  doc["ws"]    = nWs;
+  doc["http"]  = (int)arr.size() - nWs;
+  String out; serializeJson(doc, out);
+  response->addHeader("Cache-Control", "no-store");
+  return response->send(200, "application/json", out.c_str());
+}
 
 // ── Admin log (ring buffer) ───────────────────────────────────────────────────
 
@@ -1679,6 +1699,21 @@ esp_err_t handleGithubUpdate(PsychicRequest* request, PsychicResponse* response)
 
 // ── Server setup ─────────────────────────────────────────────────────────────
 
+// TCP keepalive on every accepted socket — reaps dead/half-open connections (a client that vanished:
+// moved out of range, powered off, or client-isolated) that close-after-response can't catch, because
+// they never complete another request. esp-idf 4.4 has no keep_alive_* config fields, so we set the
+// socket options in the accept callback, CHAINING to PsychicHttp's own openCallback (which maintains
+// getClientList) so the client-tracking/diagnostic still works.
+static httpd_open_func_t g_psychicOpenFn = nullptr;
+static esp_err_t keepaliveOpenFn(httpd_handle_t hd, int sockfd) {
+  int on = 1, idle = 30, intvl = 5, cnt = 3;   // dead peer dropped after ~30 + 3×5 = 45s of silence
+  setsockopt(sockfd, SOL_SOCKET,  SO_KEEPALIVE,  &on,    sizeof(on));
+  setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE,  &idle,  sizeof(idle));
+  setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+  setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT,   &cnt,   sizeof(cnt));
+  return g_psychicOpenFn ? g_psychicOpenFn(hd, sockfd) : ESP_OK;
+}
+
 void setupWeb() {
   if (MDNS.begin("ellafi")) {
     ESP_LOGI(TAG, "mDNS started: ellafi.local");
@@ -1689,6 +1724,23 @@ void setupWeb() {
   HTTP_SERVER.config.stack_size       = 16384;
   HTTP_SERVER.config.max_open_sockets = 12;
   HTTP_SERVER.config.lru_purge_enable = true;
+  g_psychicOpenFn            = HTTP_SERVER.config.open_fn;   // PsychicHttp's client-tracking openCallback
+  HTTP_SERVER.config.open_fn = keepaliveOpenFn;             // wrap it to also enable TCP keepalive per socket
+
+  // Close each HTTP response's socket after it's sent instead of holding it keep-alive. This device has
+  // only ~16 LWIP sockets, shared between the 12 web sockets AND every OUTBOUND call (controller login,
+  // healthcheck ping). Lingering keep-alive connections from many portal clients pin the pool → outbound
+  // starves → OUT OF SERVICE. Closing makes sockets churn (grab → answer → release), like a PisoWiFi ESP.
+  // The WebSocket (/ws) is exempt — it must persist for the live coin-insert session.
+  HTTP_SERVER.addMiddleware(
+    [](PsychicRequest* request, PsychicResponse* response, PsychicMiddlewareNext next) -> esp_err_t {
+      esp_err_t r = next();
+      if (request->path() != "/ws") {
+        PsychicClient* c = request->client();
+        if (c) httpd_sess_trigger_close(c->server(), c->socket());
+      }
+      return r;
+    });
 
   HTTP_SERVER.on("/", HTTP_GET, handleRoot);
 
@@ -1714,6 +1766,7 @@ void setupWeb() {
   HTTP_SERVER.on("/diag/hammer",       HTTP_GET,  handleDiagHammer);   // stress repro — see test/crash_hammer.py
 #endif
   HTTP_SERVER.on("/admin/log",         HTTP_GET,  handleAdminLog)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/sockets",     HTTP_GET,  handleAdminSockets)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/sales",       HTTP_GET,  handleAdminSales)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/statement",   HTTP_GET,  handleAdminStatement)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard)->addMiddleware(adminAuth);

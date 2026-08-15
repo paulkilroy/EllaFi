@@ -289,7 +289,8 @@ void purgeOldLogEntries(const char* path, time_t maxAgeSeconds, int maxEntries) 
       line.trim();
       if (line.isEmpty()) continue;
       int tsIdx = line.indexOf("\"ts\":");
-      if (tsIdx >= 0 && (time_t)atol(line.c_str() + tsIdx + 5) < cutoff) continue;
+      time_t ts = tsIdx >= 0 ? (time_t)atol(line.c_str() + tsIdx + 5) : 0;
+      if (ts >= NTP_EPOCH_MIN && ts < cutoff) continue;   // pre-sync (ts=0) entries: age unknown, keep — count cap below still bounds them
       surviving++;
     }
     src.close();
@@ -306,7 +307,8 @@ void purgeOldLogEntries(const char* path, time_t maxAgeSeconds, int maxEntries) 
     line.trim();
     if (line.isEmpty()) continue;
     int tsIdx = line.indexOf("\"ts\":");
-    if (tsIdx >= 0 && (time_t)atol(line.c_str() + tsIdx + 5) < cutoff) { removed++; continue; }
+    time_t ts = tsIdx >= 0 ? (time_t)atol(line.c_str() + tsIdx + 5) : 0;
+    if (ts >= NTP_EPOCH_MIN && ts < cutoff) { removed++; continue; }
     if (idx++ < skip) { removed++; continue; }   // oldest survivors beyond the count cap
     dst.println(line);
     kept++;
@@ -329,7 +331,12 @@ void appendErrorLog(const char* tag, const char* msg) {
     return;
   }
   JsonDocument doc;
-  doc["ts"]  = (long)time(NULL);
+  // Pre-clock-sync (power-cut boots wipe the RTC): a 1970 stamp would be purged as ancient on the
+  // next boot, deleting exactly the brownout forensics. Mark boot-relative instead; the age purge
+  // skips ts=0 entries (the count cap still bounds them) and /errors renders them as boot+Ns.
+  time_t now = time(NULL);
+  if (now < NTP_EPOCH_MIN) { doc["ts"] = 0L; doc["ms"] = millis(); }
+  else                     doc["ts"] = (long)now;
   doc["tag"] = tag;
   doc["msg"] = msg;
   serializeJson(doc, f);
