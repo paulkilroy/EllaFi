@@ -189,6 +189,22 @@ esp_err_t handleAdminPage(PsychicRequest* request, PsychicResponse* response) {
 
 // ── HTTP / WS handlers ────────────────────────────────────────────────────────
 
+// Seed the session cache from Omada's redirect params (clientMac required, rest best-effort) and
+// restore any paused time from disk. Shared by handleRoot (ESP-served portal: params on GET /) and
+// handleGetStatus (controller-hosted portal: params on GET /status — the page loads from the OC220,
+// so this is the only request that can carry them).
+static SessionParams& seedPortalSession(PsychicRequest* request, const String& clientIp, const String& clientMac) {
+  SessionParams& session = HOTSPOT_SESSION_CACHE.upsert(clientIp, clientMac);
+  if (request->hasParam("apMac"))    session.apMac    = request->getParam("apMac")->value();
+  if (request->hasParam("ssidName")) session.ssidName = request->getParam("ssidName")->value();
+  if (request->hasParam("radioId"))  session.radioId  = request->getParam("radioId")->value();
+
+  // Load paused session from disk if needed (outside session mutex — only LittleFS I/O)
+  if (hasPausedSessionFile(clientMac) && session.pausedRemainingMillis == 0)
+    session.pausedRemainingMillis = loadPausedSessionFile(clientMac);
+  return session;
+}
+
 // Serve captive portal page. Omada redirects here with query params:
 // ?clientMac=...&apMac=...&ssidName=...&radioId=...&site=...&redirectUrl=...
 esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response) {
@@ -224,14 +240,7 @@ esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response) {
     ESP_LOGI(TAG, "Restored MAC %s from cache for IP %s", clientMac.c_str(), clientIp.c_str());
   }
 
-  SessionParams& session = HOTSPOT_SESSION_CACHE.upsert(clientIp, clientMac);
-  if (!apMac.isEmpty())    session.apMac    = apMac;
-  if (!ssidName.isEmpty()) session.ssidName = ssidName;
-  if (!radioId.isEmpty())  session.radioId  = radioId;
-
-  // Load paused session from disk if needed (outside session mutex — only LittleFS I/O)
-  if (hasPausedSessionFile(clientMac) && session.pausedRemainingMillis == 0)
-    session.pausedRemainingMillis = loadPausedSessionFile(clientMac);
+  seedPortalSession(request, clientIp, clientMac);
 
   response->addHeader("Connection", "close");
   response->addHeader("Cache-Control", "no-store");
@@ -246,13 +255,18 @@ esp_err_t handleGetStatus(PsychicRequest* request, PsychicResponse* response) {
 #else
   String clientIp = request->client()->remoteIP().toString();
 #endif
-  SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(clientIp);
+  // Controller-hosted portal: the page can't seed the session via GET / (it loads from the OC220),
+  // so it passes Omada's redirect params here instead — same fields, same trust as handleRoot.
+  SessionParams* session = request->hasParam("clientMac")
+    ? &seedPortalSession(request, clientIp, request->getParam("clientMac")->value())
+    : HOTSPOT_SESSION_CACHE.findByIp(clientIp);
   // AP status is global, not per-session — include it even when this client has no session, or the
   // coverage-map dots stay grey for anyone who hasn't paid yet (i.e. most captive-page viewers).
   String json = session ? buildStatusJson(*session)
     : "{\"type\":\"status\",\"sessionEndMillis\":0,\"pausedRemainingMillis\":0,\"coinInsertTimeLeft\":0,\"devices\":"
       + deviceStatusJson() + "}";
   response->addHeader("Cache-Control", "no-store");
+  response->addHeader("Access-Control-Allow-Origin", "*");   // readable from the controller-hosted page
   return response->send(200, "application/json", json.c_str());
 }
 

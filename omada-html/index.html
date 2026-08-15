@@ -44,9 +44,11 @@ ESP IP: <input id="espIp" value="192.168.1.3" size="16">
 <div id="verdict"><div>Run the tests first.</div></div>
 
 <h2>6 &middot; WS full-protocol test (manual — claims the coin slot on the target ESP!)</h2>
-<p>Sends the real <code>{action:'startCoinInsert'}</code> over the WebSocket and reports every push
-the ESP sends back. This is the actual coin-session handshake — only run it against a test/bench
-ESP, or expect the live node's coin slot to power up for this client.</p>
+<p>Sends a bare <code>{action:'startCoinInsert'}</code> over the WebSocket and reports every push the
+ESP sends back. Run AFTER the test battery: T4's <code>/status?clientMac=…</code> seeds the session,
+so a push here (instead of <code>no_session</code>) proves the whole seed→claim chain. This is the
+real coin-session handshake — the target ESP's coin slot powers up for this client until the socket
+closes or the insert window times out. Don't run it mid-sale on a live node.</p>
 <button onclick="testWsSession()">Open WS + send startCoinInsert</button>
 <button onclick="wsSessionStop()">Close WS session</button>
 <div id="wsSessionResult" style="margin-top:6px">not run</div>
@@ -165,14 +167,26 @@ function t3() {
     .catch(function (e) { t.done('fail', performance.now() - start, e.message + ' — blocked or unreachable'); });
 }
 
-// T4 — normal CORS fetch. EXPECTED TO FAIL today: the ESP sends no Access-Control-Allow-Origin
-// header. If this passes, CORS headers were added and the page can read ESP JSON directly.
+// T4 — readable CORS fetch WITH the Omada redirect params: /status?clientMac=... This is the real
+// option-B browsing call (firmware b76+): it seeds the session cache server-side AND returns
+// readable JSON. Fails on firmware <76 (no Access-Control-Allow-Origin header).
+function statusUrlWithParams() {
+  var q = ['clientMac', 'apMac', 'ssidName', 'radioId']
+    .filter(function (n) { return params[n]; })
+    .map(function (n) { return n + '=' + encodeURIComponent(params[n]); })
+    .join('&');
+  return espBase() + '/status' + (q ? '?' + q : '');
+}
 function t4() {
-  var t = addTest('T4', 'ESP fetch readable: cors GET ' + espBase() + '/status');
+  var t = addTest('T4', 'ESP status readable + session seed: GET /status?clientMac=…');
   var start = performance.now();
-  return withTimeout(fetch(espBase() + '/status'), 8000)
-    .then(function (r) { return r.text().then(function (b) { t.done('pass', performance.now() - start, 'READABLE — CORS header present. HTTP ' + r.status + ': ' + b.slice(0, 100)); }); })
-    .catch(function (e) { t.done(outcome['T3'] === 'pass' ? 'warn' : 'fail', performance.now() - start, e.message + (outcome['T3'] === 'pass' ? ' — reachable (see T3) but response unreadable: ESP needs an Access-Control-Allow-Origin header' : '')); });
+  return withTimeout(fetch(statusUrlWithParams()), 8000)
+    .then(function (r) { return r.text().then(function (b) {
+      var seeded = '';
+      try { var d = JSON.parse(b); seeded = ' — session seeded: clientMac=' + (d.clientMac || '(none: firmware <76?)') + ' paused=' + d.pausedRemainingMillis + 'ms'; } catch (e) {}
+      t.done('pass', performance.now() - start, 'READABLE, HTTP ' + r.status + seeded + ' : ' + b.slice(0, 100));
+    }); })
+    .catch(function (e) { t.done(outcome['T3'] === 'pass' ? 'warn' : 'fail', performance.now() - start, e.message + (outcome['T3'] === 'pass' ? ' — reachable (see T3) but unreadable: firmware <76 (no CORS header on /status)' : '')); });
 }
 
 // T5 — WebSocket. WS is NOT subject to CORS, so if this opens, the page has a full two-way channel
