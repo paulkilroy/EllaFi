@@ -11,7 +11,18 @@ cd "$(dirname "$0")"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 
+# ESP address from the same config key the firmware boots with (active-env static_ip).
+ESP_HOST=$(python3 -c "
+import json
+c = json.load(open('../data/config.json'))
+env = c.get('environments', {}).get(c.get('active_env', ''), {})
+ip = env.get('static_ip') or c.get('static_ip')
+if not ip: raise SystemExit('no static_ip in data/config.json active env')
+print(ip)")
+echo "ESP_HOST = $ESP_HOST (from data/config.json, env: $(python3 -c "import json; print(json.load(open('../data/config.json'))['active_env'])"))"
+
 cp index.html diag.html getPortalPageSetting.json "$STAGE/"
+sed -i '' "s/__ESP_HOST__/$ESP_HOST/" "$STAGE/index.html"
 cp ../web/EllaFi.webp ../web/favicon.ico "$STAGE/"
 mkdir "$STAGE/assets"
 cp ../web/assets/insertcoinbg.mp3 ../web/assets/coin-received.mp3 "$STAGE/assets/"

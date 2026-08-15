@@ -3,7 +3,6 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="preconnect" href="http://192.168.1.3"><!-- keep in sync with ESP_HOST below -->
   <title>Coin WiFi</title>
   <style>
     :root{
@@ -304,9 +303,10 @@
   <script>
     // ── Site config (controller-hosted build) ───────────────────────────────────
     // This page is served by the Omada controller (Import Customized Page), not the ESP, so the
-    // ESP's address can't come from location.host — it's baked per site here. Omada's redirect
-    // params ride every /status call so the ESP can seed its session cache (firmware b76+).
-    const ESP_HOST = '192.168.1.3';
+    // ESP's address can't come from location.host. make_zip.sh injects it from data/config.json's
+    // active-env static_ip — the same key the firmware boots with, so they can't disagree. Omada's
+    // redirect params ride every /status call so the ESP can seed its session cache (firmware b76+).
+    const ESP_HOST = '__ESP_HOST__';   // replaced at zip build — see make_zip.sh
     const PORTAL_QS = (() => {
       const q = new URLSearchParams(location.search);
       const out = new URLSearchParams();
