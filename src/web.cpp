@@ -1228,6 +1228,21 @@ static void ensureVoucherDays(long winStart, long winEnd) {
   }
 }
 
+// Seller + price from an "AUTOGEN: <price-tag> <seller>" voucher group. Shared by the sales
+// per-day leader and the leaderboard — the one attribution rule, written once.
+static bool autogenSellerPrice(JsonObject g, String& seller, int& price) {
+  String name = g["name"].as<String>();
+  if (!name.startsWith("AUTOGEN: ")) return false;
+  String rest = name.substring(9);
+  int space   = rest.indexOf(' ');
+  seller = space >= 0 ? rest.substring(space + 1) : rest;
+  price  = PRICE_PER_COIN;
+  JsonDocument descDoc;
+  if (deserializeJson(descDoc, g["description"].as<String>()) == DeserializationError::Ok)
+    price = descDoc["price"] | PRICE_PER_COIN;
+  return true;
+}
+
 esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   response->addHeader("Cache-Control", "no-store");
 
@@ -1249,6 +1264,7 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   // ── Vendo history ──────────────────────────────────────────────────────────
   int dayCoinTotals[DAYS] = {};
   int dayMinTotals[DAYS]  = {};
+  int daySessTotals[DAYS] = {};   // one appendSaleLog line ≈ one settled coin session ≈ one customer
   std::map<String, std::vector<int>> nodeCoins;
 
   if (fsExists("/vendo_history.json")) {
@@ -1267,6 +1283,7 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
         if (idx < 0 || idx >= DAYS) continue;
         dayCoinTotals[DAYS - 1 - idx] += coins;
         dayMinTotals [DAYS - 1 - idx] += doc["min"] | 0;
+        daySessTotals[DAYS - 1 - idx]++;
         String node = doc["node"] | "";
         if (!node.isEmpty()) {
           if (nodeCoins.find(node) == nodeCoins.end()) nodeCoins[node].assign(DAYS, 0);
@@ -1318,6 +1335,26 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   { int ms = monthSlot(todayDay);
     if (ms >= 0) { monthVchr[ms] += dayVoucherTotals[DAYS - 1]; monthVchrRev[ms] += dayVchrRevTotals[DAYS - 1]; } }
 
+  // ── Per-day top voucher seller (pesos) ─────────────────────────────────────
+  // Same attribution as the leaderboard: buy-and-use is same-day, so a group's usedCount settles
+  // on its creation day. Feeds the Leader column, which compares each day's best seller against
+  // the day's best vendo node in pesos. (Deleted groups drop out of past days — archive keeps them.)
+  std::map<long, std::map<String, int>> sellerDayRev;
+  {
+    JsonDocument groupsDoc = getVoucherGroupsJson();
+    if (!groupsDoc.isNull()) {
+      for (JsonObject g : groupsDoc["result"]["data"].as<JsonArray>()) {
+        String seller; int price;
+        if (!autogenSellerPrice(g, seller, price)) continue;
+        long long createdMs = g["createdTime"].as<long long>();
+        if (createdMs <= 0) continue;
+        long cd = localDayNum((time_t)(createdMs / 1000));
+        if (cd < todayDay - (DAYS - 1) || cd > todayDay) continue;
+        sellerDayRev[cd][seller] += g["usedCount"].as<int>() * price;
+      }
+    }
+  }
+
   // ── Build response ─────────────────────────────────────────────────────────
   static const char* MN[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
   JsonDocument out;
@@ -1344,6 +1381,13 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
     d["minutes"]    = dayMinTotals[i];
     d["vouchers"]   = dayVoucherTotals[i];
     d["voucherRev"] = dayVchrRevTotals[i];
+    d["sessions"]   = daySessTotals[i];
+    auto sd = sellerDayRev.find(todayDay - (DAYS - 1 - i));
+    if (sd != sellerDayRev.end()) {
+      const char* topName = nullptr; int topRev = 0;
+      for (auto& kv : sd->second) if (kv.second > topRev) { topName = kv.first.c_str(); topRev = kv.second; }
+      if (topName) { d["topSeller"] = topName; d["topSellerRev"] = topRev; }
+    }
     if (!nodeCoins.empty()) {
       JsonObject nodes = d["nodes"].to<JsonObject>();
       for (auto& kv : nodeCoins) nodes[kv.first.c_str()] = kv.second[i];
@@ -1492,16 +1536,9 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
   JsonDocument groupsDoc = getVoucherGroupsJson();
   if (!groupsDoc.isNull()) {
     for (JsonObject g : groupsDoc["result"]["data"].as<JsonArray>()) {
-      String name = g["name"].as<String>();
-      if (!name.startsWith("AUTOGEN: ")) continue;
+      String seller; int price;
+      if (!autogenSellerPrice(g, seller, price)) continue;
       long long createdMs = g["createdTime"].as<long long>();
-      String rest   = name.substring(9);
-      int    space  = rest.indexOf(' ');
-      String seller = space >= 0 ? rest.substring(space + 1) : rest;
-      int    price  = PRICE_PER_COIN;
-      JsonDocument descDoc;
-      if (deserializeJson(descDoc, g["description"].as<String>()) == DeserializationError::Ok)
-        price = descDoc["price"] | PRICE_PER_COIN;
       int used = g["usedCount"].as<int>();
       if (createdMs > 0) {
         long cd = localDayNum((time_t)(createdMs / 1000));

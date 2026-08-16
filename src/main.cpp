@@ -399,7 +399,7 @@ static void pingHealthcheck() {
   // timeouts (-11, ~4000ms); tls counts concurrent Omada handshakes (the DRAM competitor); wsq is
   // the Omada job backlog; dram/largest expose heap squeeze/fragmentation. All ~equal across many
   // failures + tls=0 + healthy heap = the WAN is dropping, not the firmware.
-  if (code != 200)
+  if (code != 200) {
     ESP_LOGW(TAG, "healthcheck ping failed (HTTP %d) after %lums — sockets=%u/%u tls=%d wsq=%u rssi=%d dram=%u largest=%u",
              code, millis() - t0,
              (unsigned)HTTP_SERVER.getClientList().size(), (unsigned)HTTP_SERVER.config.max_open_sockets,
@@ -407,6 +407,19 @@ static void pingHealthcheck() {
              (unsigned)uxQueueMessagesWaiting(WEBSOCKET_JOB_QUEUE), WiFi.RSSI(),
              (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT),
              (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    // Trisect the failure for the PtP-bridge theory (north↔south Bakhaw): the local AP is fine
+    // (rssi above), so probe the gateway and the controller directly. gw FAIL = near segment;
+    // gw OK + controller FAIL = far segment / bridge; both OK = the WAN upstream is what dropped.
+    String ctrlHost = CONTROLLER_BASE_URL;                       // e.g. https://192.168.1.83:443
+    ctrlHost = ctrlHost.substring(ctrlHost.indexOf("//") + 2);
+    if (ctrlHost.indexOf(':') > 0) ctrlHost = ctrlHost.substring(0, ctrlHost.indexOf(':'));
+    auto tcpAlive = [](const char* host, uint16_t port) {
+      WiFiClient c; bool ok = c.connect(host, port, 1500); c.stop(); return ok;
+    };
+    ESP_LOGW(TAG, "path probe: gateway=%s controller=%s",
+             tcpAlive(WiFi.gatewayIP().toString().c_str(), 80) ? "OK" : "FAIL",
+             tcpAlive(ctrlHost.c_str(), 443) ? "OK" : "FAIL");
+  }
   else if (downCount) ESP_LOGW(TAG, "healthcheck /fail sent — %d node(s) down: %s", downCount, downMacs.c_str());
   else                ESP_LOGI(TAG, "healthcheck ping ok");
 }

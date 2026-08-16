@@ -284,7 +284,7 @@
     <div class="tbl-wrap" style="display:none">
       <table>
         <thead>
-          <tr><th>Date</th><th>Vendo</th><th>Vouchers</th><th>Total Minutes</th><th>Revenue</th><th>Commission</th><th>Net</th><th>Leader</th></tr>
+          <tr><th>Date</th><th title="coins — each coin is one ₱5 unit">Vendo</th><th title="voucher revenue ÷ ₱5, so the column is comparable to Vendo">Vouchers (*)</th><th title="coin sessions + vouchers redeemed">Customers</th><th>Total Minutes</th><th>Revenue</th><th>Commission</th><th>Net</th><th title="top earner of the day in pesos — vendo node or voucher seller">Leader</th></tr>
         </thead>
         <tbody id="sales-tbody"></tbody>
         <tfoot id="sales-tfoot"></tfoot>
@@ -1053,6 +1053,9 @@ async function loadSales() {
         coinRev:    d.coins * pricePerCoin,
         vouchers:   d.vouchers || 0,
         voucherRev: d.voucherRev || 0,
+        sessions:   d.sessions || 0,
+        topSeller:  d.topSeller || null,
+        topSellerRev: d.topSellerRev || 0,
         nodes:      d.nodes || {}
       }));
       monthsData = (resp.months || []).map(m => ({   // reshape for renderStackedChart + the detail table
@@ -1098,24 +1101,34 @@ async function loadSales() {
   const avgNodeComm  = nodeCommVals.length ? nodeCommVals.reduce((a,b)=>a+b,0)/nodeCommVals.length : 0;
   const avgVchrComm  = vchrCommVals.length ? vchrCommVals.reduce((a,b)=>a+b,0)/vchrCommVals.length : 20;
 
+  let tcust = 0;
   tbody.innerHTML = data.slice(-30).reverse().map(d => {
     const dayMin  = d.minutes !== undefined ? d.minutes : (d.coins * 24 + d.vouchers * 720);
     const dayRev  = d.coinRev + d.voucherRev;
     const dayComm = Math.round(d.coinRev * avgNodeComm / 100) + Math.round(d.voucherRev * avgVchrComm / 100);
     const dayNet  = dayRev - dayComm;
-    tc += d.coins; tv += d.vouchers; tm += dayMin; tr += dayRev; tcomm += dayComm;
-    // Leader = the vendo with the most coins that day (voucher sales aren't attributed per-day).
+    const vUnits    = Math.round(d.voucherRev / 5);              // ₱5 units — comparable to Vendo coins
+    const customers = (d.sessions || 0) + (d.vouchers || 0);     // coin sessions + vouchers redeemed
+    tc += d.coins; tv += vUnits; tcust += customers; tm += dayMin; tr += dayRev; tcomm += dayComm;
+    // Leader = top earner of the day in PESOS — best vendo node vs the voucher channel. Voucher
+    // redemptions can't be attributed to a SELLER per-day (groups are printed in 650-code batches,
+    // so creation-day attribution collapses daily), so vouchers compete as "Sellers"; a name shows
+    // only when that day's attributed groups actually back most of the revenue.
     let leaderHtml = '<span class="muted">—</span>';
-    const ne = Object.entries(d.nodes || {});
-    if (ne.length) {
-      const [topMac, topCoins] = ne.reduce((a, b) => b[1] > a[1] ? b : a);
-      if (topCoins > 0) leaderHtml = (nodeNicknames[topMac] || topMac) +
-        ' <span class="muted">(' + topCoins + ')</span>';
+    let topMac = null, topNodeRev = 0;
+    for (const [mac, coins] of Object.entries(d.nodes || {}))
+      if (coins * pricePerCoin > topNodeRev) { topNodeRev = coins * pricePerCoin; topMac = mac; }
+    if (d.voucherRev >= topNodeRev && d.voucherRev > 0) {
+      const name = (d.topSellerRev >= d.voucherRev / 2) ? d.topSeller : 'Sellers';
+      leaderHtml = name + ' <span class="muted">(₱' + d.voucherRev + ')</span>';
+    } else if (topMac) {
+      leaderHtml = (nodeNicknames[topMac] || 'Vendo') + ' <span class="muted">(₱' + topNodeRev + ')</span>';
     }
     return `<tr>
       <td>${d.date}</td>
-      <td>${d.coins    || '<span class="muted">—</span>'}</td>
-      <td>${d.vouchers || '<span class="muted">—</span>'}</td>
+      <td>${d.coins || '<span class="muted">—</span>'}</td>
+      <td>${vUnits  || '<span class="muted">—</span>'}</td>
+      <td title="${d.sessions || 0} vendo + ${d.vouchers || 0} voucher">${customers || '<span class="muted">—</span>'}</td>
       <td>${dayMin ? dayMin.toLocaleString() + ' min' : '<span class="muted">—</span>'}</td>
       <td>${dayRev  ? '₱' + dayRev  : '<span class="muted">—</span>'}</td>
       <td>${dayComm ? '₱' + dayComm : '<span class="muted">—</span>'}</td>
@@ -1125,7 +1138,8 @@ async function loadSales() {
   }).join('');
 
   const tnet = tr - tcomm;
-  tfoot.innerHTML = `<tr><td>Total</td><td>${tc}</td><td>${tv}</td><td>${tm.toLocaleString()} min</td><td>₱${tr}</td><td>${tcomm ? '₱'+tcomm : '—'}</td><td>₱${tnet}</td><td></td></tr>`;
+  tfoot.innerHTML = `<tr><td>Total</td><td>${tc}</td><td>${tv}</td><td>${tcust}</td><td>${tm.toLocaleString()} min</td><td>₱${tr}</td><td>${tcomm ? '₱'+tcomm : '—'}</td><td>₱${tnet}</td><td></td></tr>`
+    + `<tr><td colspan="9" class="muted" style="font-size:11px;font-weight:normal">* Vouchers shown in ₱5 units (revenue ÷ 5) so the column reads in the same unit as Vendo coins</td></tr>`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
