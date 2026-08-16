@@ -229,7 +229,7 @@
     <div class="section-title">This Week — Nodes &amp; Sellers</div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Name</th><th>Type</th><th title="₱5 units — coins for vendo, revenue ÷ 5 for sellers">Vouchers (*)</th><th title="coin sessions for vendo, vouchers redeemed for sellers">Users</th><th>Revenue</th><th>Commission</th><th>Net</th><th>vs Last Week</th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Minutes</th><th>Revenue</th><th>Commission</th><th>Net</th><th>vs Last Week</th></tr></thead>
         <tbody id="dash-perf-tbody"></tbody>
       </table>
     </div>
@@ -733,9 +733,10 @@ function renderNodeHealth(nodes) {
   }).join('');
 }
 
-function renderPerformance(salesData, leaderboard, nodeRevMap) {
-  leaderboard = leaderboard || [];
-  nodeRevMap  = nodeRevMap  || {};
+function renderPerformance(salesData, leaderboard, nodeRevMap, minutesPerCoin) {
+  leaderboard   = leaderboard || [];
+  nodeRevMap    = nodeRevMap  || {};
+  minutesPerCoin = minutesPerCoin || 24;
   const nodeCoinTotals = {};
   for (const d of salesData)
     for (const [mac, coins] of Object.entries(d.nodes || {}))
@@ -753,25 +754,17 @@ function renderPerformance(salesData, leaderboard, nodeRevMap) {
                   : `<span style="color:#e74c3c">▼ ${Math.abs(p)}%</span>`;
   };
 
-  // Per-node customer sessions over the same window as nodeCoinTotals
-  const nodeSessTotals = {};
-  for (const d of salesData)
-    for (const [mac, n] of Object.entries(d.nodeSessions || {}))
-      nodeSessTotals[mac] = (nodeSessTotals[mac] || 0) + n;
-
   const rows = [
     ...liveNodes.map(n => ({
       name:      nodeName(n), typeCls: 'tag-coin', typeLabel: 'Vendo',
-      units:     nodeCoinTotals[n.mac] || 0,                    // coins ARE ₱5 units
-      users:     nodeSessTotals[n.mac] || 0,
+      minutes:   (nodeCoinTotals[n.mac] || 0) * minutesPerCoin,
       revenue:   nodeRevMap[n.mac] || 0, commPct: nodeCommissions[n.mac] || 0,
       deltaHtml: deltaPct(wkCoins(thisWk, n.mac), wkCoins(prevWk, n.mac))
     })),
     ...leaderboard.map(s => ({
       name:      s.seller + (s.registered ? '' : ' <span class="muted" style="font-size:10px">(new)</span>'),
       typeCls:   'tag-vchr', typeLabel: 'Voucher',
-      units:     Math.round((s.revenue || 0) / 5),              // ₱5 units — comparable to vendo coins
-      users:     s.vouchers || 0,                               // one redemption ≈ one user
+      minutes:   s.minutes || 0,
       revenue:   s.revenue || 0, commPct: s.commission || 0,
       deltaHtml: deltaPct(s.wowCur || 0, s.wowPrev || 0)
     }))
@@ -780,14 +773,14 @@ function renderPerformance(salesData, leaderboard, nodeRevMap) {
   document.getElementById('dash-perf-tbody').innerHTML = rows.map(r => {
     const comm = Math.round(r.revenue * r.commPct / 100);
     const net  = r.revenue - comm;
+    const minHtml  = r.minutes > 0 ? r.minutes.toLocaleString() + ' min' : '<span class="muted">—</span>';
     const revHtml  = r.revenue > 0 ? '₱' + r.revenue : '<span class="muted">—</span>';
     const commHtml = r.commPct > 0
       ? r.commPct + '%' + (r.revenue > 0 ? ' <span class="muted">(₱' + comm + ')</span>' : '')
       : '<span class="muted">—</span>';
     const netHtml  = r.revenue > 0 ? '₱' + net : '<span class="muted">—</span>';
     return `<tr><td>${r.name}</td><td><span class="tag ${r.typeCls}">${r.typeLabel}</span></td>`
-         + `<td>${r.units || '<span class="muted">—</span>'}</td><td>${r.users || '<span class="muted">—</span>'}</td>`
-         + `<td>${revHtml}</td><td>${commHtml}</td><td>${netHtml}</td><td>${r.deltaHtml}</td></tr>`;
+         + `<td>${minHtml}</td><td>${revHtml}</td><td>${commHtml}</td><td>${netHtml}</td><td>${r.deltaHtml}</td></tr>`;
   }).join('');
 }
 
@@ -1048,13 +1041,14 @@ async function loadSales() {
   loadingEl.style.display = 'block';
   let data = [];
   let monthsData = [];
-  let pricePerCoin = 5;
+  let pricePerCoin = 5, minutesPerCoin = 24;
   let leaderboard  = [];
   try {
     const [salesR, lbR] = await Promise.all([fetch('/admin/sales'), fetch('/admin/leaderboard')]);
     if (salesR.ok) {
       const resp = await salesR.json();
-      pricePerCoin = resp.pricePerCoin || 5;
+      pricePerCoin   = resp.pricePerCoin   || 5;
+      minutesPerCoin = resp.minutesPerCoin || 24;
       data = resp.days.map(d => ({
         date:       d.date,
         coins:      d.coins,
@@ -1087,7 +1081,7 @@ async function loadSales() {
       nodeRevMap[mac] = (nodeRevMap[mac] || 0) + coins * pricePerCoin;
   }
 
-  renderPerformance(data, leaderboard, nodeRevMap);
+  renderPerformance(data, leaderboard, nodeRevMap, minutesPerCoin);
   renderStackedChart('chart-sales', data);
   renderStackedChart('chart-monthly', monthsData, false);
   renderMonthlyTable(monthsData);

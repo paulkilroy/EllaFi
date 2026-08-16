@@ -893,11 +893,51 @@ esp_err_t handleAdminMoney(PsychicRequest* request, PsychicResponse* response) {
 }
 
 // POST: merge a Mac-side rollup (voucher_backup.py --rollup) into the record.
+static long   localDayNum(time_t utc);        // defined with the report-bucket helpers below
+static time_t localDayStartUtc(long dayNum);
+
 esp_err_t handleAdminMoneyImport(PsychicRequest* request, PsychicResponse* response) {
   String err;
   int touched = moneyImport(request->body(), err);
   if (touched < 0) return response->send(400, "application/json", ("{\"error\":\"" + err + "\"}").c_str());
-  return response->send(200, "application/json", ("{\"touched\":" + String(touched) + "}").c_str());
+
+  // Optional seller-days backfill (scripts/backfill_seller_days.py): historic redeemed-as-sold
+  // journal lines rebuilt from per-code startTime. Days already in the journal are skipped, so
+  // re-imports are harmless and the nightly rollup's own lines always win.
+  int daysAdded = 0;
+  JsonDocument doc;
+  if (deserializeJson(doc, request->body()) == DeserializationError::Ok && doc["sellerDays"].is<JsonArray>()) {
+    std::set<long> have;
+    if (fsExists("/seller_days.json")) {
+      File f = LittleFS.open("/seller_days.json", FILE_READ);
+      if (f) {
+        while (f.available()) {
+          String line = f.readStringUntil('\n'); line.trim();
+          if (line.isEmpty()) continue;
+          JsonDocument l;
+          if (deserializeJson(l, line) == DeserializationError::Ok)
+            have.insert(localDayNum((time_t)(l["ts"] | 0L)) - 1);
+        }
+        f.close();
+      }
+    }
+    File f = LittleFS.open("/seller_days.json", FILE_APPEND);
+    if (f) {
+      for (JsonObject e : doc["sellerDays"].as<JsonArray>()) {
+        long day = e["day"] | 0L;
+        if (day <= 0 || have.count(day)) continue;
+        JsonDocument line;
+        line["ts"]      = (long)(localDayStartUtc(day + 1) + 9900);   // synth "2:45am after day ended" — the reader's day math inverts it
+        line["sellers"] = e["sellers"];
+        serializeJson(line, f);
+        f.print('\n');
+        daysAdded++;
+      }
+      f.close();
+    }
+  }
+  return response->send(200, "application/json",
+    ("{\"touched\":" + String(touched) + ",\"sellerDaysAdded\":" + String(daysAdded) + "}").c_str());
 }
 
 // One-time vendo-history migration. GET = dry run (per-month totals, no writes);
@@ -1377,7 +1417,8 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   // ── Build response ─────────────────────────────────────────────────────────
   static const char* MN[] = {"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
   JsonDocument out;
-  out["pricePerCoin"] = PRICE_PER_COIN;
+  out["pricePerCoin"]   = PRICE_PER_COIN;
+  out["minutesPerCoin"] = MINUTES_PER_COIN;
   JsonArray months = out["months"].to<JsonArray>();
   for (int i = 0; i < MONTHS; i++) {
     int mkey = mkNow - (MONTHS - 1 - i);                 // i=0 oldest … MONTHS-1 current
@@ -1553,6 +1594,7 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
   // week-over-week honest (excluding today's in-progress day). All from the single groups call.
   long todayDay = localDayNum(now);
   std::map<String, std::pair<int,int>> totals;   // seller → {vouchers, revenue}
+  std::map<String, long> minTotals;              // seller → minutes sold (used × group duration)
   std::map<String, int> wowCur, wowPrev;         // seller → vouchers this-week / prior-week
   JsonDocument groupsDoc = getVoucherGroupsJson();
   if (!groupsDoc.isNull()) {
@@ -1569,6 +1611,7 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
       if (createdMs > 0 && (time_t)(createdMs / 1000) < cutoff) continue;   // main `days` window
       totals[seller].first  += used;
       totals[seller].second += used * price;
+      minTotals[seller]     += (long)used * (g["duration"] | 0);
     }
   }
 
@@ -1592,6 +1635,7 @@ esp_err_t handleAdminLeaderboard(PsychicRequest* request, PsychicResponse* respo
     s["registered"] = reg;
     s["wowCur"]     = wowCur.count(kv.first)  ? wowCur[kv.first]  : 0;   // vouchers, last 7 full days
     s["wowPrev"]    = wowPrev.count(kv.first) ? wowPrev[kv.first] : 0;   // vouchers, the 7 before
+    s["minutes"]    = minTotals.count(kv.first) ? minTotals[kv.first] : 0;
   }
   String json; serializeJson(out, json);
   return response->send(200, "application/json", json.c_str());
