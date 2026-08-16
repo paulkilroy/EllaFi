@@ -93,6 +93,7 @@ void setupLogs() {
   purgeOldLogEntries("/refunds.log");
   purgeOldLogEntries("/vendo_history.json",   365 * 86400);
   purgeOldLogEntries("/voucher_history.json", 365 * 86400);
+  purgeOldLogEntries("/seller_days.json",     365 * 86400);
 }
 
 bool fsExists(const char* path) {

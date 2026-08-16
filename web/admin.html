@@ -1110,20 +1110,19 @@ async function loadSales() {
     const vUnits    = Math.round(d.voucherRev / 5);              // ₱5 units — comparable to Vendo coins
     const customers = (d.sessions || 0) + (d.vouchers || 0);     // coin sessions + vouchers redeemed
     tc += d.coins; tv += vUnits; tcust += customers; tm += dayMin; tr += dayRev; tcomm += dayComm;
-    // Leader = top earner of the day in PESOS — best vendo node vs the voucher channel. Voucher
-    // redemptions can't be attributed to a SELLER per-day (groups are printed in 650-code batches,
-    // so creation-day attribution collapses daily), so vouchers compete as "Sellers"; a name shows
-    // only when that day's attributed groups actually back most of the revenue.
+    // Leader = top earner of the day in PESOS — best voucher seller (redeemed = sold, from the
+    // per-day usedCount deltas) vs best vendo node. Days before the delta journal existed have no
+    // per-seller split, so they fall back to the voucher channel total when it wins.
     let leaderHtml = '<span class="muted">—</span>';
     let topMac = null, topNodeRev = 0;
     for (const [mac, coins] of Object.entries(d.nodes || {}))
       if (coins * pricePerCoin > topNodeRev) { topNodeRev = coins * pricePerCoin; topMac = mac; }
-    if (d.voucherRev >= topNodeRev && d.voucherRev > 0) {
-      const name = (d.topSellerRev >= d.voucherRev / 2) ? d.topSeller : 'Sellers';
-      leaderHtml = name + ' <span class="muted">(₱' + d.voucherRev + ')</span>';
-    } else if (topMac) {
+    if ((d.topSellerRev || 0) > topNodeRev)
+      leaderHtml = d.topSeller + ' <span class="muted">(₱' + d.topSellerRev + ')</span>';
+    else if (!d.topSeller && d.voucherRev > topNodeRev && d.voucherRev > 0)
+      leaderHtml = 'Sellers <span class="muted">(₱' + d.voucherRev + ')</span>';
+    else if (topMac)
       leaderHtml = (nodeNicknames[topMac] || 'Vendo') + ' <span class="muted">(₱' + topNodeRev + ')</span>';
-    }
     return `<tr>
       <td>${d.date}</td>
       <td>${d.coins || '<span class="muted">—</span>'}</td>

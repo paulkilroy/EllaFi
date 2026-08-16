@@ -79,6 +79,10 @@ void moneySetIncome(const String& month, long vendo, long voucher) {
   m["voucher"] = voucher;
 }
 
+long moneyGroupUsed(const String& id) {
+  return MONEY["groups"][id]["used"] | 0L;
+}
+
 String moneyRecordJson() {
   String out;
   serializeJson(MONEY, out);
@@ -151,6 +155,7 @@ void moneyNightlyRollup() {
   bool fetched = !raw.isNull() && raw["errorCode"].as<int>() == 0;
   if (fetched) {
     std::set<String> live;
+    std::map<String, long> sellerDay;   // redeemed-as-sold: pesos accrued per seller since last rollup
     for (JsonObject g : raw["result"]["data"].as<JsonArray>()) {
       String name = g["name"].as<String>();
       if (!name.startsWith("AUTOGEN: ")) continue;
@@ -164,12 +169,32 @@ void moneyNightlyRollup() {
           price = descDoc["price"] | 0;
       }
       String id      = g["id"].as<String>();
+      int    used    = g["usedCount"] | 0;
+      // The ledger still holds the PREVIOUS rollup's count — the delta is what this seller's
+      // customers redeemed since then, i.e. the day that just ended (rollup runs 2:45am).
+      long prevUsed = MONEY["groups"][id]["used"] | 0L;
+      if (used > prevUsed && !seller.isEmpty() && price > 0)
+        sellerDay[seller] += (long)(used - prevUsed) * price;
       time_t created = (time_t)(g["createdTime"].as<uint64_t>() / 1000ULL);
       moneyUpsertGroup(id, name, seller, monthOf(created),
-                       g["usedCount"] | 0, price, COMMISSION_RATE_PERCENT, time(NULL));
+                       used, price, COMMISSION_RATE_PERCENT, time(NULL));
       live.insert(id);
     }
     moneyMarkAbsent(live);   // only on a successful fetch — a controller outage must not freeze the ledger
+    // Daily per-seller journal for the sales report's Leader column (cosmetic → LittleFS is fine;
+    // the money source-of-truth stays in NVS above). Reader derives the day from ts.
+    if (!sellerDay.empty()) {
+      File f = LittleFS.open("/seller_days.json", FILE_APPEND);
+      if (f) {
+        JsonDocument d;
+        d["ts"] = (long)time(NULL);
+        JsonObject sm = d["sellers"].to<JsonObject>();
+        for (auto& kv : sellerDay) sm[kv.first.c_str()] = kv.second;
+        serializeJson(d, f);
+        f.print('\n');
+        f.close();
+      }
+    }
   } else {
     ESP_LOGW(TAG, "rollup: voucher fetch failed — ledger groups left as-is");
   }

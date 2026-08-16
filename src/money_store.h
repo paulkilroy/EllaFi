@@ -41,6 +41,10 @@ void moneySetIncome(const String& month, long vendo, long voucher);
 // The whole record as JSON — for the report handler and for off-device backup export.
 String moneyRecordJson();
 
+// A group's usedCount as of the LAST nightly rollup (0 if unknown). Live count minus this =
+// redemptions so far today — the sales report's per-seller "today" attribution.
+long moneyGroupUsed(const String& id);
+
 // Merge an imported record (Mac-side rollup of the voucher backups, incl. already-deleted groups)
 // into the store. Upserts groups by id (higher `used` wins) and income by month — a month field the
 // import omits keeps its stored value (so a voucher-only rollup can't zero vendo income). Persists.

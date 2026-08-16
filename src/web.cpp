@@ -1335,22 +1335,36 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   { int ms = monthSlot(todayDay);
     if (ms >= 0) { monthVchr[ms] += dayVoucherTotals[DAYS - 1]; monthVchrRev[ms] += dayVchrRevTotals[DAYS - 1]; } }
 
-  // ── Per-day top voucher seller (pesos) ─────────────────────────────────────
-  // Same attribution as the leaderboard: buy-and-use is same-day, so a group's usedCount settles
-  // on its creation day. Feeds the Leader column, which compares each day's best seller against
-  // the day's best vendo node in pesos. (Deleted groups drop out of past days — archive keeps them.)
+  // ── Per-day top voucher seller (pesos) — redeemed = sold ───────────────────
+  // Past days from the rollup journal: each 2:45am rollup logs every seller's usedCount delta
+  // (what their customers redeemed the day that just ended). Today: live usedCount minus the
+  // ledger's last-rollup count. Feeds the Leader column vs the day's best vendo node.
   std::map<long, std::map<String, int>> sellerDayRev;
+  if (fsExists("/seller_days.json")) {
+    File f = LittleFS.open("/seller_days.json", FILE_READ);
+    if (f) {
+      while (f.available()) {
+        String line = f.readStringUntil('\n'); line.trim();
+        if (line.isEmpty()) continue;
+        JsonDocument doc;
+        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+        long day = localDayNum((time_t)(doc["ts"] | 0L)) - 1;   // 2:45am rollup covers the day that ended
+        if (day < todayDay - (DAYS - 1) || day > todayDay) continue;
+        for (JsonPair kv : doc["sellers"].as<JsonObject>())
+          sellerDayRev[day][String(kv.key().c_str())] += kv.value().as<int>();
+      }
+      f.close();
+    }
+  }
   {
     JsonDocument groupsDoc = getVoucherGroupsJson();
     if (!groupsDoc.isNull()) {
       for (JsonObject g : groupsDoc["result"]["data"].as<JsonArray>()) {
         String seller; int price;
         if (!autogenSellerPrice(g, seller, price)) continue;
-        long long createdMs = g["createdTime"].as<long long>();
-        if (createdMs <= 0) continue;
-        long cd = localDayNum((time_t)(createdMs / 1000));
-        if (cd < todayDay - (DAYS - 1) || cd > todayDay) continue;
-        sellerDayRev[cd][seller] += g["usedCount"].as<int>() * price;
+        int  used = g["usedCount"] | 0;
+        long prev = moneyGroupUsed(g["id"].as<String>());
+        if (used > prev) sellerDayRev[todayDay][seller] += (int)((used - prev) * price);
       }
     }
   }
