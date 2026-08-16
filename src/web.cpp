@@ -1266,6 +1266,7 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
   int dayMinTotals[DAYS]  = {};
   int daySessTotals[DAYS] = {};   // one appendSaleLog line ≈ one settled coin session ≈ one customer
   std::map<String, std::vector<int>> nodeCoins;
+  std::map<String, std::vector<int>> nodeSess;   // per-node customer sessions, same day indexing
 
   if (fsExists("/vendo_history.json")) {
     File f = LittleFS.open("/vendo_history.json", FILE_READ);
@@ -1286,8 +1287,12 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
         daySessTotals[DAYS - 1 - idx]++;
         String node = doc["node"] | "";
         if (!node.isEmpty()) {
-          if (nodeCoins.find(node) == nodeCoins.end()) nodeCoins[node].assign(DAYS, 0);
+          if (nodeCoins.find(node) == nodeCoins.end()) {
+            nodeCoins[node].assign(DAYS, 0);
+            nodeSess[node].assign(DAYS, 0);
+          }
           nodeCoins[node][DAYS - 1 - idx] += coins;
+          nodeSess[node][DAYS - 1 - idx]++;
         }
       }
       f.close();
@@ -1405,6 +1410,8 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
     if (!nodeCoins.empty()) {
       JsonObject nodes = d["nodes"].to<JsonObject>();
       for (auto& kv : nodeCoins) nodes[kv.first.c_str()] = kv.second[i];
+      JsonObject nsess = d["nodeSessions"].to<JsonObject>();
+      for (auto& kv : nodeSess) nsess[kv.first.c_str()] = kv.second[i];
     }
   }
   String json; serializeJson(out, json);
