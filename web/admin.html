@@ -67,6 +67,7 @@
     .chart-wrap { height: 180px; }
     svg text { fill: #6a7a90; font-family: Arial, sans-serif; }
     .chart-legend { display: flex; gap: 16px; font-size: 12px; color: #8a9ab0; margin-top: 6px; }
+    .chart-sub { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8a9ab0; margin-bottom: 6px; }
     .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; }
 
     .mono { font-family: monospace; letter-spacing: 2px; color: #f0b429; }
@@ -227,9 +228,19 @@
   <div id="sales-loading" style="display:none"><div class="loading-bar"></div></div>
   <div class="section">
     <div class="section-title">This Week — Nodes &amp; Sellers</div>
+    <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start;margin-bottom:12px">
+      <div style="flex:1;min-width:240px">
+        <div class="chart-sub">Revenue share — last 7 full days</div>
+        <div id="chart-week-pie"></div>
+      </div>
+      <div style="flex:2;min-width:320px">
+        <div class="chart-sub">Seller trends — weekly revenue (₱)</div>
+        <div id="chart-seller-trends"></div>
+      </div>
+    </div>
     <div class="tbl-wrap">
       <table>
-        <thead><tr><th>Name</th><th>Type</th><th>Minutes</th><th>Revenue</th><th>Commission</th><th>Net</th><th>vs Last Week</th></tr></thead>
+        <thead><tr><th>Name</th><th>Type</th><th>Revenue</th><th>Commission</th><th>Net</th><th>vs Last Week</th></tr></thead>
         <tbody id="dash-perf-tbody"></tbody>
       </table>
     </div>
@@ -733,10 +744,9 @@ function renderNodeHealth(nodes) {
   }).join('');
 }
 
-function renderPerformance(salesData, leaderboard, nodeRevMap, minutesPerCoin) {
-  leaderboard   = leaderboard || [];
-  nodeRevMap    = nodeRevMap  || {};
-  minutesPerCoin = minutesPerCoin || 24;
+function renderPerformance(salesData, leaderboard, nodeRevMap) {
+  leaderboard = leaderboard || [];
+  nodeRevMap  = nodeRevMap  || {};
   const nodeCoinTotals = {};
   for (const d of salesData)
     for (const [mac, coins] of Object.entries(d.nodes || {}))
@@ -757,14 +767,12 @@ function renderPerformance(salesData, leaderboard, nodeRevMap, minutesPerCoin) {
   const rows = [
     ...liveNodes.map(n => ({
       name:      nodeName(n), typeCls: 'tag-coin', typeLabel: 'Vendo',
-      minutes:   (nodeCoinTotals[n.mac] || 0) * minutesPerCoin,
       revenue:   nodeRevMap[n.mac] || 0, commPct: nodeCommissions[n.mac] || 0,
       deltaHtml: deltaPct(wkCoins(thisWk, n.mac), wkCoins(prevWk, n.mac))
     })),
     ...leaderboard.map(s => ({
       name:      s.seller + (s.registered ? '' : ' <span class="muted" style="font-size:10px">(new)</span>'),
       typeCls:   'tag-vchr', typeLabel: 'Voucher',
-      minutes:   s.minutes || 0,
       revenue:   s.revenue || 0, commPct: s.commission || 0,
       deltaHtml: deltaPct(s.wowCur || 0, s.wowPrev || 0)
     }))
@@ -773,15 +781,123 @@ function renderPerformance(salesData, leaderboard, nodeRevMap, minutesPerCoin) {
   document.getElementById('dash-perf-tbody').innerHTML = rows.map(r => {
     const comm = Math.round(r.revenue * r.commPct / 100);
     const net  = r.revenue - comm;
-    const minHtml  = r.minutes > 0 ? r.minutes.toLocaleString() + ' min' : '<span class="muted">—</span>';
     const revHtml  = r.revenue > 0 ? '₱' + r.revenue : '<span class="muted">—</span>';
     const commHtml = r.commPct > 0
       ? r.commPct + '%' + (r.revenue > 0 ? ' <span class="muted">(₱' + comm + ')</span>' : '')
       : '<span class="muted">—</span>';
     const netHtml  = r.revenue > 0 ? '₱' + net : '<span class="muted">—</span>';
     return `<tr><td>${r.name}</td><td><span class="tag ${r.typeCls}">${r.typeLabel}</span></td>`
-         + `<td>${minHtml}</td><td>${revHtml}</td><td>${commHtml}</td><td>${netHtml}</td><td>${r.deltaHtml}</td></tr>`;
+         + `<td>${revHtml}</td><td>${commHtml}</td><td>${netHtml}</td><td>${r.deltaHtml}</td></tr>`;
   }).join('');
+
+  renderWeekPie(salesData);
+  renderSellerTrends(salesData);
+}
+
+// ── Seller/vendo entity colors — fixed per entity, never repainted by filtering ──
+// Palette validated for the dark surface (colorblind-safe with the direct labels both charts use).
+const ENTITY_PALETTE = ['#5b8fd9', '#2f8551', '#c58428', '#a06fd6', '#c25577'];
+const entityColorMap = {};
+function entityColor(name) {
+  if (!(name in entityColorMap))
+    entityColorMap[name] = ENTITY_PALETTE[Object.keys(entityColorMap).length % ENTITY_PALETTE.length];
+  return entityColorMap[name];
+}
+
+// Revenue per entity for a span of days: Vendo = coin revenue, sellers from the per-day journal.
+function entityRevenue(days) {
+  const out = {};
+  for (const d of days) {
+    if (d.coinRev) out['Vendo'] = (out['Vendo'] || 0) + d.coinRev;
+    for (const [name, rev] of Object.entries(d.sellers || {}))
+      out[name] = (out[name] || 0) + rev;
+  }
+  return out;
+}
+
+// Donut: revenue share over the last 7 full days (ending yesterday, same window as the Δ column).
+function renderWeekPie(salesData) {
+  const el = document.getElementById('chart-week-pie');
+  const rev = entityRevenue(salesData.slice(-8, -1));
+  const entries = Object.entries(rev).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+  const total = entries.reduce((s, [, v]) => s + v, 0);
+  if (!total) { el.innerHTML = '<p class="muted" style="font-size:12px">no revenue this week</p>'; return; }
+
+  const R = 56, r = 34, cx = 70, cy = 70;
+  let angle = -Math.PI / 2, svg = '';
+  for (const [name, v] of entries) {
+    const sweep = v / total * Math.PI * 2;
+    const a0 = angle, a1 = angle + sweep;
+    angle = a1;
+    const large = sweep > Math.PI ? 1 : 0;
+    // 2px surface gap between slices via stroke in the card background color
+    svg += `<path d="M ${cx + R * Math.cos(a0)} ${cy + R * Math.sin(a0)}
+                    A ${R} ${R} 0 ${large} 1 ${cx + R * Math.cos(a1)} ${cy + R * Math.sin(a1)}
+                    L ${cx + r * Math.cos(a1)} ${cy + r * Math.sin(a1)}
+                    A ${r} ${r} 0 ${large} 0 ${cx + r * Math.cos(a0)} ${cy + r * Math.sin(a0)} Z"
+             fill="${entityColor(name)}" stroke="#1c2333" stroke-width="2">
+             <title>${name}: ₱${v} (${Math.round(v / total * 100)}%)</title></path>`;
+  }
+  svg += `<text x="${cx}" y="${cy - 2}" text-anchor="middle" font-size="14" font-weight="bold" fill="#dde3ee">₱${total.toLocaleString()}</text>`;
+  svg += `<text x="${cx}" y="${cy + 13}" text-anchor="middle" font-size="9" fill="#8a9ab0">7 days</text>`;
+  const legend = entries.map(([name, v]) =>
+    `<span><i style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${entityColor(name)};margin-right:5px"></i>`
+    + `${name} <span class="muted">₱${v} · ${Math.round(v / total * 100)}%</span></span>`).join('');
+  el.innerHTML = `<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">`
+    + `<svg width="140" height="140" viewBox="0 0 140 140">${svg}</svg>`
+    + `<div style="display:flex;flex-direction:column;gap:4px;font-size:12px">${legend}</div></div>`;
+}
+
+// Line chart: weekly revenue per entity across the whole journal — the "why did Negra fall behind"
+// view. Weeks are trailing 7-day buckets ending yesterday, so the newest point matches the donut.
+function renderSellerTrends(salesData) {
+  const el = document.getElementById('chart-seller-trends');
+  const days = salesData.slice(0, -1);   // exclude today (partial)
+  const weeks = [];
+  for (let end = days.length; end >= 7; end -= 7) weeks.unshift(days.slice(end - 7, end));
+  if (!weeks.length) { el.innerHTML = ''; return; }
+
+  const series = {};   // entity -> [weekly revenue]
+  weeks.forEach((wk, i) => {
+    for (const [name, v] of Object.entries(entityRevenue(wk))) {
+      if (!series[name]) series[name] = new Array(weeks.length).fill(0);
+      series[name][i] = v;
+    }
+  });
+  const names = Object.keys(series).sort((a, b) =>
+    series[b].reduce((s, v) => s + v, 0) - series[a].reduce((s, v) => s + v, 0));
+
+  const W = el.clientWidth || 480, H = 170;
+  const pL = 42, pR = 64, pT = 10, pB = 22;   // room on the right for direct labels
+  const cW = W - pL - pR, cH = H - pT - pB;
+  const max = Math.max(...names.map(n => Math.max(...series[n])), 1);
+  const x = i => pL + (weeks.length === 1 ? cW / 2 : i / (weeks.length - 1) * cW);
+  const y = v => pT + cH - v / max * cH;
+  let svg = '';
+
+  for (let i = 0; i <= 4; i++) {
+    const gy = pT + cH - i / 4 * cH;
+    svg += `<line x1="${pL}" y1="${gy}" x2="${W - pR}" y2="${gy}" stroke="#1e2840"/>`;
+    svg += `<text x="${pL - 4}" y="${gy + 4}" text-anchor="end" font-size="10" fill="#8a9ab0">₱${Math.round(max * i / 4).toLocaleString()}</text>`;
+  }
+  weeks.forEach((wk, i) => {
+    if (i % Math.ceil(weeks.length / 6) && i !== weeks.length - 1) return;
+    svg += `<text x="${x(i)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="#8a9ab0">${wk[0].date}</text>`;
+  });
+
+  for (const name of names) {
+    const c = entityColor(name);
+    const pts = series[name].map((v, i) => `${x(i)},${y(v)}`).join(' ');
+    svg += `<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2" stroke-linejoin="round"/>`;
+    series[name].forEach((v, i) => {
+      svg += `<circle cx="${x(i)}" cy="${y(v)}" r="3.5" fill="${c}" stroke="#1c2333" stroke-width="1.5">`
+           + `<title>${name} · wk of ${weeks[i][0].date}: ₱${v}</title></circle>`;
+    });
+    // direct label at the line's end — identity never rides on color alone
+    const last = series[name][weeks.length - 1];
+    svg += `<text x="${W - pR + 6}" y="${y(last) + 4}" font-size="11" fill="${c}">${name}</text>`;
+  }
+  el.innerHTML = `<svg width="${W}" height="${H}">${svg}</svg>`;
 }
 
 async function loadSockets() {
@@ -1041,14 +1157,13 @@ async function loadSales() {
   loadingEl.style.display = 'block';
   let data = [];
   let monthsData = [];
-  let pricePerCoin = 5, minutesPerCoin = 24;
+  let pricePerCoin = 5;
   let leaderboard  = [];
   try {
     const [salesR, lbR] = await Promise.all([fetch('/admin/sales'), fetch('/admin/leaderboard')]);
     if (salesR.ok) {
       const resp = await salesR.json();
-      pricePerCoin   = resp.pricePerCoin   || 5;
-      minutesPerCoin = resp.minutesPerCoin || 24;
+      pricePerCoin = resp.pricePerCoin || 5;
       data = resp.days.map(d => ({
         date:       d.date,
         coins:      d.coins,
@@ -1059,6 +1174,7 @@ async function loadSales() {
         sessions:   d.sessions || 0,
         topSeller:  d.topSeller || null,
         topSellerRev: d.topSellerRev || 0,
+        sellers:    d.sellers || {},
         nodes:      d.nodes || {}
       }));
       monthsData = (resp.months || []).map(m => ({   // reshape for renderStackedChart + the detail table
@@ -1081,7 +1197,7 @@ async function loadSales() {
       nodeRevMap[mac] = (nodeRevMap[mac] || 0) + coins * pricePerCoin;
   }
 
-  renderPerformance(data, leaderboard, nodeRevMap, minutesPerCoin);
+  renderPerformance(data, leaderboard, nodeRevMap);
   renderStackedChart('chart-sales', data);
   renderStackedChart('chart-monthly', monthsData, false);
   renderMonthlyTable(monthsData);

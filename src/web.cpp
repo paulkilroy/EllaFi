@@ -1445,7 +1445,11 @@ esp_err_t handleAdminSales(PsychicRequest* request, PsychicResponse* response) {
     auto sd = sellerDayRev.find(todayDay - (DAYS - 1 - i));
     if (sd != sellerDayRev.end()) {
       const char* topName = nullptr; int topRev = 0;
-      for (auto& kv : sd->second) if (kv.second > topRev) { topName = kv.first.c_str(); topRev = kv.second; }
+      JsonObject sl = d["sellers"].to<JsonObject>();   // full per-seller pesos — feeds the trend chart
+      for (auto& kv : sd->second) {
+        sl[kv.first.c_str()] = kv.second;
+        if (kv.second > topRev) { topName = kv.first.c_str(); topRev = kv.second; }
+      }
       if (topName) { d["topSeller"] = topName; d["topSellerRev"] = topRev; }
     }
     if (!nodeCoins.empty()) {
