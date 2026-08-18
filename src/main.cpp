@@ -384,7 +384,9 @@ static void pingHealthcheck() {
   WiFiClient client;
   String url = HEALTHCHECK_URL; url.replace("https://", "http://");
   if (downCount) url += "/fail";
-  HTTPClient h; h.setConnectTimeout(4000); h.setTimeout(4000);
+  // 10 s, not 4: Starlink's latency tail (retransmit backoff after a lost packet) blew the old 4 s
+  // cap and logged latency spikes as outages — the "4006ms" failure cluster. A heartbeat can wait.
+  HTTPClient h; h.setConnectTimeout(10000); h.setTimeout(10000);
   if (!h.begin(client, url)) return;
   h.addHeader("Content-Type", "application/json");
   String body = String("{\"mac\":\"") + ownMac +
@@ -417,12 +419,28 @@ static void pingHealthcheck() {
       WiFiClient c; bool ok = c.connect(host, port, 1500); c.stop(); return ok;
     };
     // dish = the Starlink terminal's fixed management address (gRPC port, always listening).
-    // All three OK + healthcheck failed = the outage is BEYOND the dish (satellite/weather/
-    // Starlink network) — the definitive "Starlink is flaky" verdict from inside the LAN.
-    ESP_LOGW(TAG, "path probe: gateway=%s controller=%s dish=%s",
-             tcpAlive(WiFi.gatewayIP().toString().c_str(), 80) ? "OK" : "FAIL",
-             tcpAlive(ctrlHost.c_str(), 443) ? "OK" : "FAIL",
-             tcpAlive("192.168.100.1", 9200) ? "OK" : "FAIL");
+    // wan1/wan2 = IP-literal anycast targets (no DNS): both FAIL = the internet is truly down;
+    // both OK + ping failed = the outage was DNS, the endpoint, or a latency spike — see dns/retry.
+    // dns = resolving the healthcheck host (the one lookup the ping itself depends on).
+    // retry = an immediate second ping: OK here means the "outage" was a moment, not a state.
+    String hcHost = url;
+    hcHost.replace("http://", "");
+    if (hcHost.indexOf('/') > 0) hcHost = hcHost.substring(0, hcHost.indexOf('/'));
+    IPAddress dnsIp; unsigned long d0 = millis();
+    bool dnsOk = WiFi.hostByName(hcHost.c_str(), dnsIp) == 1;
+    unsigned long dnsMs = millis() - d0;
+    bool gw   = tcpAlive(WiFi.gatewayIP().toString().c_str(), 80);
+    bool ctrl = tcpAlive(ctrlHost.c_str(), 443);
+    bool dish = tcpAlive("192.168.100.1", 9200);
+    bool wan1 = tcpAlive("1.1.1.1", 443);
+    bool wan2 = tcpAlive("8.8.8.8", 53);
+    unsigned long r0 = millis(); int rcode = -999;
+    { HTTPClient h2; WiFiClient c2; h2.setConnectTimeout(10000); h2.setTimeout(10000);
+      if (h2.begin(c2, url)) { h2.addHeader("Content-Type", "application/json"); rcode = h2.POST(body); h2.end(); } }
+    ESP_LOGW(TAG, "path probe: gw=%s ctrl=%s dish=%s wan1=%s wan2=%s dns=%s(%lums) retry=%d(%lums)",
+             gw ? "OK" : "FAIL", ctrl ? "OK" : "FAIL", dish ? "OK" : "FAIL",
+             wan1 ? "OK" : "FAIL", wan2 ? "OK" : "FAIL",
+             dnsOk ? "OK" : "FAIL", dnsMs, rcode, millis() - r0);
   }
   else if (downCount) ESP_LOGW(TAG, "healthcheck /fail sent — %d node(s) down: %s", downCount, downMacs.c_str());
   else                ESP_LOGI(TAG, "healthcheck ping ok");
