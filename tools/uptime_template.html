@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>EllaFi Reliability</title>
+<style>
+  :root {
+    --bg: #252b37; --card: #1c2333; --line: #2e3f58; --ink: #dde3ee; --muted: #8a9ab0;
+    --starlink: #5b8fd9; --esp: #c58428; --omada: #a06fd6;
+    --ok: #3fb950; --warn: #f0b429; --bad: #e0705e;
+  }
+  body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--ink);
+         margin: 0; padding: 28px 20px 60px; }
+  main { max-width: 1060px; margin: 0 auto; }
+  h1 { font-size: 1.35rem; font-weight: 600; margin: 0; }
+  .sub { color: var(--muted); font-size: .82rem; margin: 4px 0 22px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 26px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+  .tile .v { font-size: 1.7rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tile .k { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-top: 2px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 16px 18px; margin-bottom: 20px; }
+  .card h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin: 0 0 14px; font-weight: 600; }
+  .lane { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .lane-name { font-size: .78rem; color: var(--muted); text-align: right; display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+  .lane-name i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .track { position: relative; height: 26px; background: rgba(63,185,80,.07); border-radius: 4px; overflow: hidden; }
+  .ev { position: absolute; top: 3px; bottom: 3px; min-width: 3px; border-radius: 2px; opacity: .95; }
+  .ev:hover { outline: 2px solid #fff3; }
+  .axis { display: grid; grid-template-columns: 92px 1fr; gap: 10px; }
+  .axis-track { position: relative; height: 18px; font-size: .68rem; color: var(--muted); }
+  .axis-track span { position: absolute; transform: translateX(-50%); }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: .76rem; color: var(--muted); margin-top: 12px; }
+  .legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 5px; }
+  table { border-collapse: collapse; width: 100%; font-size: .8rem; }
+  th, td { text-align: left; padding: 5px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; }
+  td.t { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 8px; font-size: .68rem; font-weight: 600; }
+  .muted { color: var(--muted); }
+  #tip { position: fixed; background: #0e1420; border: 1px solid var(--line); border-radius: 5px;
+         padding: 7px 10px; font-size: .75rem; pointer-events: none; display: none; z-index: 10; max-width: 340px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>EllaFi Reliability — Starlink × Vendo × Omada</h1>
+  <div class="sub" id="sub"></div>
+  <div class="tiles" id="tiles"></div>
+  <div class="card">
+    <h2 id="tl-title">Timeline</h2>
+    <div id="lanes"></div>
+    <div class="axis"><div></div><div class="axis-track" id="axis"></div></div>
+    <div class="legend" id="legend"></div>
+  </div>
+  <div class="card">
+    <h2>Events (newest first)</h2>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>Time</th><th>Source</th><th>What</th><th>Duration</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+  </div>
+</main>
+<div id="tip"></div>
+<script>
+const DATA = /*__DATA__*/null;
+const SRC = {
+  starlink: { name: 'Starlink', color: 'var(--starlink)', c: '#5b8fd9' },
+  esp:      { name: 'Vendo/WAN', color: 'var(--esp)',     c: '#c58428' },
+  omada:    { name: 'Omada APs', color: 'var(--omada)',   c: '#a06fd6' },
+};
+const sevColor = s => s === 'critical' || s === 'error' ? '#e0705e' : s === 'warning' ? '#f0b429' : null;
+
+document.getElementById('sub').textContent =
+  `last ${DATA.hours} h · generated ${DATA.generated} (local) · dish + ESP errors.log + controller alerts`;
+
+const bySrc = { starlink: [], esp: [], omada: [] };
+DATA.events.forEach(e => (bySrc[e.src] = bySrc[e.src] || []).push(e));
+
+const fmtDur = s => s >= 60 ? Math.round(s / 60) + ' min' : (s >= 10 ? Math.round(s) : s.toFixed(1)) + ' s';
+const tiles = [
+  [DATA.uptimePct.toFixed(2) + '%', 'starlink uptime', DATA.uptimePct >= 99.5 ? 'var(--ok)' : DATA.uptimePct >= 98 ? 'var(--warn)' : 'var(--bad)'],
+  [fmtDur(DATA.dishDownS), 'starlink downtime', null],
+  [bySrc.starlink.length, 'dish outage events', null],
+  [bySrc.esp.filter(e => e.kind.startsWith('WAN_BLIP')).length, 'esp-visible blips', null],
+  [bySrc.esp.filter(e => e.kind === 'POWER_CUT_REBOOT').length, 'brownout reboots', null],
+  [bySrc.omada.length, 'omada AP alerts', null],
+];
+document.getElementById('tiles').innerHTML = tiles.map(([v, k, c]) =>
+  `<div class="tile"><div class="v"${c ? ` style="color:${c}"` : ''}>${v}</div><div class="k">${k}</div></div>`).join('');
+
+// Timeline lanes — green ground = "up"; every mark is trouble. Width ∝ duration (min 3px).
+const t0 = DATA.t0, span = DATA.t1 - t0;
+const x = ts => Math.max(0, Math.min(100, (ts - t0) / span * 100));
+document.getElementById('tl-title').textContent = `Timeline — last ${DATA.hours} hours (green = healthy)`;
+document.getElementById('lanes').innerHTML = Object.entries(SRC).map(([key, s]) => {
+  const evs = (bySrc[key] || []).map((e, i) =>
+    `<div class="ev" style="left:${x(e.ts)}%;width:max(3px,${(e.dur / span * 100)}%);background:${sevColor(e.sev) || s.c}"
+          data-tip="${e.label} · ${e.kind}${e.detail ? ' — ' + e.detail.replace(/"/g, '&quot;') : ''} · ${fmtDur(e.dur)}"></div>`).join('');
+  return `<div class="lane"><div class="lane-name"><i style="background:${s.c}"></i>${s.name}</div><div class="track">${evs}</div></div>`;
+}).join('');
+
+const axis = document.getElementById('axis');
+const hours = DATA.hours;
+const step = hours > 30 ? 6 : 3;
+let marks = '';
+for (let h = 0; h <= hours; h += step) {
+  const ts = t0 + h * 3600;
+  const d = new Date((ts + 8 * 3600) * 1000);
+  marks += `<span style="left:${x(ts)}%">${String(d.getUTCHours()).padStart(2, '0')}:00</span>`;
+}
+axis.innerHTML = marks;
+
+document.getElementById('legend').innerHTML =
+  Object.values(SRC).map(s => `<span><i style="background:${s.c}"></i>${s.name}</span>`).join('')
+  + `<span><i style="background:#f0b429"></i>warning</span><span><i style="background:#e0705e"></i>critical</span>`;
+
+// Tooltip
+const tip = document.getElementById('tip');
+document.addEventListener('mouseover', e => {
+  const t = e.target.closest('[data-tip]');
+  if (!t) { tip.style.display = 'none'; return; }
+  tip.textContent = t.getAttribute('data-tip');
+  tip.style.display = 'block';
+});
+document.addEventListener('mousemove', e => {
+  tip.style.left = Math.min(e.clientX + 12, innerWidth - 360) + 'px';
+  tip.style.top = (e.clientY + 14) + 'px';
+});
+
+// Event table
+document.getElementById('rows').innerHTML = [...DATA.events].reverse().map(e => {
+  const s = SRC[e.src];
+  const sev = sevColor(e.sev);
+  return `<tr><td class="t">${e.label}</td>
+    <td><span class="pill" style="background:${s.c}22;color:${s.c}">${s.name}</span></td>
+    <td>${e.kind}${e.detail ? ` <span class="muted">${e.detail}</span>` : ''}${sev ? ` <span class="pill" style="background:${sev}22;color:${sev}">${e.sev}</span>` : ''}</td>
+    <td class="t">${fmtDur(e.dur)}</td></tr>`;
+}).join('');
+</script>
+</body>
+</html>
