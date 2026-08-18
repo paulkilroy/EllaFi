@@ -144,6 +144,37 @@ def pull_omada(cfg, t0, t1):
     return events
 
 
+def pull_outside(cfg, t0, t1):
+    """healthchecks.io flips — the internet's view of the vendo's pings, exact outage edges.
+    A down window here = ESP dead (power) OR WAN dead; pairing with the ESP lane disambiguates."""
+    key = cfg.get("healthchecks_api_key")
+    if not key:
+        return []
+    H = {"X-Api-Key": key}
+    checks = requests.get("https://healthchecks.io/api/v3/checks/", headers=H, timeout=15).json()["checks"]
+    want = cfg.get("healthchecks_check_name", "Production")
+    check = next((c for c in checks if want in (c.get("name") or "")), None)
+    if not check:
+        print(f"  no check matching '{want}' (have: {[c.get('name') for c in checks]})")
+        return []
+    uk = check.get("unique_key") or check.get("uuid")
+    flips = requests.get(f"https://healthchecks.io/api/v3/checks/{uk}/flips/", headers=H, timeout=15).json()["flips"]
+    # flips are newest-first {timestamp, up}; pair down->up into outage windows
+    events, pending_up = [], None
+    for f in flips:
+        ts = time.mktime(time.strptime(f["timestamp"][:19], "%Y-%m-%dT%H:%M:%S")) - time.timezone
+        if f["up"] == 1:
+            pending_up = ts
+        else:
+            end = pending_up if pending_up else t1   # no up yet = still down at window end
+            if end >= t0 and ts <= t1:
+                events.append({"src": "outside", "ts": max(ts, t0), "dur": max(60, end - ts),
+                               "kind": "PINGS_MISSED" + ("" if pending_up else " (ongoing)"),
+                               "sev": "critical"})
+            pending_up = None
+    return [e for e in events if e["ts"] <= t1]
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hours", type=int, default=24)
@@ -152,30 +183,34 @@ def main():
     t1 = time.time()
     t0 = t1 - args.hours * 3600
 
-    print("[1/4] dish telemetry…")
+    print("[1/5] dish telemetry…")
     dish = pull_dish(t0, t1)
     print(f"      {len(dish)} events")
-    print("[2/4] ESP event log…")
+    print("[2/5] ESP event log…")
     esp = pull_esp(cfg.get("static_ip", "192.168.1.3"), cfg["omada_password"], t0, t1)
     print(f"      {len(esp)} events")
-    print("[3/4] Omada alerts…")
+    print("[3/5] Omada alerts…")
     omada = pull_omada(cfg, t0, t1)
     print(f"      {len(omada)} events")
+    print("[4/5] healthchecks.io flips (outside view)…")
+    outside = pull_outside(cfg, t0, t1)
+    print(f"      {len(outside)} outage windows")
 
     dish_down = sum(e["dur"] for e in dish)
     uptime_pct = max(0.0, 100 * (1 - dish_down / (args.hours * 3600)))
     data = {
         "generated": local(t1), "hours": args.hours, "t0": t0, "t1": t1,
         "uptimePct": round(uptime_pct, 3), "dishDownS": round(dish_down, 1),
-        "events": sorted(dish + esp + omada, key=lambda e: e["ts"]),
+        "events": sorted(dish + esp + omada + outside, key=lambda e: e["ts"]),
     }
     for e in data["events"]:
         e["label"] = local(e["ts"], "%H:%M:%S")
 
     tpl = open(os.path.join(REPO, "tools", "uptime_template.html")).read()
     open(OUT, "w").write(tpl.replace("/*__DATA__*/null", json.dumps(data)))
-    print(f"[4/4] wrote {os.path.relpath(OUT, REPO)}  "
-          f"(Starlink uptime {uptime_pct:.2f}%, {len(dish)} dish / {len(esp)} esp / {len(omada)} omada events)")
+    print(f"[5/5] wrote {os.path.relpath(OUT, REPO)}  "
+          f"(Starlink uptime {uptime_pct:.2f}%, {len(dish)} dish / {len(esp)} esp / "
+          f"{len(omada)} omada / {len(outside)} outside events)")
 
 
 if __name__ == "__main__":

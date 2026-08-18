@@ -68,13 +68,14 @@ const SRC = {
   starlink: { name: 'Starlink', color: 'var(--starlink)', c: '#5b8fd9' },
   esp:      { name: 'Vendo/WAN', color: 'var(--esp)',     c: '#c58428' },
   omada:    { name: 'Omada APs', color: 'var(--omada)',   c: '#a06fd6' },
+  outside:  { name: 'Outside view', color: '#c25577',     c: '#c25577' },   // healthchecks.io — vendo pings seen from the internet
 };
 const sevColor = s => s === 'critical' || s === 'error' ? '#e0705e' : s === 'warning' ? '#f0b429' : null;
 
 document.getElementById('sub').textContent =
   `last ${DATA.hours} h · generated ${DATA.generated} (local) · dish + ESP errors.log + controller alerts`;
 
-const bySrc = { starlink: [], esp: [], omada: [] };
+const bySrc = { starlink: [], esp: [], omada: [], outside: [] };
 DATA.events.forEach(e => (bySrc[e.src] = bySrc[e.src] || []).push(e));
 
 const fmtDur = s => s >= 60 ? Math.round(s / 60) + ' min' : (s >= 10 ? Math.round(s) : s.toFixed(1)) + ' s';
@@ -85,6 +86,7 @@ const tiles = [
   [bySrc.esp.filter(e => e.kind.startsWith('WAN_BLIP')).length, 'esp-visible blips', null],
   [bySrc.esp.filter(e => e.kind === 'POWER_CUT_REBOOT').length, 'brownout reboots', null],
   [bySrc.omada.length, 'omada AP alerts', null],
+  [fmtDur(bySrc.outside.reduce((s, e) => s + e.dur, 0)), 'vendo unreachable (outside view)', bySrc.outside.length ? 'var(--bad)' : 'var(--ok)'],
 ];
 document.getElementById('tiles').innerHTML = tiles.map(([v, k, c]) =>
   `<div class="tile"><div class="v"${c ? ` style="color:${c}"` : ''}>${v}</div><div class="k">${k}</div></div>`).join('');
