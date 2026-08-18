@@ -111,9 +111,10 @@ for (let h = 0; h <= hours; h += step) {
 }
 axis.innerHTML = marks;
 
+// lane names already label the sources — the legend only explains severity coloring
 document.getElementById('legend').innerHTML =
-  Object.values(SRC).map(s => `<span><i style="background:${s.c}"></i>${s.name}</span>`).join('')
-  + `<span><i style="background:#f0b429"></i>warning</span><span><i style="background:#e0705e"></i>critical</span>`;
+  `<span><i style="background:#f0b429"></i>warning</span><span><i style="background:#e0705e"></i>critical / error</span>`
+  + `<span class="muted" style="margin-left:auto">mark width = event duration · hover for detail</span>`;
 
 // Tooltip
 const tip = document.getElementById('tip');
