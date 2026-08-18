@@ -118,6 +118,10 @@ def pull_omada(cfg, t0, t1):
               params={"currentPage": 1, "currentPageSize": 100}, verify=False, timeout=20)
     site = r.json()["result"]["data"][0]
     site_id = site.get("siteId") or site.get("id")
+    # MAC → device name, so alerts read "BES AP was isolated" instead of a MAC
+    r = s.get(f"{base}/{cid}/api/v2/sites/{site_id}/grid/devices", headers=hdr,
+              params={"currentPage": 1, "currentPageSize": 100}, verify=False, timeout=20)
+    names = {d["mac"]: d.get("name", d["mac"]) for d in r.json().get("result", {}).get("data", [])}
     events, page = [], 1
     while True:
         r = s.get(f"{base}/{cid}/api/v2/sites/{site_id}/logs/alerts", headers=hdr,
@@ -127,10 +131,13 @@ def pull_omada(cfg, t0, t1):
         res = r.json().get("result", {})
         rows = res.get("data", [])
         for a in rows:
+            content = a.get("content", "")
+            for mac, name in names.items():
+                content = content.replace(mac, name)
             events.append({"src": "omada", "ts": a["time"] / 1000, "dur": 30,
                            "kind": a.get("key", "?"),
                            "sev": (a.get("level") or "warning").lower(),
-                           "detail": re.sub(r"\[|\]", "", a.get("content", ""))[:120]})
+                           "detail": re.sub(r"\[(ap|switch|gateway):", "", content).replace("]", "")[:120]})
         if page * 100 >= (res.get("totalRows") or 0):
             break
         page += 1
