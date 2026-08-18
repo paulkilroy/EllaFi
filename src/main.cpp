@@ -416,9 +416,13 @@ static void pingHealthcheck() {
     auto tcpAlive = [](const char* host, uint16_t port) {
       WiFiClient c; bool ok = c.connect(host, port, 1500); c.stop(); return ok;
     };
-    ESP_LOGW(TAG, "path probe: gateway=%s controller=%s",
+    // dish = the Starlink terminal's fixed management address (gRPC port, always listening).
+    // All three OK + healthcheck failed = the outage is BEYOND the dish (satellite/weather/
+    // Starlink network) — the definitive "Starlink is flaky" verdict from inside the LAN.
+    ESP_LOGW(TAG, "path probe: gateway=%s controller=%s dish=%s",
              tcpAlive(WiFi.gatewayIP().toString().c_str(), 80) ? "OK" : "FAIL",
-             tcpAlive(ctrlHost.c_str(), 443) ? "OK" : "FAIL");
+             tcpAlive(ctrlHost.c_str(), 443) ? "OK" : "FAIL",
+             tcpAlive("192.168.100.1", 9200) ? "OK" : "FAIL");
   }
   else if (downCount) ESP_LOGW(TAG, "healthcheck /fail sent — %d node(s) down: %s", downCount, downMacs.c_str());
   else                ESP_LOGI(TAG, "healthcheck ping ok");
