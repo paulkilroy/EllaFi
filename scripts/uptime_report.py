@@ -175,6 +175,29 @@ def pull_outside(cfg, t0, t1):
     return [e for e in events if e["ts"] <= t1]
 
 
+def pull_router():
+    """Starlink Gen3 router (the LAN gateway/NAT at 192.168.1.1) — snapshot, not events. Its own
+    upstream drop rate discriminates: router pings dropping = upstream; clean while flows stall = NAT."""
+    try:
+        raw = subprocess.run(["grpcurl", "-plaintext", "-max-time", "10",
+                              "-d", '{"get_status":{}}',
+                              "192.168.1.1:9000", "SpaceX.API.Device.Device/Handle"],
+                             capture_output=True, text=True, timeout=15)
+        w = json.loads(raw.stdout).get("wifiGetStatus", {})
+        rawc = subprocess.run(["grpcurl", "-plaintext", "-max-time", "10",
+                               "-d", '{"wifi_get_clients":{}}',
+                               "192.168.1.1:9000", "SpaceX.API.Device.Device/Handle"],
+                              capture_output=True, text=True, timeout=15)
+        clients = json.loads(rawc.stdout).get("wifiGetClients", {}).get("clients", [])
+        return {"uptimeS": int(w.get("deviceState", {}).get("uptimeS", 0)),
+                "clients": len(clients),
+                "popDropPct5m": round(float(w.get("popPingDropRate5m", 0)) * 100, 2),
+                "popPingMs": round(float(w.get("popPingLatencyMs", 0)), 1)}
+    except Exception as e:
+        print(f"  router pull failed: {e}")
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hours", type=int, default=24)
@@ -195,12 +218,17 @@ def main():
     print("[4/5] healthchecks.io flips (outside view)…")
     outside = pull_outside(cfg, t0, t1)
     print(f"      {len(outside)} outage windows")
+    router = pull_router()
+    if router:
+        print(f"      router: up {router['uptimeS']//3600}h, {router['clients']} clients, "
+              f"pop drop {router['popDropPct5m']}%/5m")
 
     dish_down = sum(e["dur"] for e in dish)
     uptime_pct = max(0.0, 100 * (1 - dish_down / (args.hours * 3600)))
     data = {
         "generated": local(t1), "hours": args.hours, "t0": t0, "t1": t1,
         "uptimePct": round(uptime_pct, 3), "dishDownS": round(dish_down, 1),
+        "router": router,
         "events": sorted(dish + esp + omada + outside, key=lambda e: e["ts"]),
     }
     for e in data["events"]:

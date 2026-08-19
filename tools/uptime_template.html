@@ -88,6 +88,11 @@ const tiles = [
   [bySrc.omada.length, 'omada AP alerts', null],
   [fmtDur(bySrc.outside.reduce((s, e) => s + e.dur, 0)), 'vendo unreachable (outside view)', bySrc.outside.length ? 'var(--bad)' : 'var(--ok)'],
 ];
+if (DATA.router) tiles.push(
+  [Math.round(DATA.router.uptimeS / 86400 * 10) / 10 + ' d', 'starlink router uptime', null],
+  [DATA.router.clients, 'clients NAT’d by router', DATA.router.clients > 100 ? 'var(--warn)' : null],
+  [DATA.router.popDropPct5m + '%', 'router pop-ping drop (5m)', DATA.router.popDropPct5m >= 2 ? 'var(--bad)' : DATA.router.popDropPct5m >= 0.5 ? 'var(--warn)' : 'var(--ok)'],
+);
 document.getElementById('tiles').innerHTML = tiles.map(([v, k, c]) =>
   `<div class="tile"><div class="v"${c ? ` style="color:${c}"` : ''}>${v}</div><div class="k">${k}</div></div>`).join('');
 
