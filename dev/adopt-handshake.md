@@ -83,18 +83,51 @@ INFORM_REQUEST 256 · SET_REQUEST 4096.
 canonical vector, RSA pub-encrypt/priv-decrypt ✓ round-trip, SHA1withRSA verify, ecsp2_auth. Nothing
 crypto-side is unknown; the remaining work is assembling the stateful client + the framing question.
 
-## Channel framing — RESOLVED empirically (2026-08-21)
+## Channel framing — RESOLVED empirically (2026-08-21, DEBUG-instrumented)
 - **Ports** (controller startup log): discovery 29810 · manage **v1 29811** · manage **v2 29814** ·
   adopt v1 29812 · upgrade 29813 · transfer v2 29815.
 - **v1 (29811) = PLAINTEXT** JSON frames (it parsed our DEVICE_VERIFY_INFO, logged "do not handle"
   — v1 server doesn't handle that V2 type).
-- **v2 (29814) = RC4-framed** with the fixed embedded key (silently closes plaintext; no parse log).
-  DEVICE_VERIFY_INFO (a V2 type) must go to 29814 **RC4'd**.
-- **Fixed RC4 key** = `RC4Utils.getEncryptKey()` = `TEAUtils.decrypt(ENCRYPTED_ENCRYPT_KEY)`.
-  TEA params (recover in Python, then RC4 the v2 frames): `KEY={-707509657,-1887749506,1427902494,
-  -1686606610}`, `DELTA=0x9E3779B9` (-1640531527), 64 rounds, 8-byte blocks, first decrypted byte =
-  pad length. `ENCRYPTED_ENCRYPT_KEY` byte[] is in `RC4Utils` (dev/_jadx). → add `tea_decrypt` +
-  `RC4_FIXED_KEY` to manage_crypto.py.
+- **v2 (29814) = TLS-WRAPPED**, NOT raw-RC4. Confirmed by handshake probe: 29814 completes TLS
+  (`TLS_AES_256_GCM_SHA384`, server presents a cert, no client-auth required); 29811/29812 refuse TLS.
+  The `RttyNettyTcpServer` pipeline does `addSslHandlerIfNeeded` (`addFirst("negotiation", SslHandler)`)
+  → **length-field decoder → default(plaintext) decoder → dispatcher**. So the earlier "silent close on
+  plaintext to 29814" was the **TLS handshake failing on raw bytes** — nothing reached the ecsp decoder,
+  which is why NO parse log appeared. Once wrapped in TLS, a plaintext length-prefixed
+  `DEVICE_VERIFY_INFO` reaches the handler: log `c.t.s.e.s.a.b.c: handle device verify Message for
+  8C-86-DD-…` then rejects on **state** ("device status … not matched", because Pending≠ADOPTING).
+- **Inside the TLS tunnel the frames are plaintext length-prefixed JSON** (4-byte BE length + payload).
+- **RC4 is a LATER upgrade, not the outer framing.** `NettyChannel.reinitRc4Handler(byte[] key)`
+  hot-swaps the pipeline's length-field codec to `TcpEncryptInternalDecoder/Encoder` — but only AFTER
+  adopt, keyed by `serverRouteCache.getKey()` = the **per-device session key negotiated during adopt**
+  (device RSA-wraps its own RC4 session key in ADOPT_RESPONSE). It is NOT the fixed `getEncryptKey()`.
+  Trigger path (`server/c/f.java:106`): a `SET_REQUEST` on the ADOPT port followed by a successful
+  `REBUILD_RESPONSE` → `reinitRc4Handler(sessionKey)`. So: TLS+plaintext for the whole adopt, then
+  RC4-inside-TLS for the post-adopt manage traffic. (The fixed `getEncryptKey()` we recovered via TEA
+  is unused on this channel — keep it noted but it was a wrong turn.)
+- **How this was nailed:** bumped the controller's `log4j2.properties` `logger.ecsp` to DEBUG (+ a
+  `io.netty…LoggingHandler` byte logger) and restarted; then drove framing variants and read
+  `logs/server.log`. See RUNBOOK "instrumenting the controller".
+
+## Manage-channel state machine (from the handlers, 2026-08-21)
+- Dispatcher `server/c/n.java` routes by type; `o.java` maps ordinals: PRE_CONNECT_INFO=case1,
+  DEVICE_VERIFY_INFO=case2, DEVICE_NEGOTIATION=case4, INFORM_REQUEST=case6, REBUILD_REQUEST=case11…
+- **DEVICE_VERIFY handler `server/a/b/c.java`** requires context status ∈ {ADOPTING_DEVICE_VERIFY,
+  CONNECTED, ADOPT_SUCCESS} (NOT ADOPTING_PRE_CONNECT). auth is checked against the **controller-
+  assigned account list** `context.p()` (EcspAdoptInfo username/password), via
+  `calculateEcsp2Auth(username, MD5(password), context.channelRandomKey)` — so the device must already
+  hold its assigned account (from the AdoptRequest) before verify passes. Factory admin/admin only
+  matches if that pair is in the adopt-info list.
+- **PRE_CONNECT_INFO handler `server/a/b/h.java`**: only proceeds when the port's ServerType is ADOPT
+  (→ publishes a domain event to `adoptPreConnectInfoSubscriber` `server/a/a/b.java`, which drives the
+  account assignment + AdoptRequest) or TRANSFER; else closes ("not manage or transfer server"). Need
+  to confirm 29814's ServerType (ADOPT vs MANAGE) empirically — drive PRE_CONNECT_INFO and read the log.
+
+### (superseded) fixed-RC4-key note
+- `RC4Utils.getEncryptKey()` = `TEAUtils.decrypt(ENCRYPTED_ENCRYPT_KEY)`; TEA `KEY={-707509657,
+  -1887749506,1427902494,-1686606610}`, `DELTA=0x9E3779B9`, 64 rounds. Recovered to `rc4key.local`.
+  Turned out NOT to be the manage-channel framing key (that's TLS + per-device session key). Retained
+  only for completeness.
 
 ## Remaining build (precise, all crypto solved)
 1. `tea_decrypt` in manage_crypto → recover the fixed RC4 key.
