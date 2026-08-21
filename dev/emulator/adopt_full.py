@@ -55,6 +55,26 @@ def msg(mtype, body=None, error=0):
                        "mac": FAKE_MAC, "type": mtype, "timestamp": int(time.time()), "error": error},
             "body": body or {}}
 
+def inform_body():
+    """Full vitals INFORM → drives the device Health spider graph. Its dimensions come from the
+    per-radio WirelessInfo (busyUti=channel usage, interUti=interference, txUti/rxUti) plus
+    deviceInfo cpuUti/memUti. temp[] is the die temperature. For EllaFi these map to real resources
+    (busyUti←socket-pool%, memUti←heap, temp←ESP32-S3 die temp) — static realistic values for now."""
+    def winfo(ch, bw, txp, busy, inter):
+        return {"region": 1, "ch": ch, "bw": bw, "rdMode": "11ax", "txR": "0", "txPower": txp,
+                "txUti": max(0, busy - inter - 5), "rxUti": max(0, busy - inter - 8),
+                "interUti": inter, "busyUti": busy, "aiRoamingOffset": 0}
+    return {
+        "deviceInfo": {"name": "EllaFi-Piso", "model": "EAP225-Outdoor",
+                       "firmwareVersion": "1.0.0 Build 20260101 Rel.00000", "hardwareVersion": "1.0",
+                       "upTime": "3600", "ip": "192.168.65.1", "cpuUti": 12, "memUti": 41,
+                       "txRate": 0, "rxRate": 0, "wirelessLinked": True, "temp": [42],
+                       "nf": [-95, -92]},
+        "wSettings_2G": winfo("6", "20", "20", 25, 5),
+        "wSettings_5G": winfo("36", "80", "23", 30, 4),
+    }
+
+
 def tls_connect(port):
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
     raw = socket.create_connection((HOST, port), timeout=6)
@@ -244,7 +264,7 @@ def drive_adopt_channel(adopt_port):
             r = _read_or_none(sock, session_key if rc4_mode else None)
             if r == "TIMEOUT":
                 if connected:            # periodic INFORM heartbeat so the controller keeps us green
-                    send(INFORM_REQUEST, {"deviceInfo": {"upTime": "3600", "cpuUtil": 5, "memUtil": 37}})
+                    send(INFORM_REQUEST, inform_body())
                     print("  ♥ INFORM heartbeat")
                 continue
             if not isinstance(r, dict):
@@ -272,7 +292,7 @@ def drive_adopt_channel(adopt_port):
                 # the channel alive with INFORM so the controller streams per-component SET_REQUEST.
                 send(INIT_SYNC_RESULT, error=0)
                 print(f"  → INIT_SYNC_RESULT (ok) [ack of {t}] — device CONNECTED")
-                send(INFORM_REQUEST, {"deviceInfo": {"upTime": "3600", "cpuUtil": 5, "memUtil": 37}})
+                send(INFORM_REQUEST, inform_body())
                 print("  → INFORM_REQUEST (stay connected, prompt config)")
                 connected = True   # start heartbeating so we stay online
             elif t == SET_REQUEST:
@@ -306,34 +326,40 @@ def main():
             s.sendto(pkt, (HOST, DISC_PORT)); stop.wait(6)
     threading.Thread(target=beacon, daemon=True).start()
 
-    s.settimeout(2)
-    t0 = time.time()
-    while time.time() - t0 < 300:
-        try:
-            data, _ = s.recvfrom(65535)
-        except socket.timeout:
-            continue
-        if len(data) < 4: continue
-        n = struct.unpack(">I", data[:4])[0]
-        try: obj = json.loads(data[4:4 + n].decode("utf-8", "replace"))
-        except Exception: continue
-        if obj.get("header", {}).get("type") == PRE_ADOPT_REQUEST:
-            ap = obj.get("body", {}).get("adoptPort", 29814)
-            print(f"◀◀ PRE_ADOPT_REQUEST — adoptPort={ap}; driving adopt channel now")
-            captured = drive_adopt_channel(ap) or []
-            # Drain any buffered PRE_ADOPT_REQUESTs so we don't reconnect 3× rapidly and overwrite
-            # the channel the controller tracks as A() (which breaks the INIT_SYNC_RESULT ack).
-            s.setblocking(False)
+    def wait_pre_adopt(timeout):
+        s.settimeout(2)
+        t0 = time.time()
+        while time.time() - t0 < timeout:
             try:
-                while True:
-                    s.recvfrom(65535)
-            except (BlockingIOError, OSError):
-                pass
-            s.setblocking(True); s.settimeout(2)
-            # drive_adopt_channel holds the channel open with an INFORM heartbeat and only returns if
-            # the channel drops. On drop we keep discovery alive and await the next re-adopt/re-link.
-            got = [c.get("header", {}).get("type") for c in captured]
-            print(f"  (channel closed; captured {got}; staying discoverable, awaiting reconnect)")
+                data, _ = s.recvfrom(65535)
+            except socket.timeout:
+                continue
+            if len(data) < 4:
+                continue
+            n = struct.unpack(">I", data[:4])[0]
+            try:
+                obj = json.loads(data[4:4 + n].decode("utf-8", "replace"))
+            except Exception:
+                continue
+            if obj.get("header", {}).get("type") == PRE_ADOPT_REQUEST:
+                return obj.get("body", {}).get("adoptPort", 29814)
+        return None
+
+    while not stop.is_set():
+        # 1) Proactive re-link: a real adopted device reconnects on its own after going offline —
+        #    it opens the manage channel itself (no manual re-adopt). Works once adopted; for an
+        #    un-adopted device the controller closes it quickly (adopt info null) and we fall through.
+        print("↻ proactive re-link attempt on 29814 (auto-reconnect, no tap needed)")
+        got = [c.get("header", {}).get("type") for c in (drive_adopt_channel(29814) or [])]
+        if SYSTEM_NEGOTIATION in got or SET_REQUEST in got:
+            print(f"  (was connected; channel dropped {got}; re-linking)")
+            continue
+        # 2) Not adopted yet → wait for a manual Adopt tap (PRE_ADOPT_REQUEST) to do first adoption.
+        print("  (proactive re-link declined — not adopted yet; waiting for an Adopt tap)")
+        ap = wait_pre_adopt(25)
+        if ap:
+            print(f"◀◀ PRE_ADOPT_REQUEST — adoptPort={ap}; driving first adoption")
+            drive_adopt_channel(ap)
     stop.set()
 
 
