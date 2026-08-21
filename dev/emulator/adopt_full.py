@@ -295,6 +295,9 @@ def drive_adopt_channel(adopt_port):
                 send(INFORM_REQUEST, inform_body())
                 print("  → INFORM_REQUEST (stay connected, prompt config)")
                 connected = True   # start heartbeating so we stay online
+                sock.settimeout(3)  # fast heartbeat: the connected route refresh triggers on an
+                                    # INFORM after updateServerRoutePeriod — a slow heartbeat lets the
+                                    # ~60s route TTL lapse in the gap. Real devices inform ~1s.
             elif t == SET_REQUEST:
                 print("  ★★★ SET_REQUEST (provisioning) CAPTURED ★★★")
                 send(SET_RESPONSE, error=0)
