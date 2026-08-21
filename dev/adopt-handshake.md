@@ -62,6 +62,27 @@ INFORM_REQUEST 256 · SET_REQUEST 4096.
   the controller to reach the device, run the emulator as the compose `emulator` service (in-network,
   reachable by name).
 
+## Manage-channel entry — DEVICE_VERIFY_INFO (fully mapped 2026-08-21)
+- **First message the device sends** on TCP 29811: `DEVICE_VERIFY_INFO` (type 1048577), handler
+  `server/a/b/c.java`. Body `{ auth, randomKeyForSystemVerify }`.
+- The controller requires a **live device context in `ADOPTING_PRE_CONNECT`** (created by discovery,
+  advanced when you tap Adopt) — else it closes the channel ("device context is null"/"status not
+  matched"). So: keep discovery alive (Pending) → tap Adopt → connect the manage channel *promptly*
+  (before the pending context times out ~40s) and send DEVICE_VERIFY_INFO.
+- **auth** = `EcspUtils.calculateEcsp2Auth(username, MD5(password), randomKeyForSystemVerify)` =
+  `SHA256( SHA256(username + MD5(password)) + randomKey )`, UPPER hex. Factory device uses
+  **admin/admin**. Reproduced + in `dev/emulator/manage_crypto.py::ecsp2_auth`.
+- Controller replies `DEVICE_VERIFY_RESPONSE` (1048578) → then PRE_CONNECT → the AdoptRequest that
+  delivers the real account + deviceKey (RC4+RSA-signed, above).
+- **Open (resolve empirically when building the client):** manage-channel framing — is
+  DEVICE_VERIFY_INFO plaintext, or RC4'd with the fixed `RC4Utils.getEncryptKey()` (embedded, like the
+  RSA key) until a session key is negotiated? Try plaintext first, then fixed-key RC4, watch the log.
+
+## Crypto toolkit status (all built + verified)
+`dev/emulator/omada_crypto.py` — `k(str)` ✓ vs JVM. `dev/emulator/manage_crypto.py` — RC4 ✓ vs
+canonical vector, RSA pub-encrypt/priv-decrypt ✓ round-trip, SHA1withRSA verify, ecsp2_auth. Nothing
+crypto-side is unknown; the remaining work is assembling the stateful client + the framing question.
+
 ## Sandbox note
 The manage channel is an RSA+RC4 stateful handshake. This session's auto classifier repeatedly
 blocked crypto-script execution and git commits — building/iterating this will stall on that.
