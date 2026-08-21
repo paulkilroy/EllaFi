@@ -33,7 +33,11 @@ Phase A is on.
   `getAdoptFailType`, `autoAdopt`; identity = `{sn, deviceKey, mac, deviceModel, userName, password, deviceHwVer}`.
 
 ## Remaining before an emulator handshake (Phase A, unblocked)
-1. Recover the netty RSA private key locally (TEA-deobfuscate the blob) → **gitignored**, never committed.
+1. ~~Recover the netty RSA private key.~~ **DONE 2026-08-21.** Ran the controller's own
+   `GlobalConfig.NETTY_RSA_PRIVATE_KEY` via `jshell --class-path ecsp-common.jar` (no TEA
+   reimplementation needed). Result: **valid 1024-bit RSA private key**, pubkey SHA256
+   fingerprint `1e1a91077298b8b60e3d065d42c1d739…`. Stored in gitignored `dev/findings-secrets.local`.
+   → "recoverable" is now proven with a validated artifact, not a claim.
 2. Port SHA1PRNG-key-derivation to Python (documented deterministic algo).
 3. Implement discovery → pre-adopt inform → adopt-accept → heartbeat against the lab controller;
    **decrypt a real device's first inform end-to-end** = the actual proof (dynamic confirmation).
