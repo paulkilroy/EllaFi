@@ -35,3 +35,4 @@ dev/_jadx/
 dev/_cls/
 dev/_focus/
 dev/findings-secrets.local
+dev/_key.pem
