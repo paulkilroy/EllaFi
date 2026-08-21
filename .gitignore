@@ -36,3 +36,5 @@ dev/_cls/
 dev/_focus/
 dev/findings-secrets.local
 dev/_key.pem
+dev/rc4key.local
+dev/_recover/

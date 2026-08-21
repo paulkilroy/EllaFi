@@ -16,7 +16,7 @@ import time
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from discovery_beacon import build_discovery, FAKE_MAC, FW_VERSION, DEVICE_TYPE
-from manage_crypto import ecsp2_auth
+from manage_crypto import ecsp2_auth, rc4_frame, rc4_unframe
 
 HOST = "127.0.0.1"
 DISC_PORT, MGMT_PORT = 29810, 29814  # v2 manage channel
@@ -43,7 +43,7 @@ def device_verify_msg():
     body = {"auth": ecsp2_auth("admin", "admin", rnd), "randomKeyForSystemVerify": rnd}
     header = {"seq": 1, "version": FW_VERSION, "device": DEVICE_TYPE, "mac": FAKE_MAC,
               "type": DEVICE_VERIFY_INFO, "timestamp": int(time.time())}
-    return frame({"header": header, "body": body})
+    return {"header": header, "body": body}       # RC4-framed by the caller (v2 channel)
 
 
 def try_verify(dsock):
@@ -51,15 +51,23 @@ def try_verify(dsock):
         m = socket.create_connection((HOST, MGMT_PORT), timeout=4)
     except Exception as e:
         return f"connect failed: {e}"
+    def recv_all(n):
+        buf = b""
+        while len(buf) < n:
+            chunk = m.recv(n - len(buf))
+            if not chunk:
+                break
+            buf += chunk
+        return buf
     try:
-        m.sendall(device_verify_msg())
-        m.settimeout(4)
-        data = m.recv(65535)
-        if not data:
-            return "channel closed (verify rejected — plaintext framing or status not ADOPTING)"
-        return "◀ RESPONSE: " + json.dumps(unframe(data))[:300]
+        m.sendall(rc4_frame(device_verify_msg()))     # RC4-framed for the v2 manage channel
+        m.settimeout(5)
+        msg = rc4_unframe(recv_all)
+        if msg is None:
+            return "channel closed (no context / status not ADOPTING — tap Adopt during the window)"
+        return "◀ RESPONSE: " + json.dumps(msg)[:400]
     except socket.timeout:
-        return "no response (waiting / rejected silently)"
+        return "no response (waiting / rejected)"
     finally:
         m.close()
 

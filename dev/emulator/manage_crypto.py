@@ -28,6 +28,40 @@ def ecsp2_auth(username: str, password: str, random_key: str) -> str:
     return _sha256_hex((inner + random_key).encode())
 
 _SECRETS = os.path.join(os.path.dirname(__file__), "..", "findings-secrets.local")
+_RC4KEY = os.path.join(os.path.dirname(__file__), "..", "rc4key.local")
+
+import json as _json
+import struct as _struct
+
+
+def _fixed_rc4_key() -> bytes:
+    return open(_RC4KEY).read().strip().encode()     # RC4Utils.getEncryptKey() — v2 channel framing
+
+
+def rc4_frame(obj) -> bytes:
+    """v2 manage-channel frame: RC4(4-byte BE len) + RC4(payload), each a fresh keystream from the
+    fixed key (RC4Utils.crypt re-inits per call). Matches TcpEncryptInternalEncoder."""
+    key = _fixed_rc4_key()
+    payload = _json.dumps(obj, separators=(",", ":")).encode()
+    # length field = TOTAL frame length (4-byte prefix + payload) — decoder does i3 = len - stripBytes(4)
+    return rc4(_struct.pack(">I", 4 + len(payload)), key) + rc4(payload, key)
+
+
+def rc4_unframe(sock_recv_all):
+    """Read one RC4'd v2 frame. sock_recv_all(n) must return exactly n bytes (or b'')."""
+    key = _fixed_rc4_key()
+    lb = sock_recv_all(4)
+    if len(lb) < 4:
+        return None
+    total = _struct.unpack(">I", rc4(lb, key))[0]
+    n = total - 4                                    # length field includes the 4-byte prefix
+    if n <= 0 or n > 2_000_000:
+        return {"_badlen": total}
+    body = sock_recv_all(n)
+    try:
+        return _json.loads(rc4(body, key).decode("utf-8", "replace"))
+    except Exception:
+        return {"_raw": rc4(body, key)[:200].decode("latin-1", "replace")}
 
 
 # ── RC4 (standard; matches RC4Utils.initKey/doCrypt) ──────────────────────────
