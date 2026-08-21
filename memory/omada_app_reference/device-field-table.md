@@ -52,6 +52,26 @@ power supply, `cpkts`=client packets, `wtemp`=warning temperature.
 - **Switch (`osw`)** — `devTemp`, PoE/port fields, stack units. Fits if you ever want to represent
   the piso's wired ports.
 
+## Device Health spider graph → a custom EllaFi resource monitor (inform-only)
+The graph's dimensions come from the AP per-radio **`WirelessInfo`** inform (`inform/ap/WirelessInfo`):
+`{region, ch, bw, rdMode, txR, txPower, txUti, rxUti, interUti, busyUti, aiRoamingOffset}` plus the
+device `cpuUti`/`memUti`. The controller derives `DeviceHealthScoreDTO.score` (0–10, with history)
+from these — we can't set the score directly, but we drive it by reporting the source dimensions.
+
+**Repurpose the dimensions as EllaFi vitals (the app graphs them with history):**
+| Graph dimension | WirelessInfo field | EllaFi mapping (the smuggle) |
+|---|---|---|
+| **Channel usage %** | **`busyUti`** | **SOCKET POOL % = sockets/12 × 100** — our most critical resource; hits 100% → health red at the exact OUT-OF-SERVICE point, with a timeline. |
+| Channel interference % | `interUti` | outbound TLS contention (`omadaTlsInFlight`) or coin-reject rate |
+| Tx / Rx utilization % | `txUti` / `rxUti` | coin-API / WS traffic, or leave low |
+| Memory % | `memUti` | **REAL** (1 − freeHeap/total) |
+| CPU % | `cpuUti` | REAL-ish (idle task) |
+| temperature | `temp` | **REAL** ESP32-S3 die temp |
+
+So the piso's health panel reads: channel-usage = socket pressure, memory = heap, temp = die temp —
+every resource that has ever caused an outage, on one graph with history, in the Omada app you already
+carry. **All inform-stage** (post-adopt), so it lights up once the adopt+inform loop is built.
+
 ## Where each lives in the jars (for the build)
 `.../inform/ap/EapInformDeviceInfo`, `.../inform/osg/OsgInformDeviceInfo` (+ `OsgDeviceTemperature`),
 `.../inform/osw/OswInformDeviceInfo`. Discovery: `.../discovery/eap|osg|osw/...DiscoveryDeviceInfo`.
