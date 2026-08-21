@@ -143,7 +143,34 @@ Emulated EAP225 (`dev/emulator/adopt_full.py`) passes Omada adoption authenticat
 Message types (MessageType.java): SYSTEM_VERIFY_RESULT=1048579, VERIFY_RESULT_ACK=1048585,
 INIT_SYNC=4352, INIT_SYNC_RESULT=1048582, INFORM_REQUEST=256, SET_REQUEST=4096, SET_RESPONSE=8192.
 
-### REMAINING: post-auth config channel (the SET_REQUEST provisioning = SSID/WAN)
+### CONFIG CHANNEL — SOLVED (2026-08-21): device fully adopted, config RC4-decrypted
+After `VERIFY_RESULT_ACK` the device sends **`DEVICE_NEGOTIATION` (1048580)** on the same channel,
+body = `ApAdoptRespV2Body`:
+- `key` = base64(RSA_pub(rc4SessionKey)) — our chosen RC4 session key, RSA-wrapped. Controller
+  `RsaCipher.decryptByPrivateKey` → the key, then `reinitRc4Handler` flips the channel to RC4 **both
+  directions**. Our outgoing frames must then be RC4-framed too (RC4(4-byte total-len)+RC4(payload)).
+- `configVersion` (Integer, 0 for fresh), `devCap` (ApDevCapV2 — MUST include `logNotification`, else
+  the config builder NPEs at `deviceimage.ap.c`), `deviceInfo`, `controllerSetting`,
+  `components`/`components_v2` (declare wlanBasic/ssidInform/… so the controller pushes their config —
+  with none declared it logs "send empty setting"), `notSupportComponents` = `{}` (Map, NOT `[]`).
+- Controller then RC4-pushes **`SYSTEM_NEGOTIATION` (1048581)** = the V2 initial config sync
+  (`sendSystemNegotiation`, the V2 analog of INIT_SYNC). Device acks with **`INIT_SYNC_RESULT`
+  (1048582)**. Controller logs `receive adopt success event` — **device is ADOPTED**.
+- **The `SYSTEM_NEGOTIATION` body carries the device account THROUGH THE PROTOCOL:**
+  `userAccount{ curUsername, curPassword=MD5(factory), newUsername, newPassword=MD5(real) }` — the
+  controller provisions the real device-account password (as MD5) to the device, encrypted. Plus
+  `timeSetting`, `dst`, `controllerSetting` (managePort, portalHttp/Https, logoutDomain),
+  `components` manifest, `informInterval`. (Full capture → gitignored `dev/captured-config.local`.)
+- Driver: `dev/emulator/adopt_full.py` (discovery+UDP-listen → PRE_ADOPT → TLS adopt channel → verify
+  → negotiation → RC4 config, adaptive plaintext/RC4 reader + RC4 sender).
+
+### REMAINING: per-component SET_REQUEST (the SSID/passkey values)
+The SSID/WAN VALUES are not in the initial sync — they arrive as per-component `SET_REQUEST` (4096)
+after the device reaches CONNECTED and starts INFORM. Our channel currently closes after
+`INIT_SYNC_RESULT` (controller re-negotiates each reconnect). Next: keep a persistent manage channel /
+drive the INFORM loop so the controller streams the wlanBasic/ssid SET_REQUEST.
+
+### (historical) REMAINING: post-auth config channel (the SET_REQUEST provisioning = SSID/WAN)
 After `VERIFY_RESULT_ACK` the controller does NOT push `INIT_SYNC` on the adopt channel (device sat
 idle → adopt retried). Device must open the **manage channel** and do **`DEVICE_NEGOTIATION`
 (1048580)** to establish an **RC4 session key** (→ `NettyChannel.reinitRc4Handler(key)`), after which

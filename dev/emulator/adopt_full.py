@@ -27,7 +27,7 @@ from discovery_beacon import build_discovery, FAKE_MAC, FW_VERSION, DEVICE_TYPE
 import os
 from manage_crypto import ecsp2_auth, ecsp2_auth_md5, rsa_decrypt_pub, rsa_encrypt_pub, rc4
 
-DEVICE_NEGOTIATION, VERIFY_RESULT_ACK = 1048580, 1048585
+DEVICE_NEGOTIATION, VERIFY_RESULT_ACK, SYSTEM_NEGOTIATION = 1048580, 1048585, 1048581
 
 # The emulator's "factory default" account — what a real blank device knows and you type into the
 # adopt dialog. The controller then pushes the real site account+config via SET_REQUEST post-adopt.
@@ -167,10 +167,55 @@ def drive_adopt_channel(adopt_port):
         session_key = os.urandom(16)
 
         def negotiation_body():
-            return {"key": base64.b64encode(rsa_encrypt_pub(session_key)).decode(),
-                    "deviceInfo": {
-                        "encryptedHwId": base64.b64encode(rc4(b"EllaFiPiso01", session_key)).decode(),
-                        "encryptedOemId": base64.b64encode(rc4(b"TP-LINK", session_key)).decode()}}
+            # ApAdoptRespV2Body: {key, devCap, deviceInfo, ...}. The controller builds the config from
+            # devCap (ApDevCapV2) — it NPEs if devCap/logNotification are missing, so provide them.
+            dev_cap = {
+                "supportPa": 0, "meshChainNum": 0, "supportAIRoaming": 0,
+                "supportGPON": False, "supportVoip": False,
+                "lanBandwidthControlPorts": [], "voipPorts": [],
+                "supportPPSK": 0, "ppskNum": 0, "ppskNumV3": 0, "supportLldp": 0,
+                "supportRadioMode2G": 1, "supportRadioMode5G": 1, "supportRadioMode6G": 0,
+                "supportOuiMacFilter": 0, "maxTemps": [], "supportOwe": False,
+                "supportBackground": 0, "supportSfp": False, "availableUplinkPorts": [],
+                "powerLimits": [], "notSupportLanClient": 0, "p2pRoleDefault": 0,
+                "supportP2pRoleEdit": False, "supportAfc": False, "supportEIRP": 0,
+                "noSupportFeatures": [],
+                "logNotification": {"supportLogKey": []},
+            }
+            return {
+                "key": base64.b64encode(rsa_encrypt_pub(session_key)).decode(),
+                "configVersion": 0,          # fresh device, no prior config
+                "devCap": dev_cap,
+                "controllerSetting": {"controllerId": "c21f969b5f03d33d43e04f8f136e7682", "destOmadacId": ""},
+                # Declare the config components we "support" so the controller pushes their config
+                # (wlanBasic/ssidInform carry the SSID; portal the captive portal; etc.).
+                "components": {},
+                "components_v2": {"wlanBasic": "2.2", "ssidInform": "2.0", "portal": "2.1",
+                                  "portalAct": "2.0", "macfilter": "2.2", "multicastFilter": "1.0",
+                                  "qos": "1.0", "led": "1.0", "ssh": "1.0", "loopback": "1.0",
+                                  "p2pSetting": "1.1", "anteGain": "1.0", "ipv6Group": "1.0",
+                                  "wifiLedCtrl": "1.0", "upgrade": "1.0"},
+                "notSupportComponents": {},   # Map<String,String>, not an array
+                "radioCap": [],
+                "deviceMisc": {"support_11ac": True, "support_lag": False, "supportMesh": 1,
+                               "customizeRegion": 0, "lanPortsNum": 1, "support_channelLimit": False,
+                               "supportDfs": 0, "supportRoaming": 1},
+                "deviceInfo": {
+                    "name": "EllaFi-Piso", "model": "EAP225-Outdoor", "modelVersion": "1.0",
+                    "firmwareVersion": "1.0.0 Build 20260101 Rel.00000", "hardwareVersion": "1.0",
+                    "upTime": "3600", "cpuUtil": 5, "memUtil": 37, "wirelessLinked": False,
+                    "encryptedHwId": base64.b64encode(rc4(b"EllaFiPiso01", session_key)).decode(),
+                    "encryptedOemId": base64.b64encode(rc4(b"TP-LINK", session_key)).decode()},
+            }
+
+        # After reinitRc4Handler, the controller's DECODER also expects RC4 from us — so once we've
+        # sent DEVICE_NEGOTIATION, outgoing frames must be RC4-framed with our session key too.
+        def send(mtype, body=None, error=0):
+            payload = json.dumps(msg(mtype, body, error), separators=(",", ":")).encode()
+            if rc4_mode:
+                sock.sendall(rc4(struct.pack(">I", 4 + len(payload)), session_key) + rc4(payload, session_key))
+            else:
+                sock.sendall(struct.pack(">I", len(payload)) + payload)
 
         # Drive the post-verify sequence, replying to each step so the controller advances to the
         # SET_REQUEST provisioning push. Keep the socket alive (short reads, respond promptly).
@@ -187,25 +232,30 @@ def drive_adopt_channel(adopt_port):
             seq = r.get("header", {}).get("seq")
             print(f"  ◀ type={t}{' [rc4]' if rc4_mode else ''}: {json.dumps(r)[:600]}")
             captured.append(r)
+            if t in (SYSTEM_NEGOTIATION, INIT_SYNC, SET_REQUEST):
+                # dump the FULL decrypted config to a gitignored .local file (may hold credential hashes)
+                with open(os.path.join(os.path.dirname(__file__), "..", "captured-config.local"), "a") as fh:
+                    fh.write(json.dumps(r) + "\n")
+                print(f"  (full type={t} body saved to dev/captured-config.local)")
 
             if t == DEVICE_VERIFY_RESPONSE:
-                # controller proved itself; accept and confirm
-                sock.sendall(frame(msg(SYSTEM_VERIFY_RESULT, error=0)))
+                send(SYSTEM_VERIFY_RESULT, error=0)
                 print("  → SYSTEM_VERIFY_RESULT (accept controller)")
             elif t == VERIFY_RESULT_ACK:
-                # Provide our RC4 session key so the controller can push config; then read RC4 frames.
-                sock.sendall(frame(msg(DEVICE_NEGOTIATION, negotiation_body())))
+                # Provide our RC4 session key (plaintext), then the channel flips to RC4.
+                send(DEVICE_NEGOTIATION, negotiation_body())
+                rc4_mode = True
                 print(f"  → DEVICE_NEGOTIATION (RC4 session key wrapped, {session_key.hex()[:8]}…)")
-                rc4_mode = True   # controller may reinit the channel to RC4 after this
-            elif t == INIT_SYNC:
-                sock.sendall(frame(msg(INIT_SYNC_RESULT, error=0)))
-                print("  → INIT_SYNC_RESULT (ok)")
+            elif t in (INIT_SYNC, SYSTEM_NEGOTIATION):
+                # controller pushed the initial config sync; ack it so it proceeds to per-component SET
+                send(INIT_SYNC_RESULT, error=0)
+                print(f"  → INIT_SYNC_RESULT (ok) [ack of {t}]")
             elif t == SET_REQUEST:
                 print("  ★★★ SET_REQUEST (provisioning) CAPTURED ★★★")
-                sock.sendall(frame(msg(SET_RESPONSE, error=0)))
+                send(SET_RESPONSE, error=0)
                 print("  → SET_RESPONSE (ok)")
             elif t == INFORM_REQUEST:
-                sock.sendall(frame(msg(INFORM_RESPONSE, error=0)))
+                send(INFORM_RESPONSE, error=0)
                 print("  → INFORM_RESPONSE (ok)")
             elif t == ADOPT_REQUEST:
                 try:
@@ -246,13 +296,14 @@ def main():
             ap = obj.get("body", {}).get("adoptPort", 29814)
             print(f"◀◀ PRE_ADOPT_REQUEST — adoptPort={ap}; driving adopt channel now")
             captured = drive_adopt_channel(ap) or []
-            sets = [c for c in captured if c.get("header", {}).get("type") == SET_REQUEST]
-            if sets:
-                print(f"\n==== SUCCESS: adoption reached provisioning ====")
-                for s in sets:
-                    print("SET_REQUEST body:", json.dumps(s.get("body"), indent=2)[:4000])
+            cfg = [c for c in captured if c.get("header", {}).get("type") in (SET_REQUEST, SYSTEM_NEGOTIATION, INIT_SYNC)]
+            if any(c.get("header", {}).get("type") == SET_REQUEST for c in captured):
+                print(f"\n==== SUCCESS: provisioning config captured ====")
+                for s in cfg:
+                    print(f"--- type={s['header']['type']} ---")
+                    print(json.dumps(s.get("body"), indent=2)[:6000])
                 break
-            print(f"  (captured {len(captured)} frames this attempt; retrying on next PRE_ADOPT)")
+            print(f"  (captured {len(captured)} frames incl {[c.get('header',{}).get('type') for c in captured]}; retrying)")
     stop.set()
 
 

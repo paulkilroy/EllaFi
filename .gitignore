@@ -38,3 +38,5 @@ dev/findings-secrets.local
 dev/_key.pem
 dev/rc4key.local
 dev/_recover/
+dev/captured-config.local
+dev/emulator/*.local
