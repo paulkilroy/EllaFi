@@ -204,7 +204,7 @@ def drive_adopt_channel(adopt_port):
             }
             return {
                 "key": base64.b64encode(rsa_encrypt_pub(session_key)).decode(),
-                "configVersion": 0,          # fresh device, no prior config
+                "configVersion": globals().get("APPLIED_CONFIG_VERSION", 0),  # 0=fresh; N after we applied SET_REQUEST vN
                 "devCap": dev_cap,
                 "controllerSetting": {"controllerId": "c21f969b5f03d33d43e04f8f136e7682", "destOmadacId": ""},
                 # Declare the config components we "support" so the controller pushes their config
@@ -299,9 +299,14 @@ def drive_adopt_channel(adopt_port):
                                     # INFORM after updateServerRoutePeriod — a slow heartbeat lets the
                                     # ~60s route TTL lapse in the gap. Real devices inform ~1s.
             elif t == SET_REQUEST:
-                print("  ★★★ SET_REQUEST (provisioning) CAPTURED ★★★")
-                send(SET_RESPONSE, error=0)
-                print("  → SET_RESPONSE (ok)")
+                # Confirm we APPLIED the config: echo sequenceId + configVersion back, else the
+                # controller stays in "Configuring" waiting for the device to report the new version.
+                rb = r.get("body") or {}
+                cv, sid = rb.get("configVersion"), rb.get("sequenceId")
+                print(f"  ★★★ SET_REQUEST (provisioning) CAPTURED — configVersion={cv} seq={sid} ★★★")
+                globals()["APPLIED_CONFIG_VERSION"] = cv if cv is not None else globals().get("APPLIED_CONFIG_VERSION", 0)
+                send(SET_RESPONSE, {"sequenceId": sid, "configVersion": cv}, error=0)
+                print(f"  → SET_RESPONSE (applied configVersion={cv})")
             elif t == INFORM_REQUEST:
                 send(INFORM_RESPONSE, error=0)
                 print("  → INFORM_RESPONSE (ok)")
