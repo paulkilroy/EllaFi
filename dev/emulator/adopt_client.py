@@ -31,13 +31,22 @@ import time
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from discovery_beacon import build_discovery, FAKE_MAC, FW_VERSION, DEVICE_TYPE
-from manage_crypto import ecsp2_auth
+import base64
+from manage_crypto import ecsp2_auth, ecsp2_auth_md5, rsa_decrypt_pub
+
+ADOPT_REQUEST = 16
 
 HOST = "127.0.0.1"
 DISC_PORT, MGMT_PORT = 29810, 29814          # 29814 = TLS v2 manage/adopt
 
 PRE_CONNECT_INFO   = 3
 DEVICE_VERIFY_INFO = 1048577
+
+# Credentials the controller verifies the factory device against (its adopt-info list, context.p()).
+# Factory default is admin/admin; if that's "wrong", it's the site Device Account (Site Settings →
+# Device Account). Override via env without editing: VERIFY_USER=... VERIFY_PASS=...
+VERIFY_USER = os.environ.get("VERIFY_USER", "admin")
+VERIFY_PASS = os.environ.get("VERIFY_PASS", "admin")
 
 _seq = 0
 def _next_seq():
@@ -104,22 +113,52 @@ def drive_manage_channel():
         return f"TLS connect failed: {e}"
     log = []
     try:
-        # 1) PRE_CONNECT_INFO — the device's opening move on the adopt channel
-        sock.sendall(frame(msg(PRE_CONNECT_INFO)))
-        log.append("→ sent PRE_CONNECT_INFO")
+        # 1) PRE_CONNECT_INFO with needUsername=true — a factory device asks the controller who it
+        #    should be. The controller replies with the username YOU typed into the adopt dialog
+        #    (PreConnectInfoResponse.username), so the username auto-syncs through the protocol.
+        sock.sendall(frame(msg(PRE_CONNECT_INFO, {"needUsername": True})))
+        log.append("→ sent PRE_CONNECT_INFO (needUsername)")
         sock.settimeout(6)
         r = read_frame(sock)
         if r is None:
             return " | ".join(log) + " | ◀ channel closed after PRE_CONNECT (state not ADOPTING? tap Adopt)"
         htype = r.get("header", {}).get("type")
         log.append(f"◀ RESP type={htype}: {json.dumps(r)[:500]}")
+        body = r.get("body") or {}
+        rkdv = body.get("randomKeyForDeviceVerify", "")
+        user = body.get("username") or VERIFY_USER
 
-        # 2) DEVICE_VERIFY_INFO — factory admin/admin first; real account comes from the AdoptRequest
+        # Capture any further frames the controller pushes (esp. ADOPT_REQUEST type 16 = the account
+        # push: {data, hash, sig}, data = base64(RSA_priv(username + 0x00 + MD5(password))). We hold
+        # the controller key, so we decrypt it and LEARN the account through the protocol.
+        md5pass = None
+        sock.settimeout(2.5)
+        for _ in range(4):
+            nxt = read_frame(sock)
+            if nxt is None:
+                break
+            nt = nxt.get("header", {}).get("type")
+            log.append(f"◀ PUSH type={nt}: {json.dumps(nxt)[:400]}")
+            if nt == ADOPT_REQUEST:
+                data = (nxt.get("body") or {}).get("data")
+                try:
+                    payload = rsa_decrypt_pub(base64.b64decode(data))
+                    u, _, m = payload.partition(b"\x00")
+                    user, md5pass = u.decode(), m.decode()
+                    log.append(f"*** DECRYPTED ADOPT account: user='{user}' md5pass={md5pass[:12]}… ***")
+                except Exception as e:
+                    log.append(f"(adopt decrypt failed: {e})")
+
+        # DEVICE_VERIFY_INFO — auth = ecsp2_auth(user, MD5(pass), rkdv). Prefer the MD5(pass) the
+        # controller just handed us in the ADOPT_REQUEST; else fall back to the shared-secret pass.
         rnd = os.urandom(16).hex()
+        auth = (ecsp2_auth_md5(user, md5pass, rkdv) if md5pass
+                else ecsp2_auth(user, VERIFY_PASS, rkdv))
+        sock.settimeout(6)
         sock.sendall(frame(msg(DEVICE_VERIFY_INFO,
-                               {"auth": ecsp2_auth("admin", "admin", rnd),
-                                "randomKeyForSystemVerify": rnd})))
-        log.append("→ sent DEVICE_VERIFY_INFO")
+                               {"auth": auth, "randomKeyForSystemVerify": rnd})))
+        src = "decrypted-from-ADOPT_REQUEST" if md5pass else "shared-secret-fallback"
+        log.append(f"→ sent DEVICE_VERIFY_INFO (user='{user}', pass={src}, rkdv={rkdv[:8]}…)")
         r = read_frame(sock)
         if r is not None:
             log.append(f"◀ VERIFY RESP: {json.dumps(r)[:500]}")
@@ -137,14 +176,16 @@ def main():
     t = threading.Thread(target=discovery_keepalive, args=(stop,), daemon=True)
     t.start()
     print(f"stateful client {FAKE_MAC}: discovery keepalive up. TLS adopt-channel drive on 29814.")
-    print(">>> TAP ADOPT in the Omada app now. <<<")
+    print(">>> Device stays Pending in the list. TAP ADOPT whenever ready. <<<")
     time.sleep(3)
+    cycle = 0
     try:
-        for cycle in range(40):                  # ~4 min window
+        while True:                              # run until killed — keeps the device visible
             res = drive_manage_channel()
-            print(f"[{cycle:2d}] {res}")
+            print(f"[{cycle:3d}] {res}", flush=True)
             if "VERIFY RESP" in res or "type=1048576" in res or "type=16" in res:
-                print("*** manage channel advanced — capturing! ***")
+                print("*** manage channel advanced — capturing! ***", flush=True)
+            cycle += 1
             time.sleep(5)
     finally:
         stop.set()

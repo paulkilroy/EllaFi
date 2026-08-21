@@ -27,6 +27,13 @@ def ecsp2_auth(username: str, password: str, random_key: str) -> str:
     inner = _sha256_hex((username + _md5_hex(password.encode())).encode())
     return _sha256_hex((inner + random_key).encode())
 
+def ecsp2_auth_md5(username: str, md5_hex: str, random_key: str) -> str:
+    """Same as ecsp2_auth but the caller already holds MD5(password) as hex (which is what the
+    controller's ADOPT_REQUEST delivers: username + 0x00 + MD5(password))."""
+    inner = _sha256_hex((username + md5_hex).encode())
+    return _sha256_hex((inner + random_key).encode())
+
+
 _SECRETS = os.path.join(os.path.dirname(__file__), "..", "findings-secrets.local")
 _RC4KEY = os.path.join(os.path.dirname(__file__), "..", "rc4key.local")
 
@@ -104,6 +111,25 @@ def _priv_key():
 def rsa_encrypt_pub(data: bytes) -> bytes:
     """Encrypt with the controller's PUBLIC key (PKCS1v15) — what the device does with the session key."""
     return _priv_key().public_key().encrypt(data, padding.PKCS1v15())
+
+
+def rsa_decrypt_pub(ciphertext: bytes) -> bytes:
+    """Reverse RsaCipher.encryptByPrivateKey: the controller RSA-encrypts with its PRIVATE key
+    (raw RSA over PKCS#1 v1.5 type-01 padding); we recover with the PUBLIC key. Java's
+    'RSA/ECB/PKCS1Padding' + private key = m^d mod n over a 00 01 FF..FF 00 <msg> block, so we do
+    the public op c^e mod n and strip the type-01 pad. Used to read the account (username+MD5pass)
+    out of the ADOPT_REQUEST the controller pushes to the device."""
+    pub = _priv_key().public_key().public_numbers()
+    n, e = pub.n, pub.e
+    k = (n.bit_length() + 7) // 8
+    c = int.from_bytes(ciphertext, "big")
+    m = pow(c, e, n)
+    eb = m.to_bytes(k, "big")
+    # PKCS#1 v1.5 block for a private-key op: 0x00 0x01 <FF padding> 0x00 <data>
+    if len(eb) < 11 or eb[0] != 0x00 or eb[1] != 0x01:
+        raise ValueError("bad PKCS1 type-01 block")
+    sep = eb.index(0x00, 2)
+    return eb[sep + 1:]
 
 
 def rsa_verify(data: bytes, sig: bytes) -> bool:
