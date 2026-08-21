@@ -196,10 +196,21 @@ def drive_adopt_channel(adopt_port):
                                   "p2pSetting": "1.1", "anteGain": "1.0", "ipv6Group": "1.0",
                                   "wifiLedCtrl": "1.0", "upgrade": "1.0"},
                 "notSupportComponents": {},   # Map<String,String>, not an array
-                "radioCap": [],
-                "deviceMisc": {"support_11ac": True, "support_lag": False, "supportMesh": 1,
-                               "customizeRegion": 0, "lanPortsNum": 1, "support_channelLimit": False,
-                               "supportDfs": 0, "supportRoaming": 1},
+                # Declare radios so the controller pushes the WLAN/SSID config (radioId 0=2.4G, 1=5G).
+                "radioCap": [
+                    {"radioId": 0, "minPow": 1, "maxPow": 20, "maxPowOd": 20, "limitMaxPow": 20,
+                     "mimo": 2, "ofdma": 0, "ofdmaEnable": 0, "mcsLevel": 9, "supportSsidNum": 8,
+                     "supportMaxClient": 128, "supportMlo": False, "supportMaxAssocClient": 128,
+                     "supportAnteGainSetting": 0, "supportAntennaDirection": []},
+                    {"radioId": 1, "minPow": 1, "maxPow": 23, "maxPowOd": 23, "limitMaxPow": 23,
+                     "mimo": 2, "ofdma": 0, "ofdmaEnable": 0, "mcsLevel": 11, "supportSsidNum": 8,
+                     "supportMaxClient": 128, "supportMlo": False, "supportMaxAssocClient": 128,
+                     "supportAnteGainSetting": 0, "supportAntennaDirection": []},
+                ],
+                "deviceMisc": {"support2g": True, "support5g": True, "support5g2": False,
+                               "support6g": False, "support_11ac": True, "support_lag": False,
+                               "supportMesh": 1, "customizeRegion": 0, "lanPortsNum": 1,
+                               "support_channelLimit": False, "supportDfs": 0, "supportRoaming": 1},
                 "deviceInfo": {
                     "name": "EllaFi-Piso", "model": "EAP225-Outdoor", "modelVersion": "1.0",
                     "firmwareVersion": "1.0.0 Build 20260101 Rel.00000", "hardwareVersion": "1.0",
@@ -227,11 +238,15 @@ def drive_adopt_channel(adopt_port):
         # SET_REQUEST provisioning push. Keep the socket alive (short reads, respond promptly).
         captured = []
         rc4_mode = False
+        connected = False
         sock.settimeout(10)
-        for _ in range(60):
+        while True:                      # stay on the channel; heartbeat keeps the device online
             r = _read_or_none(sock, session_key if rc4_mode else None)
             if r == "TIMEOUT":
-                print("  … idle"); continue
+                if connected:            # periodic INFORM heartbeat so the controller keeps us green
+                    send(INFORM_REQUEST, {"deviceInfo": {"upTime": "3600", "cpuUtil": 5, "memUtil": 37}})
+                    print("  ♥ INFORM heartbeat")
+                continue
             if not isinstance(r, dict):
                 print(f"  ◀ channel ended ({r})"); break
             t = r.get("header", {}).get("type")
@@ -256,9 +271,10 @@ def drive_adopt_channel(adopt_port):
                 # controller pushed the initial config sync; ack it → device goes CONNECTED, then keep
                 # the channel alive with INFORM so the controller streams per-component SET_REQUEST.
                 send(INIT_SYNC_RESULT, error=0)
-                print(f"  → INIT_SYNC_RESULT (ok) [ack of {t}]")
+                print(f"  → INIT_SYNC_RESULT (ok) [ack of {t}] — device CONNECTED")
                 send(INFORM_REQUEST, {"deviceInfo": {"upTime": "3600", "cpuUtil": 5, "memUtil": 37}})
                 print("  → INFORM_REQUEST (stay connected, prompt config)")
+                connected = True   # start heartbeating so we stay online
             elif t == SET_REQUEST:
                 print("  ★★★ SET_REQUEST (provisioning) CAPTURED ★★★")
                 send(SET_RESPONSE, error=0)
@@ -314,14 +330,10 @@ def main():
             except (BlockingIOError, OSError):
                 pass
             s.setblocking(True); s.settimeout(2)
-            cfg = [c for c in captured if c.get("header", {}).get("type") in (SET_REQUEST, SYSTEM_NEGOTIATION, INIT_SYNC)]
-            if any(c.get("header", {}).get("type") == SET_REQUEST for c in captured):
-                print(f"\n==== SUCCESS: provisioning config captured ====")
-                for s in cfg:
-                    print(f"--- type={s['header']['type']} ---")
-                    print(json.dumps(s.get("body"), indent=2)[:6000])
-                break
-            print(f"  (captured {len(captured)} frames incl {[c.get('header',{}).get('type') for c in captured]}; retrying)")
+            # drive_adopt_channel holds the channel open with an INFORM heartbeat and only returns if
+            # the channel drops. On drop we keep discovery alive and await the next re-adopt/re-link.
+            got = [c.get("header", {}).get("type") for c in captured]
+            print(f"  (channel closed; captured {got}; staying discoverable, awaiting reconnect)")
     stop.set()
 
 
