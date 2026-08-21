@@ -164,6 +164,22 @@ body = `ApAdoptRespV2Body`:
 - Driver: `dev/emulator/adopt_full.py` (discovery+UDP-listen → PRE_ADOPT → TLS adopt channel → verify
   → negotiation → RC4 config, adaptive plaintext/RC4 reader + RC4 sender).
 
+### CONNECTED-DEVICE KEEPALIVE / re-link — OPEN (the ~60s drop)
+Symptom: an adopted device holds CONNECTED for ~60s then the controller closes the manage channel;
+after the drop the manager returns `adopt info null` so any re-link is declined → back to Pending.
+Root cause (traced): the ecsp connected **server route expires at `getConnectedServerRouteExpire`**
+(~60s) and **`INFORM_REQUEST` does NOT refresh it** — `server/c/n.java`'s 3-arg INFORM path calls the
+manage handler + forwards vitals to the manager but never calls the route-refresh. Route-refresh is
+done only by: `INIT_SYNC_RESULT` (a.java case2, at connect), `REBUILD_REQUEST` (j.java), and a
+periodic `lastSeen` refresh (`context/c.java` `a(mac,channel,type)`, gated on status==CONNECTED +
+`updateServerRoutePeriod`). So the missing piece is the **connected keepalive**: find the device-
+sendable message that drives the periodic route refresh for a CONNECTED device (candidates: periodic
+`REBUILD_REQUEST` — but its handler `updateV2RebuildingContext` needs status ADOPT_SUCCESS, so likely
+the re-link path is discovery→PRE_CONNECT re-link→DEVICE_NEGOTIATION rather than a ping; OR a REPORT/
+NOTIFY that routes through `context/c.java`'s refresh). Needs fresh DEBUG tracing of the connected
+lifecycle. `adopt_full.py` proactive re-link currently re-runs full adoption (works once, then flaps
+until the manager discards the device) — replace with the proper connected keepalive + re-link.
+
 ### REMAINING: per-component SET_REQUEST (the SSID/passkey values)
 The SSID/WAN VALUES are not in the initial sync — they arrive as per-component `SET_REQUEST` (4096)
 after the device reaches CONNECTED and starts INFORM. Our channel currently closes after
