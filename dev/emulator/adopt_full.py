@@ -71,6 +71,19 @@ def inform_body():
         return {"region": 1, "ch": ch, "bw": bw, "rdMode": "11ax", "txR": "0", "txPower": txp,
                 "txUti": max(0, b - inter - 5), "rxUti": max(0, b - inter - 8),
                 "interUti": inter, "busyUti": b, "aiRoamingOffset": 0}
+
+    def _bssid(offset):                               # a stable BSSID per SSID, derived from our MAC
+        parts = FAKE_MAC.replace("-", ":").split(":")
+        parts[-1] = "%02X" % ((int(parts[-1], 16) + offset) & 0xFF)
+        return ":".join(parts)
+
+    def ssid_stats(band, base):                       # report the configured SSIDs as live on the air
+        out = []
+        for i, s in enumerate(globals().get("APPLIED_SSIDS", {}).get(band, [])):
+            out.append({"id": s["id"], "ssid": s["ssidName"], "clntNum": 0, "down": 0, "up": 0,
+                        "downPkts": 0, "upPkts": 0, "bssid": _bssid(base + i), "rxS": 0, "txS": 0})
+        return out
+
     return {
         "deviceInfo": {"name": "EllaFi-Piso", "model": "EAP225-Outdoor",
                        "firmwareVersion": "1.0.0 Build 20260101 Rel.00000", "hardwareVersion": "1.0",
@@ -79,6 +92,8 @@ def inform_body():
                        "nf": [-95, -92]},
         "wSettings_2G": winfo("6", "20", "20", 25, 5),
         "wSettings_5G": winfo("36", "80", "23", 30, 4),
+        "ssidStats_2G": ssid_stats("2G", 0),          # the configured SSIDs, now "broadcasting"
+        "ssidStats_5G": ssid_stats("5G", 8),
     }
 
 
@@ -311,6 +326,17 @@ def drive_adopt_channel(adopt_port):
                 cv, sid = rb.get("configVersion"), rb.get("sequenceId")
                 print(f"  ★★★ SET_REQUEST (provisioning) CAPTURED — configVersion={cv} seq={sid} ★★★")
                 globals()["APPLIED_CONFIG_VERSION"] = cv if cv is not None else globals().get("APPLIED_CONFIG_VERSION", 0)
+                # Capture the SSIDs the controller told us to broadcast, so the INFORM can report them
+                # as live (ssidStats) — the manager keeps the device "Configuring" until it sees the
+                # configured SSIDs actually on the air.
+                applied = globals().setdefault("APPLIED_SSIDS", {})
+                for band, k in (("2G", "ssid_2G"), ("5G", "ssid_5G")):
+                    ss = (rb.get(k) or {}).get("ssid")
+                    if ss is not None:
+                        applied[band] = [{"id": s["id"], "ssidName": s.get("ssidName", "")}
+                                         for s in ss if s.get("operation", 1) != 0 and s.get("enable", True)]
+                if applied:
+                    print(f"  (broadcasting SSIDs: { {b:[s['ssidName'] for s in v] for b,v in applied.items()} })")
                 send(SET_RESPONSE, {"sequenceId": sid, "configVersion": cv}, error=0)
                 print(f"  → SET_RESPONSE (applied configVersion={cv})")
             elif t == INFORM_REQUEST:
