@@ -210,10 +210,16 @@ def drive_adopt_channel(adopt_port):
 
         # After reinitRc4Handler, the controller's DECODER also expects RC4 from us — so once we've
         # sent DEVICE_NEGOTIATION, outgoing frames must be RC4-framed with our session key too.
+        # SEND_RC4 toggles how we frame outbound after negotiation. The controller's inbound decoder
+        # may or may not have flipped to RC4 (reinit timing) — try plaintext first (env SEND_RC4=1
+        # forces RC4-total, =2 forces RC4-continuous).
+        send_rc4 = os.environ.get("SEND_RC4", "0")
         def send(mtype, body=None, error=0):
             payload = json.dumps(msg(mtype, body, error), separators=(",", ":")).encode()
-            if rc4_mode:
+            if rc4_mode and send_rc4 == "1":
                 sock.sendall(rc4(struct.pack(">I", 4 + len(payload)), session_key) + rc4(payload, session_key))
+            elif rc4_mode and send_rc4 == "2":
+                sock.sendall(rc4(struct.pack(">I", 4 + len(payload)) + payload, session_key))
             else:
                 sock.sendall(struct.pack(">I", len(payload)) + payload)
 
@@ -247,9 +253,12 @@ def drive_adopt_channel(adopt_port):
                 rc4_mode = True
                 print(f"  → DEVICE_NEGOTIATION (RC4 session key wrapped, {session_key.hex()[:8]}…)")
             elif t in (INIT_SYNC, SYSTEM_NEGOTIATION):
-                # controller pushed the initial config sync; ack it so it proceeds to per-component SET
+                # controller pushed the initial config sync; ack it → device goes CONNECTED, then keep
+                # the channel alive with INFORM so the controller streams per-component SET_REQUEST.
                 send(INIT_SYNC_RESULT, error=0)
                 print(f"  → INIT_SYNC_RESULT (ok) [ack of {t}]")
+                send(INFORM_REQUEST, {"deviceInfo": {"upTime": "3600", "cpuUtil": 5, "memUtil": 37}})
+                print("  → INFORM_REQUEST (stay connected, prompt config)")
             elif t == SET_REQUEST:
                 print("  ★★★ SET_REQUEST (provisioning) CAPTURED ★★★")
                 send(SET_RESPONSE, error=0)
@@ -296,6 +305,15 @@ def main():
             ap = obj.get("body", {}).get("adoptPort", 29814)
             print(f"◀◀ PRE_ADOPT_REQUEST — adoptPort={ap}; driving adopt channel now")
             captured = drive_adopt_channel(ap) or []
+            # Drain any buffered PRE_ADOPT_REQUESTs so we don't reconnect 3× rapidly and overwrite
+            # the channel the controller tracks as A() (which breaks the INIT_SYNC_RESULT ack).
+            s.setblocking(False)
+            try:
+                while True:
+                    s.recvfrom(65535)
+            except (BlockingIOError, OSError):
+                pass
+            s.setblocking(True); s.settimeout(2)
             cfg = [c for c in captured if c.get("header", {}).get("type") in (SET_REQUEST, SYSTEM_NEGOTIATION, INIT_SYNC)]
             if any(c.get("header", {}).get("type") == SET_REQUEST for c in captured):
                 print(f"\n==== SUCCESS: provisioning config captured ====")
