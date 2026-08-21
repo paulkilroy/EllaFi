@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+"""adopt_full.py — end-to-end V2 adopt driver: learn the device account THROUGH the protocol.
+
+Flow (all confirmed empirically against the lab controller, DEBUG-instrumented):
+  1. Discovery keepalive on ONE persistent UDP socket (advertising ip=192.168.65.1 = this host as the
+     Docker controller sees it) → device Pending. Same socket LISTENS for the reply.
+  2. User taps Adopt → controller sends PRE_ADOPT_REQUEST (UDP) {adoptPort}. We receive it.
+  3. We connect the ADOPT channel (TLS to adoptPort) and send PRE_CONNECT_INFO{needUsername}. Because
+     the device is in ADOPTING_PENDING_PRE_ADOPT, the controller pushes ADOPT_REQUEST (type 16):
+     body.data = base64(RSA_priv(username + 0x00 + MD5(password))). We hold the controller key, so we
+     rsa_decrypt_pub it → LEARN username + MD5(password). No DB, no manual matching — through the wire.
+  4. (next) ADOPT_RESPONSE + DEVICE_VERIFY with the learned account → INFORM → SET_REQUEST.
+
+Lab only — localhost Docker controller.
+"""
+import base64
+import json
+import socket
+import ssl
+import struct
+import sys
+import threading
+import time
+
+sys.path.insert(0, __file__.rsplit("/", 1)[0])
+from discovery_beacon import build_discovery, FAKE_MAC, FW_VERSION, DEVICE_TYPE
+import os
+from manage_crypto import ecsp2_auth, ecsp2_auth_md5, rsa_decrypt_pub
+
+# The emulator's "factory default" account — what a real blank device knows and you type into the
+# adopt dialog. The controller then pushes the real site account+config via SET_REQUEST post-adopt.
+FACTORY_USER = os.environ.get("VERIFY_USER", "admin")
+FACTORY_PASS = os.environ.get("VERIFY_PASS", "admin")
+
+HOST, DISC_PORT = "127.0.0.1", 29810
+DEVICE_IP = "192.168.65.1"
+PRE_CONNECT_INFO, PRE_ADOPT_REQUEST, ADOPT_REQUEST, DEVICE_VERIFY_INFO = 3, 2, 16, 1048577
+DEVICE_VERIFY_RESPONSE, SYSTEM_VERIFY_RESULT = 1048578, 1048579
+INIT_SYNC, INIT_SYNC_RESULT = 4352, 1048582
+INFORM_REQUEST, INFORM_RESPONSE = 256, 512
+SET_REQUEST, SET_RESPONSE = 4096, 8192
+
+_seq = 0
+def _next_seq():
+    global _seq; _seq += 1; return _seq
+
+def frame(obj):
+    b = json.dumps(obj, separators=(",", ":")).encode()
+    return struct.pack(">I", len(b)) + b
+
+def msg(mtype, body=None, error=0):
+    return {"header": {"seq": _next_seq(), "version": FW_VERSION, "device": DEVICE_TYPE,
+                       "mac": FAKE_MAC, "type": mtype, "timestamp": int(time.time()), "error": error},
+            "body": body or {}}
+
+def tls_connect(port):
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+    raw = socket.create_connection((HOST, port), timeout=6)
+    return ctx.wrap_socket(raw, server_hostname="127.0.0.1")
+
+def read_frame(sock):
+    def recv_all(n):
+        buf = b""
+        while len(buf) < n:
+            c = sock.recv(n - len(buf))
+            if not c: return None
+            buf += c
+        return buf
+    lb = recv_all(4)
+    if lb is None: return None
+    body = recv_all(struct.unpack(">I", lb)[0])
+    if body is None: return None
+    try: return json.loads(body.decode("utf-8", "replace"))
+    except Exception: return {"_raw": body[:300].decode("latin-1", "replace")}
+
+
+def _read_or_none(sock):
+    try:
+        return read_frame(sock)
+    except socket.timeout:
+        return "TIMEOUT"
+    except Exception as e:
+        return f"ERR:{e}"
+
+
+def drive_adopt_channel(adopt_port):
+    """Connect the channel, verify with the factory default, then capture the post-adopt push
+    (DEVICE_VERIFY_RESPONSE, and — the goal — SET_REQUEST with the site config). Also decrypts any
+    V1-style ADOPT_REQUEST if the controller pushes one."""
+    print(f"→ connecting adopt/manage channel TLS :{adopt_port}")
+    try:
+        sock = tls_connect(adopt_port)
+    except Exception as e:
+        print(f"  TLS connect failed: {e}"); return None
+    try:
+        sock.sendall(frame(msg(PRE_CONNECT_INFO, {"needUsername": True})))
+        print("  → PRE_CONNECT_INFO(needUsername)")
+        sock.settimeout(6)
+        r = _read_or_none(sock)
+        if not isinstance(r, dict):
+            print(f"  ◀ no pre-connect response ({r})"); return None
+        body = r.get("body") or {}
+        rkdv = body.get("randomKeyForDeviceVerify", "")
+        user = body.get("username") or FACTORY_USER
+        print(f"  ◀ PRE_CONNECT_INFO_RESPONSE: username='{user}' rkdv={rkdv[:8]}…")
+
+        # Verify with the factory-default password (what you type in the dialog for a blank device).
+        auth = ecsp2_auth(user, FACTORY_PASS, rkdv)
+        rnd = os.urandom(16).hex()
+        sock.sendall(frame(msg(DEVICE_VERIFY_INFO, {"auth": auth, "randomKeyForSystemVerify": rnd})))
+        print(f"  → DEVICE_VERIFY_INFO (user='{user}', factory pass)")
+
+        # Drive the post-verify sequence, replying to each step so the controller advances to the
+        # SET_REQUEST provisioning push. Keep the socket alive (short reads, respond promptly).
+        captured = []
+        sock.settimeout(10)
+        for _ in range(60):
+            r = _read_or_none(sock)
+            if r == "TIMEOUT":
+                print("  … idle"); continue
+            if not isinstance(r, dict):
+                print(f"  ◀ channel ended ({r})"); break
+            t = r.get("header", {}).get("type")
+            seq = r.get("header", {}).get("seq")
+            print(f"  ◀ type={t}: {json.dumps(r)[:600]}")
+            captured.append(r)
+
+            if t == DEVICE_VERIFY_RESPONSE:
+                # controller proved itself; accept and confirm
+                sock.sendall(frame(msg(SYSTEM_VERIFY_RESULT, error=0)))
+                print("  → SYSTEM_VERIFY_RESULT (accept controller)")
+            elif t == INIT_SYNC:
+                sock.sendall(frame(msg(INIT_SYNC_RESULT, error=0)))
+                print("  → INIT_SYNC_RESULT (ok)")
+            elif t == SET_REQUEST:
+                print("  ★★★ SET_REQUEST (provisioning) CAPTURED ★★★")
+                sock.sendall(frame(msg(SET_RESPONSE, error=0)))
+                print("  → SET_RESPONSE (ok)")
+            elif t == INFORM_REQUEST:
+                sock.sendall(frame(msg(INFORM_RESPONSE, error=0)))
+                print("  → INFORM_RESPONSE (ok)")
+            elif t == ADOPT_REQUEST:
+                try:
+                    payload = rsa_decrypt_pub(base64.b64decode((r.get("body") or {}).get("data")))
+                    u, _, m = payload.partition(b"\x00")
+                    print(f"  *** ACCOUNT DECRYPTED: username='{u.decode()}' MD5(pass)={m.decode()} ***")
+                except Exception as e:
+                    print(f"  (decrypt failed: {e})")
+        return captured
+    finally:
+        sock.close()
+
+
+def main():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.bind(("0.0.0.0", 0))
+    print(f"UDP :{s.getsockname()[1]} bound; device ip={DEVICE_IP}. Discovery keepalive + listen.")
+    print(">>> tap ADOPT — will receive PRE_ADOPT_REQUEST and decrypt the account <<<")
+    pkt = build_discovery(DEVICE_IP)
+    stop = threading.Event()
+    def beacon():
+        while not stop.is_set():
+            s.sendto(pkt, (HOST, DISC_PORT)); stop.wait(6)
+    threading.Thread(target=beacon, daemon=True).start()
+
+    s.settimeout(2)
+    t0 = time.time()
+    while time.time() - t0 < 300:
+        try:
+            data, _ = s.recvfrom(65535)
+        except socket.timeout:
+            continue
+        if len(data) < 4: continue
+        n = struct.unpack(">I", data[:4])[0]
+        try: obj = json.loads(data[4:4 + n].decode("utf-8", "replace"))
+        except Exception: continue
+        if obj.get("header", {}).get("type") == PRE_ADOPT_REQUEST:
+            ap = obj.get("body", {}).get("adoptPort", 29814)
+            print(f"◀◀ PRE_ADOPT_REQUEST — adoptPort={ap}; driving adopt channel now")
+            captured = drive_adopt_channel(ap) or []
+            sets = [c for c in captured if c.get("header", {}).get("type") == SET_REQUEST]
+            if sets:
+                print(f"\n==== SUCCESS: adoption reached provisioning ====")
+                for s in sets:
+                    print("SET_REQUEST body:", json.dumps(s.get("body"), indent=2)[:4000])
+                break
+            print(f"  (captured {len(captured)} frames this attempt; retrying on next PRE_ADOPT)")
+    stop.set()
+
+
+if __name__ == "__main__":
+    main()
