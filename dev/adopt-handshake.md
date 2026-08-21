@@ -123,6 +123,34 @@ crypto-side is unknown; the remaining work is assembling the stateful client + t
   account assignment + AdoptRequest) or TRANSFER; else closes ("not manage or transfer server"). Need
   to confirm 29814's ServerType (ADOPT vs MANAGE) empirically — drive PRE_CONNECT_INFO and read the log.
 
+## CONFIRMED end-to-end V2 adopt AUTH flow (2026-08-21, live against the lab controller)
+Emulated EAP225 (`dev/emulator/adopt_full.py`) passes Omada adoption authentication in full:
+1. **Discovery** (UDP 29810, persistent socket, `ip=192.168.65.1` = host as the container sees it) →
+   device Pending. MUST listen on the same socket for the reply.
+2. User taps Adopt → controller → `ADOPTING_PENDING_PRE_ADOPT`, sends **`PRE_ADOPT_REQUEST` via UDP**
+   `{mac, ip, adoptPort=29814}` back to that socket (Docker NAT passes it because we listen there).
+3. Device connects **TLS 29814**, `PRE_CONNECT_INFO{needUsername:true}` → controller replies
+   `PRE_CONNECT_INFO_RESPONSE{randomKeyForDeviceVerify, username}` — **username auto-syncs** (the
+   controller returns whatever the operator typed; only sent when `needUsername:true`).
+4. `DEVICE_VERIFY_INFO{auth=ecsp2_auth(username, MD5(factoryPass), rkdv), randomKeyForSystemVerify}`
+   → controller: `deviceAuthPair match deviceVerifyInfo auth success` → `DEVICE_VERIFY_RESPONSE`
+   `error:0` with `body.auth` = the controller proving itself (ecsp2_auth over our randomKeyForSystem
+   Verify). V2 = **challenge-response over the device's factory-default password** (admin/admin here);
+   the password is NEVER sent — the site account is provisioned AFTER (see below).
+5. `SYSTEM_VERIFY_RESULT(1048579, error:0)` → controller `VERIFY_RESULT_ACK(1048585)`. **Mutual auth
+   done.** Controller sets up the manage server route (`k.java` → `server/e/d.java`).
+
+Message types (MessageType.java): SYSTEM_VERIFY_RESULT=1048579, VERIFY_RESULT_ACK=1048585,
+INIT_SYNC=4352, INIT_SYNC_RESULT=1048582, INFORM_REQUEST=256, SET_REQUEST=4096, SET_RESPONSE=8192.
+
+### REMAINING: post-auth config channel (the SET_REQUEST provisioning = SSID/WAN)
+After `VERIFY_RESULT_ACK` the controller does NOT push `INIT_SYNC` on the adopt channel (device sat
+idle → adopt retried). Device must open the **manage channel** and do **`DEVICE_NEGOTIATION`
+(1048580)** to establish an **RC4 session key** (→ `NettyChannel.reinitRc4Handler(key)`), after which
+`INIT_SYNC`/`SET_REQUEST` flow **RC4-encrypted** with that key. TODO: reverse the DEVICE_NEGOTIATION
+body (likely device sends an RSA-wrapped RC4 session key, like the V1 ADOPT_RESPONSE `body.key`), then
+RC4-decrypt the config. All primitives (RSA priv→pub, RC4) already in `manage_crypto.py`.
+
 ## Downstream message shapes (from source `server/e/b.java`, to parse against a real capture)
 - **PRE_ADOPT_REQUEST (type 2)**, controller→device: body `PreAdoptRequest{ mac, ip, adoptPort }` —
   tells the device the controller's IP + which adopt port to use.
