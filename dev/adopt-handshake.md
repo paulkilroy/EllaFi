@@ -123,6 +123,20 @@ crypto-side is unknown; the remaining work is assembling the stateful client + t
   account assignment + AdoptRequest) or TRANSFER; else closes ("not manage or transfer server"). Need
   to confirm 29814's ServerType (ADOPT vs MANAGE) empirically — drive PRE_CONNECT_INFO and read the log.
 
+## Downstream message shapes (from source `server/e/b.java`, to parse against a real capture)
+- **PRE_ADOPT_REQUEST (type 2)**, controller→device: body `PreAdoptRequest{ mac, ip, adoptPort }` —
+  tells the device the controller's IP + which adopt port to use.
+- **ADOPT_REQUEST (type 16)**, controller→device: body `AdoptRequest{ data, hash, sig }` where
+  `data = base64(payload)`, `hash = base64(SHA(payload))`, `sig = RsaCipher.sign(payload)`
+  (SHA1withRSA). Device: verify `sig` w/ controller pub key (we hold priv→pub), check
+  `SHA(payload)==hash`, then RC4-decrypt `payload` with the **session key** → account + deviceKey.
+- **Session-key ordering (verify against capture, do NOT guess):** the device's RC4 session key is
+  RSA-wrapped and handed up during pre-connect/pre-adopt BEFORE the controller can RC4-encrypt the
+  account in `data`. Get this order right from the real frames, not by assumption.
+- Client already dumps every frame; with DEBUG on we read the real PRE_ADOPT/ADOPT_REQUEST the instant
+  Adopt is tapped, then build ADOPT_RESPONSE against ground truth. **Blind implementation deferred by
+  design** — the session-key ordering makes untested code a real correctness risk.
+
 ### (superseded) fixed-RC4-key note
 - `RC4Utils.getEncryptKey()` = `TEAUtils.decrypt(ENCRYPTED_ENCRYPT_KEY)`; TEA `KEY={-707509657,
   -1887749506,1427902494,-1686606610}`, `DELTA=0x9E3779B9`, 64 rounds. Recovered to `rc4key.local`.
