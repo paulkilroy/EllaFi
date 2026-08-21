@@ -1,0 +1,53 @@
+# EllaFi Omada device-plane LAB (feasibility, Mac-local only).
+#   controller = throwaway Omada SW controller (extract jars, be the adopt target)
+#   emulator   = Python devbox on the SAME bridge net; reaches the controller by service
+#                name "controller" via L3 directed inform (sidesteps Docker Desktop for Mac's
+#                broken L2 broadcast — no 29810 UDP broadcast needed).
+#
+# NOTHING here touches the real Bakhaw controller or the ESP. This is the lab from
+# dev/RUNBOOK.md. Bring up:  docker compose -f dev/docker-compose.yml up -d
+name: ellafi-omada-lab
+
+services:
+  controller:
+    image: mbentley/omada-controller:${OMADA_TAG:-5.15}   # pin to match 6.2.x-era device proto; bump to test drift
+    container_name: omada-controller
+    hostname: omada-controller
+    environment:
+      - MANAGE_HTTP_PORT=8088
+      - MANAGE_HTTPS_PORT=8043
+      - PORTAL_HTTP_PORT=8088
+      - SHOW_SERVER_LOGS=true
+      - TZ=Asia/Manila
+    ports:
+      - "8088:8088"          # http mgmt / hotspot portal
+      - "8043:8043"          # https mgmt UI  (https://localhost:8043)
+      - "29810:29810/udp"    # device DISCOVERY beacon
+      - "29811:29811"        # device management
+      - "29812:29812"        # device ADOPT
+      - "29813:29813"        # device upgrade
+      - "29814:29814"        # management v2 (newer proto)
+    volumes:
+      - omada-data:/opt/tplink/EAPController/data
+      - omada-logs:/opt/tplink/EAPController/logs
+    networks: [omada]
+    restart: unless-stopped
+
+  emulator:
+    image: python:3.12-slim
+    container_name: omada-emulator
+    hostname: eap-emu           # pretends to be an EAP; MAC/model spoofed in the emulator code
+    working_dir: /work
+    command: sleep infinity     # exec into it: docker compose -f dev/docker-compose.yml exec emulator bash
+    volumes:
+      - ./emulator:/work
+    networks: [omada]
+    depends_on: [controller]
+
+networks:
+  omada:
+    driver: bridge             # one L2 segment for controller + emulator
+
+volumes:
+  omada-data:
+  omada-logs:

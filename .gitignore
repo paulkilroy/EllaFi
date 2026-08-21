@@ -29,3 +29,9 @@ kicad/sim/board/scope.html
 kicad/fab/
 omada-html/ellafi-poc.zip
 tools/uptime_report.html
+dev/_jars/
+dev/omada_recon_report.md
+dev/_jadx/
+dev/_cls/
+dev/_focus/
+dev/findings-secrets.local
