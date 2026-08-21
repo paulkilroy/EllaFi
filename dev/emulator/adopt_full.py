@@ -337,8 +337,13 @@ def drive_adopt_channel(adopt_port):
                                          for s in ss if s.get("operation", 1) != 0 and s.get("enable", True)]
                 if applied:
                     print(f"  (broadcasting SSIDs: { {b:[s['ssidName'] for s in v] for b,v in applied.items()} })")
-                send(SET_RESPONSE, {"sequenceId": sid, "configVersion": cv}, error=0)
-                print(f"  → SET_RESPONSE (applied configVersion={cv})")
+                # SET_RESPONSE must echo sequenceId EXACTLY (controller correlates by it — a miss is
+                # errCode 2600 "Device response timed out"), errcode=0 (BaseConfigResponse.getErrcode()
+                # ==0 is required, g/a.java:408), and configVersion=request's (mismatch → configMiss
+                # desync, not timeout). Header error must be 0. Device leaves CONFIGURING→CONNECTED once
+                # every outstanding sequenceId is acked this way (message/set/i.java).
+                send(SET_RESPONSE, {"sequenceId": sid, "errcode": 0, "configVersion": cv}, error=0)
+                print(f"  → SET_RESPONSE (seq={sid}, errcode=0, configVersion={cv})")
             elif t == INFORM_REQUEST:
                 send(INFORM_RESPONSE, error=0)
                 print("  → INFORM_RESPONSE (ok)")
