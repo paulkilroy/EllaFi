@@ -243,5 +243,39 @@ are all `SET_REQUEST` config sections answered with `SET_RESPONSE`.**
 - UPGRADE_NOTIFY_REQUEST(77824) = empty relay/notify, not the transfer. An adopted device only needs to
   participate in upgrade once one is initiated; health is independent (INFORM heartbeat).
 
-_Remaining trace: operational commands (forget/reboot/locate full bodies) and the "Invalid v2 adopt
-process with pending site" reset condition — agents still running; will append._
+## H. The "pending site" reset + heartbeat-missed timeout (root-caused)
+- **"Invalid v2 adopt process with pending site"** (`device/port/transport/g.java:76`): on a v2
+  pre-connect/re-link the manager checks `R.a("PENDING-SITE", deviceImage.site.id)` — if the device is
+  parked in the placeholder site **`PENDING-SITE`** and the controller is **standalone** (`!system.a.b()`),
+  it returns null → the pre-connect handler closes the channel → device drops to Pending. (In cloud/
+  cluster mode `system.a.b()==true` it instead does a site-retry `b(...)`, not a reject.) A device lands
+  in `PENDING-SITE` when adoption didn't assign it to a real site — which our repeated full-readopt
+  cycles caused. ⇒ Root cause of the reconnect→Pending resets = the readopt churn leaving the device
+  site-less.
+- **Heartbeat-missed timeout**: a Redis-zset deadline + a **20 s poll** (`persistent/b.java`). AP
+  timeout = `lastSeen + 60 s (busy)` or `+180 s (idle, informIdle=true)`; flip to HEARTBEAT_MISSED(30) in
+  `j/b.java:261`. A re-inform restores CONNECTED (HB-missed is NOT excluded from the inform→connected
+  path, `inform/a.java:54`). Our 3 s heartbeat is far under 60 s, so steady-state never HB-misses — the
+  HB-missed flashes were only the reconnect drops (channel gap >60 s during readopt settling).
+
+## IMPLEMENTATION PLAN — stable reconnect (grounded, ready to build+test)
+Everything the emulator does up to CONNECTED is correct. The remaining flaps all trace to **re-running
+full adoption on every reconnect**. The grounded fix:
+1. **On a channel drop, do a lightweight RE-LINK, not a full re-adopt.** The adopted-device reconnect
+   is: discovery keepalive (already running) → the controller, seeing an adopted device, drives
+   PRE_CONNECT; the device does the cached verify/negotiation fast-branch → ADOPT_SUCCESS → sends
+   **REBUILD_REQUEST(36864)** → controller `updateV2RebuildingContext` promotes to CONNECTED **without a
+   SET/SYSTEM_NEGOTIATION re-provision**. Implement: after reaching ADOPT_SUCCESS on a reconnect, send
+   REBUILD_REQUEST and expect CONNECTED; skip the re-provision path. (`PreConnectInfo.rebuild`/`token`
+   likely signal this — set `rebuild=1` on reconnect pre-connects.)
+2. **Don't let the device fall into `PENDING-SITE`.** This is controller-side site assignment; the
+   practical lever is (1) — stop churning so the initial adoption's real-site assignment sticks. If a
+   device is already stuck in PENDING-SITE from prior testing, a fresh MAC (clean device record) clears
+   it. (Cloud-mode controllers auto site-retry; standalone rejects.)
+3. **SET_RESPONSE errcode:0** — DONE (this commit). Ensures each pushed feature clears instead of reading
+   as unapplied.
+4. INFORM already fast (3 s) + live vitals + ssidStats + changing seq — sufficient; no HB-miss in steady
+   state once (1) removes the reconnect gaps.
+
+These are code-grounded, not trial-and-error. (2)+(1) are the untested pieces — build the REBUILD
+re-link path and test with a fresh MAC when back at the keyboard.
