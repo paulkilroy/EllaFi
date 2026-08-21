@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""adopt_client.py — bidirectional device emulator: send discovery AND listen for the controller's
-reply. Step 1 of the adopt build (dev/adopt-handshake.md): discover what the controller sends back
-after Adopt is tapped (pre-connect / adopt instruction), which drives the TCP manage-channel step.
+"""adopt_client.py — stateful device emulator driving discovery → verify (dev/adopt-handshake.md).
 
-Lab only — talks to the Docker controller on localhost.
+Keeps the device Pending (discovery keepalive) AND repeatedly attempts the manage-channel
+DEVICE_VERIFY_INFO. Most verify attempts fail while the device is merely Pending; the one that lands
+during the ADOPTING_PRE_CONNECT window (right after you tap Adopt) should draw a DEVICE_VERIFY_RESPONSE
+— the first successful manage-channel exchange. Framing tried plaintext first (see spec's open q).
+
+Lab only — localhost Docker controller.
 """
 import json
 import socket
@@ -12,48 +15,68 @@ import sys
 import time
 
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
-from discovery_beacon import build_discovery, FAKE_MAC  # reuse the proven discovery packet
+from discovery_beacon import build_discovery, FAKE_MAC, FW_VERSION, DEVICE_TYPE
+from manage_crypto import ecsp2_auth
+
+HOST = "127.0.0.1"
+DISC_PORT, MGMT_PORT = 29810, 29814  # v2 manage channel
+DEVICE_VERIFY_INFO = 1048577
 
 
-def parse_frame(data: bytes):
-    """[4-byte BE len][JSON] — same framing both directions."""
+def frame(obj) -> bytes:
+    b = json.dumps(obj, separators=(",", ":")).encode()
+    return struct.pack(">I", len(b)) + b
+
+
+def unframe(data: bytes):
     if len(data) < 4:
-        return None, data
+        return None
     n = struct.unpack(">I", data[:4])[0]
-    if len(data) - 4 < n:
-        return None, data
     try:
-        return json.loads(data[4:4 + n].decode("utf-8", "replace")), data[4 + n:]
+        return json.loads(data[4:4 + n].decode("utf-8", "replace"))
     except Exception:
-        return {"_raw": data[4:4 + n].decode("latin-1", "replace")}, data[4 + n:]
+        return {"_raw": data[4:4 + n][:200].decode("latin-1", "replace")}
+
+
+def device_verify_msg():
+    rnd = "".join("%02x" % b for b in __import__("os").urandom(16))
+    body = {"auth": ecsp2_auth("admin", "admin", rnd), "randomKeyForSystemVerify": rnd}
+    header = {"seq": 1, "version": FW_VERSION, "device": DEVICE_TYPE, "mac": FAKE_MAC,
+              "type": DEVICE_VERIFY_INFO, "timestamp": int(time.time())}
+    return frame({"header": header, "body": body})
+
+
+def try_verify(dsock):
+    try:
+        m = socket.create_connection((HOST, MGMT_PORT), timeout=4)
+    except Exception as e:
+        return f"connect failed: {e}"
+    try:
+        m.sendall(device_verify_msg())
+        m.settimeout(4)
+        data = m.recv(65535)
+        if not data:
+            return "channel closed (verify rejected — plaintext framing or status not ADOPTING)"
+        return "◀ RESPONSE: " + json.dumps(unframe(data))[:300]
+    except socket.timeout:
+        return "no response (waiting / rejected silently)"
+    finally:
+        m.close()
 
 
 def main():
-    host, port = ("127.0.0.1", 29810)
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    s.bind(("0.0.0.0", 0))
-    s.settimeout(3)
-    pkt = build_discovery("127.0.0.1")
-    src_port = s.getsockname()[1]
-    print(f"listening on udp/{src_port}; discovering as {FAKE_MAC} → {host}:{port}")
-
-    got = 0
-    for cycle in range(6):                       # ~30s: discover, then listen for a reply
-        s.sendto(pkt, (host, port))
-        print(f"  [{cycle}] discovery sent")
-        deadline = time.time() + 4
-        while time.time() < deadline:
-            try:
-                data, addr = s.recvfrom(65535)
-            except socket.timeout:
-                break
-            got += 1
-            msg, _ = parse_frame(data)
-            print(f"  ◀ REPLY from {addr[0]}:{addr[1]}  ({len(data)} B)")
-            print("    " + json.dumps(msg)[:300])
-        time.sleep(1)
-    print(f"done — {got} reply datagram(s) received")
-    s.close()
+    dsock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    disc = build_discovery("127.0.0.1")
+    print(f"stateful client: {FAKE_MAC} — discovery keepalive + manage-verify attempts. Tap Adopt now.")
+    for cycle in range(30):                       # ~2.5 min
+        dsock.sendto(disc, (HOST, DISC_PORT))     # keep Pending
+        res = try_verify(dsock)
+        print(f"  [{cycle:2d}] verify → {res}")
+        if "RESPONSE" in res:
+            print("  *** DEVICE_VERIFY_RESPONSE received — handshake advancing! ***")
+            break
+        time.sleep(5)
+    dsock.close()
 
 
 if __name__ == "__main__":

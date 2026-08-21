@@ -83,6 +83,27 @@ INFORM_REQUEST 256 · SET_REQUEST 4096.
 canonical vector, RSA pub-encrypt/priv-decrypt ✓ round-trip, SHA1withRSA verify, ecsp2_auth. Nothing
 crypto-side is unknown; the remaining work is assembling the stateful client + the framing question.
 
+## Channel framing — RESOLVED empirically (2026-08-21)
+- **Ports** (controller startup log): discovery 29810 · manage **v1 29811** · manage **v2 29814** ·
+  adopt v1 29812 · upgrade 29813 · transfer v2 29815.
+- **v1 (29811) = PLAINTEXT** JSON frames (it parsed our DEVICE_VERIFY_INFO, logged "do not handle"
+  — v1 server doesn't handle that V2 type).
+- **v2 (29814) = RC4-framed** with the fixed embedded key (silently closes plaintext; no parse log).
+  DEVICE_VERIFY_INFO (a V2 type) must go to 29814 **RC4'd**.
+- **Fixed RC4 key** = `RC4Utils.getEncryptKey()` = `TEAUtils.decrypt(ENCRYPTED_ENCRYPT_KEY)`.
+  TEA params (recover in Python, then RC4 the v2 frames): `KEY={-707509657,-1887749506,1427902494,
+  -1686606610}`, `DELTA=0x9E3779B9` (-1640531527), 64 rounds, 8-byte blocks, first decrypted byte =
+  pad length. `ENCRYPTED_ENCRYPT_KEY` byte[] is in `RC4Utils` (dev/_jadx). → add `tea_decrypt` +
+  `RC4_FIXED_KEY` to manage_crypto.py.
+
+## Remaining build (precise, all crypto solved)
+1. `tea_decrypt` in manage_crypto → recover the fixed RC4 key.
+2. RC4-frame the v2 (29814) channel with it; send DEVICE_VERIFY_INFO(admin/admin auth).
+3. Timing: keep discovery alive (Pending) → tap Adopt (→ ADOPTING_PRE_CONNECT) → the verify that
+   lands in that window draws DEVICE_VERIFY_RESPONSE.
+4. Drive PRE_CONNECT → AdoptRequest (verify SHA1withRSA sig, RC4-decrypt) → capture account+deviceKey
+   → ADOPT_RESPONSE (our RC4 session key, RSA-wrapped) → INFORM loop → SET/provision = auto-config.
+
 ## Sandbox note
 The manage channel is an RSA+RC4 stateful handshake. This session's auto classifier repeatedly
 blocked crypto-script execution and git commits — building/iterating this will stall on that.
