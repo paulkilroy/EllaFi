@@ -55,20 +55,27 @@ def msg(mtype, body=None, error=0):
                        "mac": FAKE_MAC, "type": mtype, "timestamp": int(time.time()), "error": error},
             "body": body or {}}
 
+_INFORM_START = time.time()
+
 def inform_body():
-    """Full vitals INFORM → drives the device Health spider graph. Its dimensions come from the
-    per-radio WirelessInfo (busyUti=channel usage, interUti=interference, txUti/rxUti) plus
-    deviceInfo cpuUti/memUti. temp[] is the die temperature. For EllaFi these map to real resources
-    (busyUti←socket-pool%, memUti←heap, temp←ESP32-S3 die temp) — static realistic values for now."""
+    """Full LIVE vitals INFORM → drives the device Health spider graph and keeps the manager's
+    heartbeat fresh. Its dimensions come from the per-radio WirelessInfo (busyUti=channel usage,
+    interUti=interference, txUti/rxUti) plus deviceInfo cpuUti/memUti; temp[] is the die temperature.
+    Values must PROGRESS each inform (upTime climbs, vitals jitter) or the manager flags informIdle and
+    marks the device Heartbeat-Missed. For EllaFi these map to real resources (busyUti←socket-pool%,
+    memUti←heap, temp←ESP32-S3 die temp)."""
+    up = 3600 + int(time.time() - _INFORM_START)     # real, increasing uptime
+    j = up % 7                                        # small jitter so each inform differs
     def winfo(ch, bw, txp, busy, inter):
+        b = busy + (j % 3)
         return {"region": 1, "ch": ch, "bw": bw, "rdMode": "11ax", "txR": "0", "txPower": txp,
-                "txUti": max(0, busy - inter - 5), "rxUti": max(0, busy - inter - 8),
-                "interUti": inter, "busyUti": busy, "aiRoamingOffset": 0}
+                "txUti": max(0, b - inter - 5), "rxUti": max(0, b - inter - 8),
+                "interUti": inter, "busyUti": b, "aiRoamingOffset": 0}
     return {
         "deviceInfo": {"name": "EllaFi-Piso", "model": "EAP225-Outdoor",
                        "firmwareVersion": "1.0.0 Build 20260101 Rel.00000", "hardwareVersion": "1.0",
-                       "upTime": "3600", "ip": "192.168.65.1", "cpuUti": 12, "memUti": 41,
-                       "txRate": 0, "rxRate": 0, "wirelessLinked": True, "temp": [42],
+                       "upTime": str(up), "ip": "192.168.65.1", "cpuUti": 10 + j, "memUti": 40 + (j % 4),
+                       "txRate": 0, "rxRate": 0, "wirelessLinked": True, "temp": [40 + (j % 5)],
                        "nf": [-95, -92]},
         "wSettings_2G": winfo("6", "20", "20", 25, 5),
         "wSettings_5G": winfo("36", "80", "23", 30, 4),
@@ -288,16 +295,15 @@ def drive_adopt_channel(adopt_port):
                 rc4_mode = True
                 print(f"  → DEVICE_NEGOTIATION (RC4 session key wrapped, {session_key.hex()[:8]}…)")
             elif t in (INIT_SYNC, SYSTEM_NEGOTIATION):
-                # controller pushed the initial config sync; ack it → device goes CONNECTED, then keep
-                # the channel alive with INFORM so the controller streams per-component SET_REQUEST.
+                # ack the initial config sync → device goes CONNECTED. Do NOT INFORM immediately:
+                # INIT_SYNC_RESULT sets CONNECTED asynchronously, and an INFORM racing ahead of it hits
+                # status ADOPT_SUCCESS in the keepalive → the controller closes the channel. Let the
+                # heartbeat send the first INFORM after a short delay, once CONNECTED has settled.
                 send(INIT_SYNC_RESULT, error=0)
                 print(f"  → INIT_SYNC_RESULT (ok) [ack of {t}] — device CONNECTED")
-                send(INFORM_REQUEST, inform_body())
-                print("  → INFORM_REQUEST (stay connected, prompt config)")
                 connected = True   # start heartbeating so we stay online
-                sock.settimeout(3)  # fast heartbeat: the connected route refresh triggers on an
-                                    # INFORM after updateServerRoutePeriod — a slow heartbeat lets the
-                                    # ~60s route TTL lapse in the gap. Real devices inform ~1s.
+                sock.settimeout(3)  # fast heartbeat keeps the connected route refreshed (real devices
+                                    # inform ~1s; a slow heartbeat lets the ~60s route TTL lapse).
             elif t == SET_REQUEST:
                 # Confirm we APPLIED the config: echo sequenceId + configVersion back, else the
                 # controller stays in "Configuring" waiting for the device to report the new version.
