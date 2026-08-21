@@ -18,7 +18,7 @@ import time
 # --- spoofed device identity (per memory/omada_app_reference/field-map.md) ---
 # header.device is the DeviceType ENUM ("ap"/"switch"/"gateway", validated by DeviceType.resolve()),
 # NOT the model. The model (EAP225…) belongs in the later inform body, not discovery.
-FAKE_MAC    = "8C-86-DD-00-00-02"    # fresh tail (…-01 has stale cached state in the controller DB)
+FAKE_MAC    = "8C-86-DD-00-00-03"    # the tile the operator will adopt
 DEVICE_TYPE = "ap"                   # DeviceType.AP — must resolve or the msg is "invalid device message"
 FAKE_MODEL  = "EAP225-Outdoor"       # old model, always in the registry (used at inform time)
 FW_VERSION  = "2.3.0"                # header.version = ECSP PROTOCOL version (EAP_PROTO_VERSION2=V2).

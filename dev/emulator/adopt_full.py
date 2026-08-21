@@ -25,7 +25,9 @@ import time
 sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from discovery_beacon import build_discovery, FAKE_MAC, FW_VERSION, DEVICE_TYPE
 import os
-from manage_crypto import ecsp2_auth, ecsp2_auth_md5, rsa_decrypt_pub
+from manage_crypto import ecsp2_auth, ecsp2_auth_md5, rsa_decrypt_pub, rsa_encrypt_pub, rc4
+
+DEVICE_NEGOTIATION, VERIFY_RESULT_ACK = 1048580, 1048585
 
 # The emulator's "factory default" account — what a real blank device knows and you type into the
 # adopt dialog. The controller then pushes the real site account+config via SET_REQUEST post-adopt.
@@ -74,9 +76,58 @@ def read_frame(sock):
     except Exception: return {"_raw": body[:300].decode("latin-1", "replace")}
 
 
-def _read_or_none(sock):
+def _recv_all(sock, n):
+    buf = b""
+    while len(buf) < n:
+        c = sock.recv(n - len(buf))
+        if not c:
+            return None
+        buf += c
+    return buf
+
+
+def read_frame_adaptive(sock, key=None):
+    """Read one frame. If key is given, the channel may have switched to RC4 (reinitRc4Handler):
+    RC4(4-byte total-len) + RC4(payload). Detect by trying plaintext length first; if absurd, RC4."""
+    lb = _recv_all(sock, 4)
+    if lb is None:
+        return None
+    pn = struct.unpack(">I", lb)[0]
+    if 0 < pn < 2_000_000:                       # plausible plaintext length
+        body = _recv_all(sock, pn)
+        if body is None:
+            return None
+        try:
+            return json.loads(body.decode("utf-8", "replace"))
+        except Exception:
+            pass  # fall through to RC4 interpretation on the same bytes is impossible; report raw
+        # If we get here the "plaintext" parse failed but we already consumed body; try RC4 on it
+        if key is not None:
+            try:
+                total = struct.unpack(">I", rc4(lb, key))[0]
+                # body was pn bytes = total-4 payload expected; rc4 the body we read
+                return json.loads(rc4(body, key).decode("utf-8", "replace"))
+            except Exception:
+                return {"_raw": body[:200].hex()}
+        return {"_raw": body[:200].hex()}
+    if key is not None:                          # length absurd → RC4 framed
+        total = struct.unpack(">I", rc4(lb, key))[0]
+        n = total - 4
+        if not (0 < n < 2_000_000):
+            return {"_badlen": total}
+        body = _recv_all(sock, n)
+        if body is None:
+            return None
+        try:
+            return json.loads(rc4(body, key).decode("utf-8", "replace"))
+        except Exception:
+            return {"_raw_rc4": rc4(body, key)[:200].hex()}
+    return {"_badlen": pn}
+
+
+def _read_or_none(sock, key=None):
     try:
-        return read_frame(sock)
+        return read_frame_adaptive(sock, key)
     except socket.timeout:
         return "TIMEOUT"
     except Exception as e:
@@ -110,25 +161,42 @@ def drive_adopt_channel(adopt_port):
         sock.sendall(frame(msg(DEVICE_VERIFY_INFO, {"auth": auth, "randomKeyForSystemVerify": rnd})))
         print(f"  → DEVICE_VERIFY_INFO (user='{user}', factory pass)")
 
+        # Our chosen RC4 session key — RSA-wrapped to the controller in DEVICE_NEGOTIATION. After the
+        # controller decrypts it (RsaCipher.decryptByPrivateKey), the channel's config traffic
+        # (INIT_SYNC/SET_REQUEST) is RC4'd with it (NettyChannel.reinitRc4Handler).
+        session_key = os.urandom(16)
+
+        def negotiation_body():
+            return {"key": base64.b64encode(rsa_encrypt_pub(session_key)).decode(),
+                    "deviceInfo": {
+                        "encryptedHwId": base64.b64encode(rc4(b"EllaFiPiso01", session_key)).decode(),
+                        "encryptedOemId": base64.b64encode(rc4(b"TP-LINK", session_key)).decode()}}
+
         # Drive the post-verify sequence, replying to each step so the controller advances to the
         # SET_REQUEST provisioning push. Keep the socket alive (short reads, respond promptly).
         captured = []
+        rc4_mode = False
         sock.settimeout(10)
         for _ in range(60):
-            r = _read_or_none(sock)
+            r = _read_or_none(sock, session_key if rc4_mode else None)
             if r == "TIMEOUT":
                 print("  … idle"); continue
             if not isinstance(r, dict):
                 print(f"  ◀ channel ended ({r})"); break
             t = r.get("header", {}).get("type")
             seq = r.get("header", {}).get("seq")
-            print(f"  ◀ type={t}: {json.dumps(r)[:600]}")
+            print(f"  ◀ type={t}{' [rc4]' if rc4_mode else ''}: {json.dumps(r)[:600]}")
             captured.append(r)
 
             if t == DEVICE_VERIFY_RESPONSE:
                 # controller proved itself; accept and confirm
                 sock.sendall(frame(msg(SYSTEM_VERIFY_RESULT, error=0)))
                 print("  → SYSTEM_VERIFY_RESULT (accept controller)")
+            elif t == VERIFY_RESULT_ACK:
+                # Provide our RC4 session key so the controller can push config; then read RC4 frames.
+                sock.sendall(frame(msg(DEVICE_NEGOTIATION, negotiation_body())))
+                print(f"  → DEVICE_NEGOTIATION (RC4 session key wrapped, {session_key.hex()[:8]}…)")
+                rc4_mode = True   # controller may reinit the channel to RC4 after this
             elif t == INIT_SYNC:
                 sock.sendall(frame(msg(INIT_SYNC_RESULT, error=0)))
                 print("  → INIT_SYNC_RESULT (ok)")
