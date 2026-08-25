@@ -1,6 +1,6 @@
 # Omada ECSP device-plane protocol — authoritative reference
 
-Reverse-engineered from the decompiled controller (`dev/_jadx/`: ecsp-common/ecsp-server-core/ecsp-transporter-netty/manager-core/manager-message, all 1.3.7 / 5.15.24.19) and verified live against the Docker lab controller. This is the spec `dev/emulator/adopt_full.py` implements. Ports/framing/crypto/dispatch/state-machine/timing are all here; every non-obvious claim traces to a `class:line` in the jars.
+Reverse-engineered from the decompiled controller (`omada-lab/_jadx/`: ecsp-common/ecsp-server-core/ecsp-transporter-netty/manager-core/manager-message, all 1.3.7 / 5.15.24.19) and verified live against the Docker lab controller. This is the spec `omada-lab/emulator/adopt_full.py` implements. Ports/framing/crypto/dispatch/state-machine/timing are all here; every non-obvious claim traces to a `class:line` in the jars.
 
 ---
 

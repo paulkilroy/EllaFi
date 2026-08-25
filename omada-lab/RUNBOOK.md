@@ -19,13 +19,13 @@ jar source. The real Bakhaw OC220 and the ESP are never touched here. ESP firmwa
 Everything downstream is wasted effort until this is known. Drive straight at it:
 
 ```
-docker compose -f dev/docker-compose.yml up -d controller     # throwaway controller
+docker compose -f omada-lab/docker-compose.yml up -d controller     # throwaway controller
 # wait for it to be healthy (https://localhost:8043), then pull its jars:
 docker cp omada-controller:/opt/tplink/EAPController/lib ./dev/_jars
 tools/omada_recon.py ./dev/_jars --jadx                        # hunt crypto + proto + Model enum
 ```
 
-Read `dev/omada_recon_report.md` → the "KEY material / derivation" section is the answer.
+Read `omada-lab/omada_recon_report.md` → the "KEY material / derivation" section is the answer.
 
 Cross-check dynamically: sniff the adoption handshake on the Docker bridge (`tcpdump` in the
 emulator container on 29810–29814) and see whether the **pre-adopt** bytes decrypt under a guessed

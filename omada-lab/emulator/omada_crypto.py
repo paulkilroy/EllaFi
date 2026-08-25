@@ -1,7 +1,7 @@
 """omada_crypto.py — reproductions of the Omada controller's key-derivation, for the device emulator.
 
 Interop with the user's OWN lab controller (SW 5.15.24.19). The controller derives its symmetric
-keys via a deterministic Java "SHA1PRNG"-seeded KeyGenerator (see dev/findings-crypto.md); to speak
+keys via a deterministic Java "SHA1PRNG"-seeded KeyGenerator (see omada-lab/findings-crypto.md); to speak
 its protocol the emulated device must derive the identical bytes from the same seed string.
 
 Self-test vectors below are ground truth captured from the real JVM (jshell, exact k() logic):

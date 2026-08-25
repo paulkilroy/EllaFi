@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """discovery_beacon.py — announce an emulated Omada device to the lab controller.
 
-Wire format (from dev/protocol-ecsp.md, extracted): a UDP datagram to controller:29810 =
+Wire format (from omada-lab/protocol-ecsp.md, extracted): a UDP datagram to controller:29810 =
     [4-byte BIG-ENDIAN length][ plaintext UTF-8 JSON {"header":{...}, "body":{}} ]
 DISCOVERY is header.type=1; BaseDiscovery body is empty; discovery is NOT encrypted (RC4 is the
 TCP manage channel only). Identity (spoofed EAP) lives in the header.

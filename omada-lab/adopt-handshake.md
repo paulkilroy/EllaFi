@@ -3,7 +3,7 @@
 Follows discovery ([protocol-ecsp.md](protocol-ecsp.md)). Discovery→Pending is DONE (the beacon).
 This is the back half: how a Pending device completes adoption and enters the inform/config loop.
 All crypto primitives already solved: netty RSA private key recovered (→ derive public, verify
-signatures), RC4 reproducible, `k(str)` reproduced in `dev/emulator/omada_crypto.py`.
+signatures), RC4 reproducible, `k(str)` reproduced in `omada-lab/emulator/omada_crypto.py`.
 
 ## Transport
 - Manage/adopt channel: **TCP 29811** (adopt v1 port 29812 also seen). Framing = 4-byte BE length +
@@ -71,7 +71,7 @@ INFORM_REQUEST 256 · SET_REQUEST 4096.
   (before the pending context times out ~40s) and send DEVICE_VERIFY_INFO.
 - **auth** = `EcspUtils.calculateEcsp2Auth(username, MD5(password), randomKeyForSystemVerify)` =
   `SHA256( SHA256(username + MD5(password)) + randomKey )`, UPPER hex. Factory device uses
-  **admin/admin**. Reproduced + in `dev/emulator/manage_crypto.py::ecsp2_auth`.
+  **admin/admin**. Reproduced + in `omada-lab/emulator/manage_crypto.py::ecsp2_auth`.
 - Controller replies `DEVICE_VERIFY_RESPONSE` (1048578) → then PRE_CONNECT → the AdoptRequest that
   delivers the real account + deviceKey (RC4+RSA-signed, above).
 - **Open (resolve empirically when building the client):** manage-channel framing — is
@@ -79,7 +79,7 @@ INFORM_REQUEST 256 · SET_REQUEST 4096.
   RSA key) until a session key is negotiated? Try plaintext first, then fixed-key RC4, watch the log.
 
 ## Crypto toolkit status (all built + verified)
-`dev/emulator/omada_crypto.py` — `k(str)` ✓ vs JVM. `dev/emulator/manage_crypto.py` — RC4 ✓ vs
+`omada-lab/emulator/omada_crypto.py` — `k(str)` ✓ vs JVM. `omada-lab/emulator/manage_crypto.py` — RC4 ✓ vs
 canonical vector, RSA pub-encrypt/priv-decrypt ✓ round-trip, SHA1withRSA verify, ecsp2_auth. Nothing
 crypto-side is unknown; the remaining work is assembling the stateful client + the framing question.
 
@@ -124,7 +124,7 @@ crypto-side is unknown; the remaining work is assembling the stateful client + t
   to confirm 29814's ServerType (ADOPT vs MANAGE) empirically — drive PRE_CONNECT_INFO and read the log.
 
 ## CONFIRMED end-to-end V2 adopt AUTH flow (2026-08-21, live against the lab controller)
-Emulated EAP225 (`dev/emulator/adopt_full.py`) passes Omada adoption authentication in full:
+Emulated EAP225 (`omada-lab/emulator/adopt_full.py`) passes Omada adoption authentication in full:
 1. **Discovery** (UDP 29810, persistent socket, `ip=192.168.65.1` = host as the container sees it) →
    device Pending. MUST listen on the same socket for the reply.
 2. User taps Adopt → controller → `ADOPTING_PENDING_PRE_ADOPT`, sends **`PRE_ADOPT_REQUEST` via UDP**
@@ -160,8 +160,8 @@ body = `ApAdoptRespV2Body`:
   `userAccount{ curUsername, curPassword=MD5(factory), newUsername, newPassword=MD5(real) }` — the
   controller provisions the real device-account password (as MD5) to the device, encrypted. Plus
   `timeSetting`, `dst`, `controllerSetting` (managePort, portalHttp/Https, logoutDomain),
-  `components` manifest, `informInterval`. (Full capture → gitignored `dev/captured-config.local`.)
-- Driver: `dev/emulator/adopt_full.py` (discovery+UDP-listen → PRE_ADOPT → TLS adopt channel → verify
+  `components` manifest, `informInterval`. (Full capture → gitignored `omada-lab/captured-config.local`.)
+- Driver: `omada-lab/emulator/adopt_full.py` (discovery+UDP-listen → PRE_ADOPT → TLS adopt channel → verify
   → negotiation → RC4 config, adaptive plaintext/RC4 reader + RC4 sender).
 
 ### CONNECTED-DEVICE KEEPALIVE / re-link — OPEN (the ~60s drop)
@@ -225,4 +225,4 @@ RC4-decrypt the config. All primitives (RSA priv→pub, RC4) already in `manage_
 ## Sandbox note
 The manage channel is an RSA+RC4 stateful handshake. This session's auto classifier repeatedly
 blocked crypto-script execution and git commits — building/iterating this will stall on that.
-Allowlist `python3 dev/emulator/*` and `git commit` for a smooth build loop.
+Allowlist `python3 omada-lab/emulator/*` and `git commit` for a smooth build loop.

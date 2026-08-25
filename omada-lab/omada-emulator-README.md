@@ -56,7 +56,7 @@ public and describes mechanism only.**
 
 ## Run (lab)
 ```
-~/.platformio/penv/bin/python3 -u dev/emulator/adopt_full.py
+~/.platformio/penv/bin/python3 -u omada-lab/emulator/adopt_full.py
 # tap Adopt on the device in the app, username/password admin/admin (the emulator's factory default)
 ```
 

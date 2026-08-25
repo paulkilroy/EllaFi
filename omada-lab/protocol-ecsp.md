@@ -2,7 +2,7 @@
 
 Reverse-engineered from `ecsp-common` + `ecsp-transporter-netty` (jadx). This is what the emulator
 sends/receives. Crypto details in [findings-crypto.md](findings-crypto.md); key derivation is
-reproduced + verified in `dev/emulator/omada_crypto.py`.
+reproduced + verified in `omada-lab/emulator/omada_crypto.py`.
 
 ## Transport
 - **Discovery**: UDP **29810**. One datagram = one message.

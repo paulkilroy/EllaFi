@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""adopt_client.py — stateful device emulator driving the v2 adopt handshake (dev/adopt-handshake.md).
+"""adopt_client.py — stateful device emulator driving the v2 adopt handshake (omada-lab/adopt-handshake.md).
 
 BREAKTHROUGH (2026-08-21): the v2 manage/adopt channel (TCP 29814) is **TLS-wrapped**. Inside the
 TLS tunnel the frames are plaintext length-prefixed JSON (4-byte BE length + {header,body}); RC4 only

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """adopt_full.py — Omada ECSP v2 device emulator, rewritten to the protocol map.
 
-Implements dev/omada-protocol-reference.md §0 (the emulator contract). The whole device-plane is a
+Implements omada-lab/omada-protocol-reference.md §0 (the emulator contract). The whole device-plane is a
 state machine over ONE persistent TLS socket on 29814. Correctness points that were each a hard-won
 bug before the full protocol map (see the reference for citations):
 
@@ -36,7 +36,7 @@ sys.path.insert(0, __file__.rsplit("/", 1)[0])
 from discovery_beacon import build_discovery, FAKE_MAC, FW_VERSION, DEVICE_TYPE, FAKE_MODEL, EMU_NAME, EMU_FW
 from manage_crypto import ecsp2_auth, ecsp2_auth_md5, rsa_decrypt_pub, rsa_encrypt_pub, rc4
 
-# ── wire constants (dev/omada-protocol-reference.md §3) ───────────────────────────────────────────
+# ── wire constants (omada-lab/omada-protocol-reference.md §3) ───────────────────────────────────────────
 PRE_CONNECT_INFO, PRE_ADOPT_REQUEST, ADOPT_REQUEST = 3, 2, 16
 PRE_CONNECT_INFO_RESPONSE = 1048576
 DEVICE_VERIFY_INFO, DEVICE_VERIFY_RESPONSE, SYSTEM_VERIFY_RESULT = 1048577, 1048578, 1048579

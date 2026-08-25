@@ -1,7 +1,7 @@
-"""manage_crypto.py — RSA + RC4 for the ECSP manage/adopt channel (dev/adopt-handshake.md).
+"""manage_crypto.py — RSA + RC4 for the ECSP manage/adopt channel (omada-lab/adopt-handshake.md).
 
 The device wraps a random RC4 session key with the controller's RSA PUBLIC key (we derive it from
-the recovered private key in dev/findings-secrets.local); the controller replies RC4'd + RSA-signed
+the recovered private key in omada-lab/findings-secrets.local); the controller replies RC4'd + RSA-signed
 (SHA1withRSA), which we verify. Both primitives matched to the controller's own impl:
   - RC4Utils: standard RC4 (KSA with key-repeat, PRGA) — verified vs the canonical vector.
   - RsaCipher: KEY_ALGORITHM "RSA" (→ RSA/ECB/PKCS1), SIGNATURE_ALGORITHM "SHA1withRSA".
