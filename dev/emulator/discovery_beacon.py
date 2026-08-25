@@ -11,6 +11,7 @@ against `docker logs omada-controller` until the device shows Pending in the app
 """
 import argparse
 import json
+import os
 import socket
 import struct
 import time
@@ -18,12 +19,14 @@ import time
 # --- spoofed device identity (per memory/omada_app_reference/field-map.md) ---
 # header.device is the DeviceType ENUM ("ap"/"switch"/"gateway", validated by DeviceType.resolve()),
 # NOT the model. The model (EAP225…) belongs in the later inform body, not discovery.
-FAKE_MAC    = "8C-86-DD-00-00-03"    # the tile the operator will adopt
+FAKE_MAC    = os.environ.get("EMU_MAC", "8C-86-DD-00-00-33")   # override per instance (2nd AP, mesh parent)
 DEVICE_TYPE = "ap"                   # DeviceType.AP — must resolve or the msg is "invalid device message"
-FAKE_MODEL  = "EAP225-Outdoor"       # old model, always in the registry (used at inform time)
+FAKE_MODEL  = os.environ.get("EMU_MODEL", "EAP225-Outdoor")   # old model, always in the registry (inform time)
+EMU_NAME    = os.environ.get("EMU_NAME", "EllaFi-Piso")       # display name
+EMU_FW      = os.environ.get("EMU_FW", "1.0.0 Build 20260101 Rel.00000")  # reported FIRMWARE version (drives the upgrade indicator)
 FW_VERSION  = "2.3.0"                # header.version = ECSP PROTOCOL version (EAP_PROTO_VERSION2=V2).
                                      # NOT firmware — "5.0.0" parsed as v5 → HIGH_IN_COMPATIBLE.
-OMADAC_ID   = "db34e4c33248ad8ad63136ac0662718c"   # THIS lab controller's omadacId (from its logs)
+OMADAC_ID   = "108eb4715331245bff3eff56e949f37f"   # THIS lab controller's omadacId (from its logs)
 
 
 def build_discovery(ip: str) -> bytes:
@@ -40,10 +43,10 @@ def build_discovery(ip: str) -> bytes:
     # REAL ESP values eventually fill upTime/cpuUti/memUti; identity is the spoof.
     body = {
         "deviceInfo": {
-            "name": "EllaFi-Piso",
+            "name": EMU_NAME,
             "model": FAKE_MODEL,
             "modelVersion": "1.0",
-            "firmwareVersion": "1.0.0 Build 20260101 Rel.00000",
+            "firmwareVersion": EMU_FW,
             "hardwareVersion": "1.0",
             "upTime": "3600",           # String
             "cpuUti": 5,                # Integer
@@ -59,6 +62,7 @@ def build_discovery(ip: str) -> bytes:
             "support_channelLimit": False,  # Boolean
             "supportDfs": 0,            # Integer
             "supportRoaming": 1,        # Integer
+            "countryCode": 1,           # Integer — REQUIRED on 6.2 (DiscoveryApplicationService.d NPEs if null)
         },
         # controllerId = md5("default") is the FACTORY sentinel: the controller's decision code treats
         # reportedControllerId==md5("default") as a factory device → NO_MANAGED = PENDING/adoptable.

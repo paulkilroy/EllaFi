@@ -29,14 +29,22 @@ kicad/sim/board/scope.html
 kicad/fab/
 omada-html/ellafi-poc.zip
 tools/uptime_report.html
+# Proprietary decompiled/extracted TP-Link controller code — analysis only, never commit
 dev/_jars/
-dev/omada_recon_report.md
-dev/_jadx/
+dev/_jadx*/
 dev/_cls/
 dev/_focus/
+dev/_recover/
+dev/omada_recon_report.md
+# lab-local + runtime artifacts
+dev/.env
+dev/emulator/*.local
+dev/emulator/*.log
+dev/emulator/_inject*.jsonl
+dev/emulator/__pycache__/
+dev/*.log
+# secrets / keys
 dev/findings-secrets.local
 dev/_key.pem
 dev/rc4key.local
-dev/_recover/
 dev/captured-config.local
-dev/emulator/*.local

@@ -1,281 +1,66 @@
-# Omada ECSP device-plane protocol — master reference (SW 5.15.24.19)
+# Omada ECSP device-plane protocol — authoritative reference
 
-Reverse-engineered from the decompiled controller (`dev/_jadx/`). This is the wire-format + message
-backbone. Behavioral per-protocol detail (config-apply, provisioning, notify, upgrade, reconnect) is
-being filled in from a deep code trace — see the sections below and `adopt-handshake.md`.
-
-## Transport & framing
-- **Channels/ports** (controller startup log): discovery **29810/UDP**; manage **v1 29811**; adopt v1
-  **29812**; upgrade **29813**; manage/adopt **v2 29814 (TLS)**; transfer **v2 29815**.
-- **Discovery (29810/UDP):** plaintext. `[4-byte BE length][UTF-8 JSON {header, body}]`. Length = payload.
-- **v2 manage/adopt (29814):** **TLS** (server cert, no client-auth). Inside TLS: `[4-byte BE length]
-  [JSON]`, plaintext until the RC4 upgrade. After `DEVICE_NEGOTIATION` hands over a session key, the
-  controller `reinitRc4Handler`s the pipeline: **outbound (controller→device) frames become RC4**
-  `RC4(4-byte total-len) + RC4(payload)`; **inbound (device→controller) stays plaintext** in practice
-  (send acks/informs plaintext, decode pushes as RC4). RC4 = standard, key = the device-chosen session
-  key (RSA-wrapped to the controller in DEVICE_NEGOTIATION `body.key`).
-
-## Message header (MessageHeader)
-Order: `seq, version, verCap, device, mac, type, error, compress, dest, timestamp, ip, seqNum`.
-- `seq` Int — sequence number (per device, increments).
-- `version` String — ECSP protocol version ("2.3.0" = V2). NOT firmware.
-- `verCap` Int — version capability (optional).
-- `device` String — DeviceType enum: `ap` / `gateway` / `switch` / `olt` (validated by DeviceType.resolve).
-- `mac` String — device MAC (format varies: dash `8C-86-DD-..` in discovery; `formatMacCL`/`formatMacDb`).
-- `type` Int — MessageType (table below).
-- `error` Int — 0 = ok; nonzero = error code.
-- `compress` String — e.g. "lzo-2.07" (controller advertises `acceptCompress`; optional).
-- `dest` String — destination omadacId (on controller→device / some device→controller).
-- `timestamp` Long. `ip` String — claimed device IP. `seqNum` String.
-
-## Message bodies
-Most bodies extend `AbstractMessageBody` (→ `AbstractData`) and carry **dynamic JSON**
-(`additionalProperties` map) — i.e. the config/get/notify/upgrade payloads are flexible key→value maps,
-not fixed schemas. Fixed-field bodies of note below.
-
-## Complete MessageType table  (value · name · body class · direction)
-| Type | Name | Body | Dir |
-|---|---|---|---|
-| 1 | discovery | BaseDiscovery | D→C |
-| 2 | pre.adopt.request | PreAdoptRequest{mac, ip, adoptPort} | C→D (UDP) |
-| 3 | pre.connect.info | **PreConnectInfo{needUsername, rebuild, token}** | D→C |
-| 16 | adopt.request | AdoptRequest{data, hash, sig} | C→D |
-| 32 | adopt.response | BaseAdoptResponse{key, deviceInfo{encryptedHwId,encryptedOemId}} | D→C |
-| 256 | inform.request | BaseInformRequest (Eap/Osg/Osw…) | D→C |
-| 512 | inform.response | NullMessage | C→D |
-| 4096 | set.request | BaseConfigRequest (dynamic: lanSetting, ssid_*, wireless*, …) | C→D |
-| 8192 | set.response | BaseConfigResponse{sequenceId, configVersion} | D→C |
-| 4352 | init.sync | BaseInitialSetSync | C→D (v1) |
-| 16384 | forget.request | ForgetRequest{interval,…} (extends BaseConfigRequest) | C→D |
-| 20480 | forget.response | NullMessage | D→C |
-| 131072 | forget.request.no.reset | ForgetRequest | C→D |
-| 196608 | forget.response.no.reset | NullMessage | D→C |
-| 24576 | get.request | BaseGetRequest (dynamic) | C→D |
-| 28672 | get.response | BaseGetResponse{sequenceId, errCode, …} | D→C |
-| 80 | notify.request | NotifyRequest (dynamic) | D→C |
-| 144 | notify.response | NotifyResponse | C→D |
-| 32768 | upgrade.request | BaseUpgradeRequest | C→D |
-| 65536 | upgrade.response | BaseUpgradeResponse | D→C |
-| 77824 | upgrade.notify.request | BaseUpgradeRequest | C→D |
-| 81920 | upgrade.notify.response | BaseUpgradeResponse | D→C |
-| 36864 | rebuild.request | BaseRebuildRequest | D→C |
-| 40960 | rebuild.response | BaseRebuildResponse{errCode, resetConfig} | C→D |
-| 86016 | rebuild.result | BaseConfigResponse{sequenceId, configVersion} | D→C |
-| 64 | portal.query | PortalQuery | D→C |
-| 128 | portal.auth | Authorization | D→C |
-| 352 | portal.auth.response | NotifyResponse | C→D |
-| 1048577 | device.verify | DeviceVerifyInfo{auth, randomKeyForSystemVerify} | D→C |
-| 1048578 | device.verify.response | DeviceVerifyResponse{auth} | C→D |
-| 1048579 | system.verify.result | NullMessage | D→C |
-| 1048585 | verify.result.ack | NullMessage | C→D |
-| 1048580 | device.negotiation | BaseAdoptResponse{key, devCap, deviceInfo, configVersion,…} | D→C |
-| 1048581 | system.negotiation | BaseInitialSetSync{userAccount, timeSetting, components, informInterval,…} | C→D |
-| 1048582 | init.sync.result | NullMessage | D→C |
-| 1048586 | init.sync.result.ack | NullMessage | C→D |
-| 1376256 | report | Report{reportData} | D→C |
-
-## Confirmed sequences
-**Adoption (v2):** discovery → (tap) PRE_ADOPT_REQUEST(UDP) → TLS 29814 → PRE_CONNECT_INFO{needUsername}
-→ PRE_CONNECT_INFO_RESPONSE{rkdv, username} → DEVICE_VERIFY_INFO → DEVICE_VERIFY_RESPONSE(0) →
-SYSTEM_VERIFY_RESULT → VERIFY_RESULT_ACK → DEVICE_NEGOTIATION(RC4 key) → SYSTEM_NEGOTIATION(config+account,
-RC4) → INIT_SYNC_RESULT → CONNECTED → SET_REQUEST(config) → SET_RESPONSE{seq,configVersion} → INFORM loop.
-
-**Key open clue — clean reconnect:** `PreConnectInfo` carries `rebuild` (Int) + `token` (String). A
-re-linking (already-adopted) device most likely sets `rebuild=1` + prior session `token` in
-PRE_CONNECT_INFO to reconnect WITHOUT a fresh factory re-adopt — this is the fix for the reconnect flap
-(our emulator currently re-runs full adoption). Being confirmed by the GET/REBUILD trace.
-
-## Config surface (what the controller pushes)
-**SYSTEM_NEGOTIATION (1048581)** = initial sync (RC4): `configVersion, sequenceId, controllerSetting
-{controllerId,destOmadacId,acceptCompress,managePort,portalHttpPort,portalHttpsPort,logoutDomain,
-preferHttpsPortal}, timeSetting{timeZone,date,time,ntpEnable}, dst, userAccount{curUsername,curPassword=
-MD5(factory),newUsername,newPassword=MD5(real)}, components{…}, components_v2{…}, informInterval{per-
-component seconds}`.
-
-**SET_REQUEST (4096)** = the site config, one message carrying all feature sections (each maps to a row
-on the app's "Configuration Result" page). Top-level `sequenceId` + `configVersion`, plus features:
-`lanSetting{connType,useFallBack,fallBackIp,fallBackMask}` (IPv4) · `wirelessBasic_2G/5G{radioId,
-radioEnable,chanWidth,channel,txPower,freq}` (Radios) · `wirelessAdv_2G/5G{beaconInterval,dtimPeriod,
-rtsThreshold,fragThreshold,airtimeFairness,beaconIntvMode}` (Beacon Control) · `ssid_2G/5G{radioId,
-ssid:[{id,index,operation,ssidName,securityMode,pskVer,pskCipher,pskKey,…}]}` (WLAN) · `qosConfig_2G/5G`
-(QoS) · `snmp` · `ssh` · `led{enable,locate}` · `lldp` · `mesh` · `managementVlan` · `loopback` ·
-`dot1x` · `ipGroup{ipGroups}` · `ipv6Group` · `macFilterGlobal` · `portalFreePolicyConfig{portalFree
-Policy,urlPortalFreePolicy}` (Portal) · `schedulerAssoc{rule}` · `schedulerGlobal` · `logSetting`
-(Remote Logging) · `dhcpSrvChanged`. Device confirms with `SET_RESPONSE{sequenceId, configVersion}`.
-(The controller's per-feature "Device response timed out" tracking is under trace — likely each feature
-is marked applied/failed off the single SET_RESPONSE and/or the device's subsequent config report.)
-
-## Device status codes (DeviceStatusEnum)
-category CONNECTED: 10 Provisioning · 11 Configuring · 12 Upgrading · 13 Rebooting · **14 Connected** ·
-15 Connected(Wireless). category PENDING: **20 Pending** · 22 Adopting · 24 Adopt Failed · 26 Managed By
-Others. category HEARTBEAT_MISSED: 30–33. category ISOLATED: 40–41. category DISCONNECTED: 0–1.
+Reverse-engineered from the decompiled controller (`dev/_jadx/`: ecsp-common/ecsp-server-core/ecsp-transporter-netty/manager-core/manager-message, all 1.3.7 / 5.15.24.19) and verified live against the Docker lab controller. This is the spec `dev/emulator/adopt_full.py` implements. Ports/framing/crypto/dispatch/state-machine/timing are all here; every non-obvious claim traces to a `class:line` in the jars.
 
 ---
-# Behavioral protocols (deep code trace, 2026-08-22)
 
-## A. Config-apply (SET_REQUEST / SET_RESPONSE) — how a device confirms config
-- Config is **batched**: many features → **one SET_REQUEST with one `sequenceId`**. A full apply is
-  several such SETs (each its own body + sequenceId + configVersion). A "feature" (row on the app's
-  Configuration-Result page) = a `SetKey` = a JSON property on the config body. (ES switches fragment
-  one body into multiple SETs sharing a sequenceId; APs/gateways don't.)
-- The controller **correlates SET_RESPONSE to SET_REQUEST by `sequenceId`** (via
-  `EcspV2DeviceServerProxy.sendSetRequest(mac, ver, body, sequenceId, timeoutMs)`). No response in time
-  → `TransError` **2600 = "Device response timed out"** (the exact per-feature failure the app shows).
-  Timeouts: **60 s AP**, 300 s gateway.
-- **A successful SET_RESPONSE (type 8192, body `BaseConfigResponse`) MUST:** echo `sequenceId` exactly ·
-  `errcode` = 0 (`@JsonProperty("errcode")`; `getErrcode()==0` required, `g/a.java:408`) · `configVersion`
-  = the request's configVersion · and the ECSP **header `error` = 0**. A wrong/missing `sequenceId`
-  yields 2600; a wrong `configVersion` instead raises a config-miss/desync event (`DEV_C_DSYNC`,
-  `configMissMatch`) but the feature may still clear.
-- **CONFIGURING(11) → CONNECTED(14):** on a version-bearing SET the device image goes CONFIGURING with
-  `configuringTimeoutTimestamp = now+timeout`, `configuringSequenceId`, and a `configuringSequenceIdSet`.
-  It flips to CONNECTED only when **every outstanding sequenceId is acked** (set emptied) —
-  `message/set/i.java`. A **plain INFORM does NOT** move a CONFIGURING device to CONNECTED. On timeout
-  the next inform reverts it to CONNECTED logging "…by long time inform, maybe something wrong".
-- **PROVISIONING(10):** SETs are cached/skipped; if `statusCategory` is not CONNECTED/HEARTBEAT_MISSED
-  the send is skipped entirely (`e.java:902` — the "statusCategory is not CONNECTED/HEARTBEAT_MISSED,
-  skip" log). So the device must already be CONNECTED for SETs to dispatch.
-- ⇒ **Emulator rule:** for every SET_REQUEST, within 60 s send SET_RESPONSE{sequenceId echoed, errcode:0,
-  configVersion:request's} + header error 0. Answer each distinct sequenceId. (Now implemented.)
+## 0. EMULATOR CONTRACT (the rules the device code MUST satisfy)
 
-## B. Provisioning state machine — when config is (re)pushed
-- Config push is triggered by **(1) a site/config change that bumps configVersion** (primary), **(2)
-  adoption** (inits configVersion from the device's reported value — `message/set/c.java:24`), **(3) a
-  device-initiated rebuild** carrying its configVersion (`rebuild/d.java:140` → controller replies full
-  config). It is **NOT every reconnect** — a plain heartbeat inform assembles no SET.
-- A controller-detected configVersion mismatch only sets `configMissMatch` + emits a desync log; the
-  actual re-push comes from the rebuild flow or the next config change.
-- ⇒ Our emulator flaps because it **re-runs full adoption on every reconnect** (fresh SYSTEM_NEGOTIATION
-  + SET_REQUEST = a re-provision), instead of the lightweight re-link (§D). Fixing the reconnect removes
-  the churn (and the SET-timeout window during drops).
+1. **Timestamps are milliseconds.** `MessageHeader.timestamp` is a `Long` ms. The manager sets a connected device's `lastSeen` directly from each inform's `header.timestamp` (`inform/a.java` `d.a(informDTO.getTimeStamp().longValue())`). Sending seconds → `lastSeen` reads as ~Jan 1970 → the staleness poll marks **Heartbeat-Missed** every cycle while each inform flips it back = the flap. **Use `int(time.time()*1000)` everywhere.**
+2. **One persistent socket per session.** The socket promoted to CONNECTED becomes the context's manage channel `A()`. `context/c.java:334` refreshes/keepalives the route ONLY if the message arrives on `A()` and status==CONNECTED; otherwise `V2_MANAGE_MESSAGE_HANDLER` (`a/b/d.java:23-31`) **closes the channel**. Send every INFORM on the same socket that finished the handshake.
+3. **Finish the handshake to CONNECTED**, not ADOPT_SUCCESS — send `INIT_SYNC_RESULT` on the manage socket so the context promotes to CONNECTED (`updateInitSyncSuccessContext`). Until then every inform trips the status guard.
+4. **INFORM body**: carry a ms `timestamp` and a `sequenceId` that **changes when content changes** (equal seq = idle repeat). After a SET, echo the config `sequenceId` so the manager confirms the apply.
+5. **SET_RESPONSE echoes the request's `header.seq`.** The config RPC correlates by `EcspMessage.getSeq()` = `header.seq` (else body `sequenceId`). Wrong seq → RPC never completes → stuck Configuring → ~10-min timeout → channel reset. Include `errcode:0` and header `error:0`.
+6. **RC4 is asymmetric on v2**: after `DEVICE_NEGOTIATION`, controller→device frames are RC4 (device must decode: `RC4(len4)++RC4(body)`, keystream reset per field, key = the device's own session key). Device→controller stays **plaintext** length-prefixed JSON inside TLS. (The symmetric `reinitRc4Handler` is v1-only; v2 swaps only the controller's outbound encoder.)
+7. **Stop discovery beaconing once adopted** (a real AP does). Resume only if the link genuinely drops.
+8. **Reconnect = fresh `PRE_CONNECT_INFO`** on a new TLS socket, then verify with the **learned site Device Account**. Only works after a clean adoption persisted the device into the managed model. Back off (~adopt/context timeout); never storm — a silent close is a manager null-branch a retry cannot fix.
 
-## C. INFORM contract — what keeps a device CONNECTED
-- **Heartbeat is transport-driven and content-agnostic**: the connected route/`lastSeen` is refreshed
-  per INFORM in `ecsp .../context/c.java` (requires status CONNECTED + channel==A()); a background
-  sweeper fires CONNECTED_TIMEOUT if `lastSeen` goes stale (→ HEARTBEAT_MISSED / drop). Fast heartbeat
-  keeps it alive (already implemented, ~3 s).
-- **Only `deviceInfo` is load-bearing**, and only the **first inform** hard-requires it (config-sync +
-  status→Connected abort if null — `inform/i.java:143`). Everything else (`ssidStats`, `wSettings`,
-  `radioTraffic`, `clients`, `lanTraffic`, `radioAccess`, …) is **optional stats** — omit freely; only
-  populates UI panels. `widsInform`/`wipsInform`/`callLogInform` are non-negligible only if you include
-  the key at all.
-- **No applied-configVersion field inside INFORM.** Config-applied is reported out-of-band via the
-  SET_RESPONSE path, OR on the first inform via `lastCfgResult`/`cfgResults` (=`ApConfigRespBody`
-  {sequenceId, errcode, configVersion}) **only if the controller is awaiting a result**.
-- Use a **changing header `seq`** each inform (the manager dedups repeats: equal seq → "ignore repeat
-  inform"). `needReply=1` asks for a reply; leave unset. `upTime` is display-only for APs (no reboot/
-  reprovision logic keys on it) — send increasing for clean UI, not load-bearing.
+---
 
-## D. Reconnect / REBUILD / RC4 re-key — the clean resume path
-- **Adopted-device reconnect does NOT re-provision.** Path: `discovery → PRE_CONNECT_INFO re-link →
-  cached device-verify/negotiation (fast branch for CONNECTED/ADOPT_SUCCESS) → ADOPT_SUCCESS →
-  REBUILD_REQUEST(36864, device→controller) → CONNECTED`, reusing the cached adopt info + server route.
-  `updateV2RebuildingContext` requires status ADOPT_SUCCESS + same channel, then promotes to CONNECTED
-  (`EcspV2DeviceContextHelper.java:256`). Only a full re-adopt occurs if the server route/context/key
-  expired.
-- `PreConnectInfo` carries `rebuild` (Int) + `token` (String) — a reconnecting device signals this; the
-  manager parses the token (`deviceInfo/c.java:99`). (Exact rebuild-branch semantics still being traced.)
-- **RC4 re-key**: `reinitRc4Handler` has exactly one caller (`server/c/f.java`, EcspVersion **V1**) — so
-  the pipeline-swap re-key is **V1-only**. On V1, the controller flips BOTH directions to RC4 (a)
-  immediately BEFORE sending the first SET_REQUEST on the ADOPT port, and (b) immediately AFTER sending
-  a REBUILD_RESPONSE on reconnect; key = per-device `serverRouteCache.getKey()`. The `resetConfig` field
-  inside REBUILD_RESPONSE is itself RC4'd with that key even while the frame is plaintext.
-  **For our V2 device** confidentiality is established by the device-negotiation handshake instead
-  (controller→device SYSTEM_NEGOTIATION is RC4 with our session key; device→controller stays plaintext —
-  matches what the emulator does).
-- REBUILD_RESULT (86016, device→controller) body = `BaseConfigResponse{sequenceId, errcode, configVersion}`.
-- ⇒ **Emulator TODO:** on reconnect, don't full-readopt — do the re-link + send **REBUILD_REQUEST** to
-  reach CONNECTED without a re-provision. (Blocked understanding: the "pending site" close on re-link —
-  final trace pending.)
+## 1. Transport, ports, framing, TLS
 
-## E. Operational commands (controller→device) — FORGET has a type; the rest are SET
-**Only FORGET is a dedicated message type. REBOOT, LOCATE, clear-settings, RF-scan, speed-test, etc.
-are all `SET_REQUEST` config sections answered with `SET_RESPONSE`.**
-- **FORGET**: `isResetConfig=true` → **FORGET_REQUEST(16384)** (device factory-resets) → **FORGET_
-  RESPONSE(20480)**; `false` → **FORGET_REQUEST_NO_RESET(131072)** (un-adopt, keep config) → **FORGET_
-  RESPONSE_NO_RESET(196608)**. Bodies are **empty** on the wire (`ForgetRequest.interval` only set on a
-  reset-with-delay). Response = empty, **`seq=null`, MAC-correlated** (NOT seq-correlated), header
-  `error=0`. Timeout 25 s. On send the controller tears down the device context (`c/a.java:61`). The
-  earlier log `failed to send v2 request FORGET_REQUEST seqId null` — `seqId null` is by design.
-- **REBOOT**: `SET_REQUEST{ "system": {action:0} }` (`BaseSystemConfig{action,param}`), blocking SET;
-  success read from SET_RESPONSE → status→Rebooting + DeviceEvent.REBOOT. No reboot message type.
-- **LOCATE (LED)**: `SET_REQUEST{ "led": {locate:true|false} }` (AP `EapLedConfig{enable:String,
-  locate:Boolean}`; switch `OswLedConfig` locate 1/0). Async/best-effort; controller auto-expires the
-  locate after **600 s** client-side (no duration on the wire). No locate message type.
-- **Other commands via SET keys**: `clearSettings`(Int), `remoteReset`(ApRemoteResetConfig),
-  `rfScan`(RFScanConfig), `speedTest`(ApSpeedTestConfig), `cableTest`(OswCableTestConfig),
-  `wifiControlLed`, `rssiLeds`. Long-running results (rfScan/speedTest/cableTest) come back **later as
-  `NOTIFY_REQUEST_V2(1048583)`** device→controller (`notify/req/*NotifyContent`), not in the SET_RESPONSE.
-- **Response-required gate** (`server/c/a.java:85`): the controller waits for a device reply ONLY for
-  `GET_REQUEST, SET_REQUEST, FORGET_REQUEST(_NO_RESET), UPGRADE_REQUEST_V2, REBUILD_RESPONSE`, and
-  `EVENT_PORTAL_AUTH` (seq). Everything else (INFORM, NOTIFY, discovery…) is fire-and-forget. **No
-  packet-level retransmit** — a missing reply just times out → the operation is marked failed.
-  ⇒ Emulator must reply to SET/GET/FORGET (and the portal-auth push) to avoid failed-command results.
+Ports (PortConfig.java): **29810** discovery UDP · 29811 manage-v1 TCP · 29812 adopt-v1 TCP · 29813 upgrade-v1 · **29814** adopt+manage-v2 TCP **TLS** · 29815 transfer-v2 TLS. v1/v2 split by URL param `ecsp-version`.
 
-## F. Events / notify / captive-portal  (pisowifi-relevant)
-- **Client/roaming/rogue/WIDS events ride inside INFORM** (`ApInformKeyEnum` keys: `clients`, `connRec`,
-  `portalAuthClients`, `roaming`/`roamRec`/`bSteerRec`, `rogueApList`, `widsInform`/`wipsInform`), not a
-  separate message. Join/leave is diffed from successive `clients` lists.
-- **NOTIFY_REQUEST(80)/_V2(1048583)** body `NotifyRequestBody{nid, sub, nre, ctnt}`; `sub` =
-  NotifySubjectEnum (1 MAC_AUTH, 2 SET_NOTIFY, 3 GENERAL, 5 TROUBLESHOOTING, 6 FILE_TRANSFER, 8
-  CLIENT_OPERATION, 10 DEVICE_DATA_REQUEST…). Controller replies **NOTIFY_REPLY(144)** `{nid, sub, err,
-  rst}` unless `nre==1`. Not required for health.
-- **Captive-portal auth (coin-op path):** device → **EVENT_PORTAL_QUERY(64)** `{queryInfos:[{mac, rid,
-  ssid, vid}]}` ("are these clients authorized?") → controller → **EVENT_PORTAL_AUTH(128)** `{authedUsers:
-  [{mac, rst(0=ok), start, end, up, down, trafficLimit/upload/downloadLimit}]}` (grant with validity
-  window + rate/data caps) → device → **EVENT_PORTAL_AUTH_RESPONSE(352)** seq-correlated ack. For an AP,
-  deauth/reauth may instead arrive as a `CLIENT_OPERATION` SET (`ClientControl`). The device also mirrors
-  the current authorized set in every INFORM `portalAuthClients`.
-- **REPORT(1376256)** body `{reportData:String}` — opaque bulk telemetry; optional, no reply.
+Framing: **4-byte big-endian length prefix + UTF-8 JSON `{header, body}`**. Max frame 1048576 plaintext / 10485760 RC4-inbound / 2000 UDP-discovery (UDP length must equal readable bytes). TLS on 29814 = server cert only, `needClientAuth=false` (device presents no cert; client side does no hostname/pin verification → emulator may use CERT_NONE).
 
-## G. Firmware upgrade (OTA)
-- **V1 (EAP path):** controller sends **UPGRADE_REQUEST(32768)** body `{port:29813, length:N}` — no URL/
-  MD5. Device connects **port 29813**, controller streams the **whole firmware image as one raw byte
-  payload** (no app-layer chunking; 64 MB cap). Device verifies MD5 itself and replies **UPGRADE_
-  RESPONSE(65536)** body `{errcode}` (0=ok, 50002=same version, else fail; null=send-fail). No progress %
-  on the wire — controller derives progress from its own stage machine.
-- **V2 (newer/cloud):** controller sends a **download URL** (`downloadLink` + staged timeouts); device
-  pulls firmware over HTTP itself (logic in an out-of-tree `firmware.upgrade` module).
-- **FILE_TRANSFER_V2 (port 29815)** is separate and **device→controller** (support/diag files):
-  FILE_TRANSFER_REQUEST_V2(1441792) per 512 KB chunk `{fileName,filePath,startIndex,endIndex,partition}`
-  → FILE_TRANSFER_RESPONSE_V2(1507328) `{errCode,data(base64),partition,…}`, controller reassembles +
-  MD5-checks. NOT firmware download.
-- UPGRADE_NOTIFY_REQUEST(77824) = empty relay/notify, not the transfer. An adopted device only needs to
-  participate in upgrade once one is initiated; health is independent (INFORM heartbeat).
+`MessageHeader` fields (order): seq, version, verCap, device, mac, type, error(=0 default), compress, dest, **timestamp(Long ms)**, ip, +seqNum/last (fragmentation). Required to be accepted: `mac` non-empty, `device` resolves via `DeviceType.resolve`, `type` a known `MessageType`, body matches the type's body class (empty-body types exempt) — else the channel is **closed** (`EcspMessage.isNotValid` + `n.received`).
 
-## H. The "pending site" reset + heartbeat-missed timeout (root-caused)
-- **"Invalid v2 adopt process with pending site"** (`device/port/transport/g.java:76`): on a v2
-  pre-connect/re-link the manager checks `R.a("PENDING-SITE", deviceImage.site.id)` — if the device is
-  parked in the placeholder site **`PENDING-SITE`** and the controller is **standalone** (`!system.a.b()`),
-  it returns null → the pre-connect handler closes the channel → device drops to Pending. (In cloud/
-  cluster mode `system.a.b()==true` it instead does a site-retry `b(...)`, not a reject.) A device lands
-  in `PENDING-SITE` when adoption didn't assign it to a real site — which our repeated full-readopt
-  cycles caused. ⇒ Root cause of the reconnect→Pending resets = the readopt churn leaving the device
-  site-less.
-- **Heartbeat-missed timeout**: a Redis-zset deadline + a **20 s poll** (`persistent/b.java`). AP
-  timeout = `lastSeen + 60 s (busy)` or `+180 s (idle, informIdle=true)`; flip to HEARTBEAT_MISSED(30) in
-  `j/b.java:261`. A re-inform restores CONNECTED (HB-missed is NOT excluded from the inform→connected
-  path, `inform/a.java:54`). Our 3 s heartbeat is far under 60 s, so steady-state never HB-misses — the
-  HB-missed flashes were only the reconnect drops (channel gap >60 s during readopt settling).
+`EcspMessage.getSeq()` = `header.seq` if non-null, else body `sequenceId` (`BaseConfigResponse`/`BaseGetResponse`), else `additionalProperties[sequenceId]`.
 
-## IMPLEMENTATION PLAN — stable reconnect (grounded, ready to build+test)
-Everything the emulator does up to CONNECTED is correct. The remaining flaps all trace to **re-running
-full adoption on every reconnect**. The grounded fix:
-1. **On a channel drop, do a lightweight RE-LINK, not a full re-adopt.** The adopted-device reconnect
-   is: discovery keepalive (already running) → the controller, seeing an adopted device, drives
-   PRE_CONNECT; the device does the cached verify/negotiation fast-branch → ADOPT_SUCCESS → sends
-   **REBUILD_REQUEST(36864)** → controller `updateV2RebuildingContext` promotes to CONNECTED **without a
-   SET/SYSTEM_NEGOTIATION re-provision**. Implement: after reaching ADOPT_SUCCESS on a reconnect, send
-   REBUILD_REQUEST and expect CONNECTED; skip the re-provision path. (`PreConnectInfo.rebuild`/`token`
-   likely signal this — set `rebuild=1` on reconnect pre-connects.)
-2. **Don't let the device fall into `PENDING-SITE`.** This is controller-side site assignment; the
-   practical lever is (1) — stop churning so the initial adoption's real-site assignment sticks. If a
-   device is already stuck in PENDING-SITE from prior testing, a fresh MAC (clean device record) clears
-   it. (Cloud-mode controllers auto site-retry; standalone rejects.)
-3. **SET_RESPONSE errcode:0** — DONE (this commit). Ensures each pushed feature clears instead of reading
-   as unapplied.
-4. INFORM already fast (3 s) + live vitals + ssidStats + changing seq — sufficient; no HB-miss in steady
-   state once (1) removes the reconnect gaps.
+## 2. Crypto
+All hex digests **UPPERCASE** (`CipherUtils.bytesToHexString`). `ecsp2_auth(user, md5pw, rndKey) = SHA256_UPPER(SHA256_UPPER(user+md5pw)+rndKey)`, `md5pw = UPPER MD5(plaintext)`; controller compares `equalsIgnoreCase`. `DeviceVerifyInfo = {auth, randomKeyForSystemVerify}` (mutual proof: device proves over `randomKeyForDeviceVerify`, controller proves back over `randomKeyForSystemVerify`). RC4 standard KSA/PRGA, per-field keystream reset. RSA `SHA1withRSA` sign; `encrypt/decryptByPrivateKey`; netty keypair from `GlobalConfig.NETTY_RSA_PRIVATE_KEY`. Session RC4 key: device RSA-wraps with controller pubkey → `DEVICE_NEGOTIATION.body.key`.
 
-These are code-grounded, not trial-and-error. (2)+(1) are the untested pieces — build the REBUILD
-re-link path and test with a fresh MAC when back at the keyboard.
+## 3. Message types & dispatch (ecsp-common MessageType.java is canonical)
+DISCOVERY=1 PRE_ADOPT_REQUEST=2 PRE_CONNECT_INFO=3 ADOPT_REQUEST=16 EVENT_PORTAL_QUERY=64 NOTIFY_REQUEST=80 EVENT_PORTAL_AUTH=128 INFORM_REQUEST=256 INFORM_RESPONSE=512 SET_REQUEST=4096 INIT_SYNC=4352 SET_RESPONSE=8192 FORGET_REQUEST=16384 GET_REQUEST=24576 GET_RESPONSE=28672 UPGRADE_REQUEST=32768 REBUILD_REQUEST=36864 REBUILD_RESPONSE=40960 UPGRADE_RESPONSE=65536 UPGRADE_REQUEST_V2=69632 UPGRADE_RESPONSE_V2=73728 REBUILD_RESULT=86016 FORGET_REQUEST_NO_RESET=131072 **PRE_CONNECT_INFO_RESPONSE=1048576** DEVICE_VERIFY_INFO=1048577 DEVICE_VERIFY_RESPONSE=1048578 SYSTEM_VERIFY_RESULT=1048579 DEVICE_NEGOTIATION=1048580 SYSTEM_NEGOTIATION=1048581 INIT_SYNC_RESULT=1048582 VERIFY_RESULT_ACK=1048585 INIT_SYNC_RESULT_ACK=1048586. Empty-body: INFORM_RESPONSE, FORGET_*, SYSTEM_VERIFY_RESULT, VERIFY_RESULT_ACK, INIT_SYNC_RESULT(_ACK).
+
+Dispatcher `server/c/n.java`: verify/negotiation inbound (cases 1-5) → dedicated handlers (state-driven, **no seq**); INFORM (case 6) → manage handler + relay; SET/GET/UPGRADE_V2/PORTAL_AUTH_RESPONSE/REBUILD_RESULT (cases 12-16) → **RPC completion** gated by `getSeq()!=null && channel==A() && status==CONNECTED`; FORGET responses (17-18) mac-only; **default → channel.close()** (controller→device-only types rejected inbound).
+
+**Seq correlation** (`server/c/a.java` + waiter cache keyed by mac+response-type+seq): controller waits only for GET/SET/FORGET/UPGRADE_V2/REBUILD_RESPONSE/PORTAL_AUTH. **Device MUST echo request `header.seq`** on SET/GET/REBUILD_RESULT/UPGRADE_V2/PORTAL_AUTH responses. FORGET = mac-only. Verify/negotiation = never seq-correlated.
+
+## 4. Adoption state machine (v2/29814)
+States: DISCOVERY(1) … ADOPTING_PRE_CONNECT(4) ADOPTING_DEVICE_VERIFY(5) ADOPTING_SYSTEM_VERIFY(6) ADOPT_SUCCESS(7) CONNECTED(8) … CONNECTED_TIMEOUT(12) CONNECTED_ERROR(13).
+
+Sequence (device-initiated on TLS, controller replies same socket):
+1. DISCOVERY (UDP 29810) → Pending. Operator taps Adopt → controller sends **PRE_ADOPT_REQUEST** (UDP) `{adoptPort}`.
+2. Device opens TLS 29814 → **PRE_CONNECT_INFO** `{needUsername:true, controllerSetting.controllerId, deviceInfo, deviceMisc, header.dest=omadacId}`.
+3. Controller → **PRE_CONNECT_INFO_RESPONSE** `{randomKeyForDeviceVerify, username, destIp}` (echoes device seq).
+4. Device → **DEVICE_VERIFY_INFO** `{auth=ecsp2_auth(user,MD5(pass),rkDeviceVerify), randomKeyForSystemVerify}`.
+5. Controller → **DEVICE_VERIFY_RESPONSE** `{error:0, auth=systemAuth}`.
+6. Device → **SYSTEM_VERIFY_RESULT** (empty) → ctx ADOPT_SUCCESS. Controller → **VERIFY_RESULT_ACK**.
+7. Device → **DEVICE_NEGOTIATION** `{key=b64(RSA_pub(RC4key)), deviceInfo:{devCap,radioCap,components,encryptedHwId,encryptedOemId}}` (fragmentable).
+8. Controller → **SYSTEM_NEGOTIATION** (RC4) = initial config incl **userAccount{newUsername,newPassword=UPPER MD5}**, timeSetting, dst.
+9. Device → **INIT_SYNC_RESULT** (empty, error 0) → ctx **CONNECTED**. Controller → **INIT_SYNC_RESULT_ACK**.
+10. Controller → **SET_REQUEST** (RC4) `{sequenceId, configVersion, config}` → Device → **SET_RESPONSE** `{sequenceId, errcode:0, configVersion}` with **header.seq = request seq** → Configuring→Connected.
+
+Credentials: (a) factory admin/admin — first adopt; (b) adopt-dialog/pending — candidate only; (c) **site Device Account** pushed via `userAccount` — device stores + verifies with it on reconnect. Controller iterates the whole candidate list.
+
+## 5. Connected keepalive & the flap (see §0.1)
+`context/c.java:334` refreshes the Redis route (TTL `connectedServerRouteExpire`=86400s/24h) every `updateServerRoutePeriod`=6h — but only if the message is on `A()` and status==CONNECTED, else the channel is closed. period(6h)<expire(24h) ⟹ route config is stable; the flap was purely the seconds-vs-ms `lastSeen` bug. INFORM_RESPONSE (512) is a fire-and-forget empty ack. Manager Heartbeat-Missed uses `lastSeen` (inform ms timestamp) + `refreshTimeout`, not the route TTL.
+
+## 6. Reconnect, context cleanup, forget
+Reconnect = new TLS socket + **PRE_CONNECT_INFO** (never REBUILD_REQUEST — that needs a live `A()` in ADOPT_SUCCESS). Controller finds creds from the managed model `L` (`q()` current + `p()` previous site Device Account); device verifies with `q()`. **Null (silent close)** when the MAC isn't in `L` (never cleanly adopted) — a retry can't fix it; back off. A stale CONNECTED context doesn't block re-link (old channel closed at adopt-success, reconnect counter bumped); it self-heals via CONNECTED_TIMEOUT. Mid-adopt drop → context resets to DISCOVERY via adoptChannelTimeout. FORGET_REQUEST(16384)=factory reset→discoverable; FORGET_REQUEST_NO_RESET(131072)=unmanage.
+
+## Timing constants (EcspServerProperties / DeviceContextTimeout .class defaults)
+updateServerRoutePeriod=21600000ms(6h) · connectedServerRouteExpire=86400s(24h) · adoptingServerRouteExpire=300s ·
+informChannelTimeout=300000ms(5m) · informResetTimeout=30000ms(yaml) · adoptChannelTimeout=60000 · adoptSuccessTimeout=65000 ·
+pendingTimeout/pendingPreAdoptTimeout=40000 · deviceVerify/systemVerifyTimeout=10000 · manageCoolDownTimeout=5000 · grpcTimeout=5000 · DEVICE_CONTEXT_TIMEOUT=900000(15m).
