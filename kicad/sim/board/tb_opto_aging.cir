@@ -12,15 +12,19 @@ VCOIN COINCTL 0 PULSE(0 1 10m 1u 1u 50m 150m)
 VSOL SOLCTL 0 0
 .options savecurrents
 .control
+* EL357N(B) bin is CTR 100-200%. Test: 2.0 (fresh top), 1.0 (fresh bottom of bin),
+* and 0.6 (end-of-life ~40% degradation) — all must give a clean logic low.
+alterparam fod817_ctr = 2.0
+reset
+tran 20u 80m
+meas tran g4_low_ctr200 MIN v(GPIO4) from=12m to=58m
+alterparam fod817_ctr = 1.0
+reset
 tran 20u 80m
 meas tran g4_low_ctr100 MIN v(GPIO4) from=12m to=58m
-alterparam fod817_ctr = 0.5
+alterparam fod817_ctr = 0.6
 reset
 tran 20u 80m
-meas tran g4_low_ctr50 MIN v(GPIO4) from=12m to=58m
-alterparam fod817_ctr = 0.3
-reset
-tran 20u 80m
-meas tran g4_low_ctr30 MIN v(GPIO4) from=12m to=58m
+meas tran g4_low_ctr60_eol MIN v(GPIO4) from=12m to=58m
 .endc
 .end

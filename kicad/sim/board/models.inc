@@ -19,10 +19,13 @@
 * Drain-source avalanche clamp (VDMOS has no breakdown): BVdss min 40V, real parts ~44V
 .model DAVAL D(IS=1e-14 BV=44 IBV=1m RS=0.2)
 
-* ---------- U1 FOD817 optocoupler (A K C E), CTR ~100% band, ~3us response ----------
-* FOD817_CTR is global so aging/tolerance benches can sweep it (LED dims with
-* age; datasheet CTR bin is wide). 1.0 = nominal, 0.5 = end-of-life.
-.param FOD817_CTR=1.0
+* ---------- U1 EL357N(B)(TA)-G optocoupler (A K C E), ~3us response ----------
+* Replaces the FOD817 (2026-08-31): compact SOP-4, identical pinout (1=A 2=K
+* 3=E 4=C per datasheet), LED reverse rating 6V (same as 817 — coin-fault margin
+* unchanged), LED Vf ~1.2V (same GaAs IR emitter). The (B) CTR bin is 100-200%
+* (1.0-2.0 here) vs the 817's wide 50-600% — HIGHER, so the coin logic-low only
+* gets stronger. Subckt name kept as FOD817 (drop-in); FOD817_CTR is the swept CTR.
+.param FOD817_CTR=1.5
 .subckt FOD817 A K C E
 DLED A x DIRLED
 VSENS x K 0

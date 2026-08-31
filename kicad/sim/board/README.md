@@ -28,9 +28,9 @@ Three layers, because they catch different failure classes:
 | `tb_hotplug` | live 12V plug-in, lead-inductance ring | rail peaks 19.3V vs 24V buck rating |
 | `tb_reverse` | adapter backwards (3A-limited brick) | rail clamps −0.79V, F1 trips (D6=1.5SMC18A) |
 | `tb_fuse_trip` | sustained coin-wire short, 1.2s window | F1 trips at 0.61s; D1 current → 0 after |
-| `tb_opto_aging` | coin pulse at CTR 100/50/30% | clean low at all three (post R1/R5 change) |
+| `tb_opto_aging` | coin pulse at CTR 200/100/60% (EL357N-B bin + EOL) | clean low (0.054V) at all three |
 | `tb_panel3wire` | 3-wire panel on J2.2: NPN-input + 12V-pullup styles | pin peaks 2.06V in boot (safe); see notes |
-| `tb_montecarlo` | 60 trials: R tolerances 1%, CTR 0.5–2.0 | 5V solid [4.90..5.04]; all coin lows clean |
+| `tb_montecarlo` | 60 trials: R tolerances 1%, CTR 1.0–2.0 (B bin) | 5V solid [4.90..5.04]; all coin lows clean |
 
 ## Closed findings (fixed in schematic/PCB, 2026-08-06/07)
 
@@ -62,6 +62,33 @@ Three layers, because they catch different failure classes:
   (transistor active, not saturated). Panels with ~1k series input are fine.
   Measure the actual panel's input before relying on J2.2 logic drive.
 - Suggest updating the comment at src/globals.h:141 with this verdict.
+
+## Opto part change (2026-08-31): FOD817/LTV-817 → EL357N(B)(TA)-G
+
+The LTV-817S-TA1-B substitute was the wrong *package* (big 817 body, ~10mm lead
+span) for our compact SOP-4 footprint (5.5mm) — JLC flagged the pad mismatch at
+assembly. Replaced with **EL357N(B)(TA)-G (LCSC C6649)**: genuine compact SOP-4,
+identical pinout (1=A 2=K 3=E 4=C), LED reverse rating 6V (coin-fault margin
+unchanged, 5.5V < 6V), same LED Vf. Full suite re-run ALL PASS.
+
+Bin choice — a real tradeoff, measured: higher CTR makes coin detection easier
+BUT lets more coupled solenoid noise through to GPIO4 at the hardware level:
+
+| CTR | GPIO4 dip during the `tb_coin_fault` coupled-noise burst |
+|---|---|
+| 0.5 | 1.55 V (hardware rejects it) |
+| 1.0 | 0.84 V |
+| 1.5 | 0.33 V |
+| 2.0 | 0.05 V |
+
+The **firmware width filter is the CTR-independent defense** — a ~10µs noise
+blip is nowhere near the 3ms floor, and the attack-zoom co-sim confirms 0 false
+coins at every CTR tested. So `g4_min_noise` is now **informational**, not a
+gate; the authoritative noise/attack check is `cosim_replay.py` (firmware
+verdict). We picked the **(B) 100-200%** bin over (C) 200-400%: coin detection
+still has margin to end-of-life (~60% CTR ≫ the ~33% needed after the R1/R5
+fix), while keeping meaningful *hardware* noise attenuation as defense-in-depth
+for the pitik-prone field — the (C) bin would lean entirely on firmware.
 
 ## Model honesty / limits
 

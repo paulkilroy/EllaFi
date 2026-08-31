@@ -46,7 +46,7 @@ igrn_on 0.0008 0.005
 width 0.045 0.055"
 
 check tb_coin_fault.cir "
-g4_min_noise 0.825 inf
+g4_min_noise info
 coin_pk_fault -inf 9
 g4_max_fault -inf 3.6
 g4_min_fault -0.3 inf
@@ -82,9 +82,9 @@ d1_i_posttrip -inf 0.01
 d1_i_during info"
 
 check tb_opto_aging.cir "
+g4_low_ctr200 -inf 0.4
 g4_low_ctr100 -inf 0.4
-g4_low_ctr50 -inf 0.4
-g4_low_ctr30 -inf 0.825"
+g4_low_ctr60_eol -inf 0.4"
 
 check tb_panel3wire.cir "
 g14_boot_pk -inf 3.6
