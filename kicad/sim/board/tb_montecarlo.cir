@@ -13,7 +13,7 @@ VCOIN COINCTL 0 PULSE(0 1 5m 1u 1u 20m 1)
 VSOL SOLCTL 0 0
 .control
 repeat 60
-  let ctr_draw = 1.5 + 0.5*sunif(0)
+  let ctr_draw = 2.0 + 1.0*sunif(0)
   alterparam fod817_ctr = $&ctr_draw
   reset
   let r7v = 100k*(1 + 0.01*sunif(0))

@@ -146,6 +146,13 @@ Still open before/at ordering:
 - **3-wire panel compatibility note:** 3.3V drive on J2.2 only marginally switches panels with ~10k
   series inputs (sim: transistor active, not saturated) — measure the actual panel's input before
   relying on it; ~1k inputs are fine.
+- **🔧 rev-B: coin-line reverse clamp for the opto LED.** The as-built opto is the **TLP185 (VR=5V)** —
+  the FOD817/EL357N (6V) were out of stock. In a 12V-short-onto-coin-wire fault the LED sees 5.5V
+  reverse, 0.5V over its 5V rating (fault-only, transient, F1 trips — low risk on this batch, but not
+  ideal over repeated faults). Fix next spin: lower D1's standoff (e.g. a ~5.1V TVS) or add a series
+  diode in the opto LED path so the reverse stays under 5V during a coin-line short. Detail:
+  `kicad/sim/board/README.md` (Final opto section) + `tb_coin_fault.cir` (opto_vrev_pk = 5.5V).
+  Bring-up: do NOT deliberately short 12V onto the coin signal wire.
 
 ## 🟢 Docs / tooling
 

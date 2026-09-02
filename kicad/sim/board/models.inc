@@ -19,13 +19,14 @@
 * Drain-source avalanche clamp (VDMOS has no breakdown): BVdss min 40V, real parts ~44V
 .model DAVAL D(IS=1e-14 BV=44 IBV=1m RS=0.2)
 
-* ---------- U1 EL357N(B)(TA)-G optocoupler (A K C E), ~3us response ----------
-* Replaces the FOD817 (2026-08-31): compact SOP-4, identical pinout (1=A 2=K
-* 3=E 4=C per datasheet), LED reverse rating 6V (same as 817 — coin-fault margin
-* unchanged), LED Vf ~1.2V (same GaAs IR emitter). The (B) CTR bin is 100-200%
-* (1.0-2.0 here) vs the 817's wide 50-600% — HIGHER, so the coin logic-low only
-* gets stronger. Subckt name kept as FOD817 (drop-in); FOD817_CTR is the swept CTR.
-.param FOD817_CTR=1.5
+* ---------- U1 TLP185(GR-TPL,SE) optocoupler (A K C E), ~3us response ----------
+* Final part (2026-09-02): TLP185, GR CTR bin 100-300% (1.0-3.0 here). Compact
+* SOP-4-2.54mm (JLC package match confirmed at assembly), identical pinout
+* (1=A 2=K 3=E 4=C), Vf ~1.25V. LED reverse rating VR=5V — LOWER than the 817/
+* EL357N (6V): the 12V-short-onto-coin-wire FAULT drives the LED to 5.5V reverse,
+* 0.5V/10% over. Fault-only (normal operation never reverses the LED), transient,
+* F1 trips. Rev-B: add a coin-line reverse clamp. Subckt name kept as FOD817.
+.param FOD817_CTR=2.0
 .subckt FOD817 A K C E
 DLED A x DIRLED
 VSENS x K 0

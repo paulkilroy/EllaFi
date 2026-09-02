@@ -8743,7 +8743,7 @@
 				)
 			)
 		)
-		(property "Value" "FOD817S"
+		(property "Value" "TLP185(GR-TPL,SE)"
 			(at 189.23 111.76 0)
 			(show_name no)
 			(do_not_autoplace no)
@@ -8811,7 +8811,7 @@
 				)
 			)
 		)
-		(property "Mfg_PN" "LTV-817S-TA1-B"
+		(property "Mfg_PN" "TLP185(GR-TPL,SE)"
 			(at 189.23 118.11 0)
 			(hide yes)
 			(show_name no)
@@ -8822,7 +8822,7 @@
 				)
 			)
 		)
-		(property "LCSC" "C109226"
+		(property "LCSC" "C128776"
 			(at 189.23 118.11 0)
 			(hide yes)
 			(show_name no)

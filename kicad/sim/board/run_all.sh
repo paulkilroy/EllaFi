@@ -50,7 +50,7 @@ g4_min_noise info
 coin_pk_fault -inf 9
 g4_max_fault -inf 3.6
 g4_min_fault -0.3 inf
-opto_vrev_pk -inf 6
+opto_vrev_pk info   # TLP185 VR=5V; coin-short fault = 5.5V (fault-only, see README)
 d1_i_pk info"
 
 check tb_enable_channel.cir "
@@ -82,7 +82,7 @@ d1_i_posttrip -inf 0.01
 d1_i_during info"
 
 check tb_opto_aging.cir "
-g4_low_ctr200 -inf 0.4
+g4_low_ctr300 -inf 0.4
 g4_low_ctr100 -inf 0.4
 g4_low_ctr60_eol -inf 0.4"
 

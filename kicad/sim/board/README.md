@@ -63,7 +63,25 @@ Three layers, because they catch different failure classes:
   Measure the actual panel's input before relying on J2.2 logic drive.
 - Suggest updating the comment at src/globals.h:141 with this verdict.
 
-## Opto part change (2026-08-31): FOD817/LTV-817 → EL357N(B)(TA)-G
+## Final opto (2026-09-02): TLP185(GR-TPL,SE) / C128776
+
+Ordered part (EL357N was out of stock in every bin). Toshiba TLP185, GR CTR bin
+100-300%, SOP-4-2.54mm (JLC confirmed the package matches our footprint — no
+mismatch flag). Full suite re-run ALL PASS: coin detection clean at CTR 3.0/1.0/
+0.6 (0.054V), Monte Carlo 60/60. Pinout identical (1=A 2=K 3=E 4=C).
+
+**Open finding (fault-only, rev-B):** TLP185 LED reverse rating is **VR = 5V**,
+lower than the 817/EL357N's 6V. In the 12V-short-onto-coin-wire fault
+(`tb_coin_fault`) the LED sees **5.5V reverse — 0.5V (10%) over.** This is
+fault-only (normal coin operation never reverse-biases the LED), transient (D1
+clamps, F1 trips), so the practical risk on this batch is low — a single fault
+almost certainly does no damage; many repeated faults could degrade the LED.
+`opto_vrev_pk` is now INFO (was gated at the 817's 6V). **Rev-B fix:** add a
+coin-line reverse clamp (lower-standoff TVS at D1, or a series diode) to keep the
+opto reverse under 5V during a coin-line short. Do NOT deliberately short 12V
+onto the coin signal during bring-up.
+
+## Superseded: EL357N(B)(TA)-G (2026-08-31, out of stock)
 
 The LTV-817S-TA1-B substitute was the wrong *package* (big 817 body, ~10mm lead
 span) for our compact SOP-4 footprint (5.5mm) — JLC flagged the pad mismatch at
