@@ -10,13 +10,6 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ## 🔴 Near-term (next up)
 
-- **🔴 BUG: SSL `-32512` (memory allocation failed) → repeated OUT OF SERVICE.** `refreshHotspotSessionCache()`
-  (omada.cpp ~618) holds **three** big JsonDocuments — `hotspotDoc` (63 KB) + `allDoc` (49 KB) + `merged` —
-  live for the whole function, then opens **new TLS connections** (`refreshControllerStatus`/`refreshDeviceStatus`,
-  lines 701-702) while they're still alive. ArduinoJson docs + mbedTLS both use **internal DRAM** (not the 8 MB
-  PSRAM on the N16R8), so the handshake can't get its ~40 KB → `-32512`. Fix: (a) scope the docs so they free
-  before the SSL calls, and/or (b) allocate the big docs from **PSRAM** (custom ArduinoJson allocator, scales as
-  the client list grows); consider stream+filter parse + one reused TLS conn. Confirmed from serial log 2026-07.
 - **🟡 Controller auto-discovery (local HW controller)** — kill the "controller IP moved, config stale" outages.
   mDNS is out (Omada doesn't advertise it). Options: read **DHCP Option 138** (an Omada gateway can serve it)
   via an lwIP custom-option hook, or a **subnet-scan fallback** on `setupOmada` failure — TCP-probe :443 across
@@ -178,6 +171,15 @@ Still open before/at ordering:
 
 ## ✅ Done this cycle (so it isn't re-raised)
 
+**SSL `-32512` (OOM) → OUT OF SERVICE — FIXED (f39cfc7).** Root cause: the two client-list
+JsonDocuments + the DRAM `String` from `getString()` sat in internal DRAM across the following TLS
+handshakes (`refreshControllerStatus`/`refreshDeviceStatus`), leaving <40 KB contiguous for mbedTLS.
+Fix (complete, not a mask): `PsramSink` (a `Stream` that `writeToStream`-de-chunks the body **straight
+into PSRAM** — no contiguous DRAM `String` at all) + parse trees on `&psramAlloc` + the docs scoped to
+free before the TLS calls. Net: the big client data never touches internal DRAM, so the handshake
+always has its ~40 KB. Compiles clean; final live re-confirm = the `heap after cache refresh:
+internal=…` log staying healthy across refreshes (and the build-63 healthcheck `largest`-block field
+if fragmentation is ever suspected). ·
 HMAC-authenticated mesh + replay/freshness (audit **S3**, kills the **S2** trigger forgery) ·
 **C2** MAC-keyed session cache (use-after-free + re-IP) · **C4** UDP socket mutex · **S4** masked-
 password brick fix + **C1**/**C3** (v1.3.0) · admin **challenge-response** auth + IP-bound token +
