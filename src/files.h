@@ -30,6 +30,12 @@ void purgeOldLogEntries(const char* path, time_t maxAgeSeconds = 86400, int maxE
 void appendErrorLog(const char* tag, const char* msg);
 void appendRefundLog(const String& mac, int coins, int minutes, const String& code);
 void appendSaleLog(int coins, int minutes, const String& nodeMac = "");
+// Client-activity events the firmware itself initiates (AUTH, EXTEND, REFUND, PAUSE, RESUME). One
+// JSON line per event to /activity.log. Natural session expiry is NOT here — the controller owns the
+// countdown and drops the session silently, so the ESP32 never observes a real expire event (and
+// Omada already shows expiry natively). This is the single source that will also feed the Omada
+// device Logs (inform `log` injection) in the Phase-B on-device port — keep these call sites canonical.
+void appendActivityLog(const char* action, const String& mac, int coins, int remainingMin, const String& node = "");
 String generateRefundCode();
 
 // Optional callback invoked for W/E log entries — used by network.cpp to forward slave logs to master.

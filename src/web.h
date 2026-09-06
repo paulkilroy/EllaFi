@@ -6,6 +6,7 @@
 #include "embedded_files.h"
 
 void setupWeb();
+void sampleResources();   // push one resource snapshot into the history ring; called from the main loop
 void setupOtaRoute();
 void setupFsOtaRoute();
 esp_err_t handleFwBin(PsychicRequest* request, PsychicResponse* response);
@@ -21,6 +22,8 @@ esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleGetStatus(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleNotFound(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleRefunds(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleActivity(PsychicRequest* request, PsychicResponse* response);
+esp_err_t handleResources(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleErrors(PsychicRequest* request, PsychicResponse* response);
 esp_err_t handleProgram(PsychicRequest* request, PsychicResponse* response);
 void handleWsOpen(PsychicWebSocketClient* client);

@@ -76,6 +76,13 @@
     .tag-err  { background: #c0392b22; color: #e74c3c; }
     .tag-coin { background: #2980b922; color: #5dade2; }
     .tag-vchr { background: #27ae6022; color: #2ecc71; }
+    /* activity-log action badges */
+    .tag-AUTH   { background: #27ae6022; color: #2ecc71; }
+    .tag-EXTEND { background: #2980b922; color: #5dade2; }
+    .tag-REFUND { background: #c0392b22; color: #e74c3c; }
+    .tag-PAUSE  { background: #f0b42922; color: #f0b429; }
+    .tag-RESUME { background: #16a08522; color: #1abc9c; }
+    .axis { display: flex; justify-content: space-between; font-size: 10px; color: #4a5a70; margin-top: 3px; font-variant-numeric: tabular-nums; }
     progress { width: 100%; height: 8px; border-radius: 4px; margin-top: 8px; }
     .msg { font-size: 13px; color: #8a9ab0; margin-top: 8px; min-height: 20px; }
     .loading-bar { height: 3px; background: #2e3f58; border-radius: 2px; overflow: hidden; margin-bottom: 12px; }
@@ -367,6 +374,22 @@
 <!-- ── LOGS ───────────────────────────────────────────────────────── -->
 <div class="panel" id="panel-logs">
 
+  <!-- ── Client activity log ───────────────────────────────────────── -->
+  <!-- The operator-facing event stream (coin auth/extend/refund/pause/resume). Same source that
+       will be mirrored into the Omada device Logs once the Phase-B on-device port is built. -->
+  <div class="section">
+    <div class="section-title">
+      Activity Log
+      <button class="btn btn-sm btn-primary" onclick="loadActivity()" style="margin-left:auto">Refresh</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>Time</th><th>Action</th><th>Client</th><th>Amount</th><th>Remaining</th><th>Node</th></tr></thead>
+        <tbody id="act-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- ── Live device log ───────────────────────────────────────────── -->
   <div class="section">
     <div class="section-title">
@@ -517,6 +540,18 @@
 
 <!-- ── SYSTEM ─────────────────────────────────────────────────────── -->
 <div class="panel" id="panel-system">
+  <!-- ── Resource utilization ──────────────────────────────────────── -->
+  <!-- Rolling ~30-min history of the master's free heap, free PSRAM, and socket-pool use, sampled
+       every 30s on-device. A dip here is the early warning behind an OUT-OF-SERVICE. -->
+  <div class="section">
+    <div class="section-title">
+      Resource Utilization
+      <span class="muted" style="font-weight:normal;text-transform:none;letter-spacing:0;font-size:11px">last 24 h · since boot</span>
+      <button class="btn btn-sm btn-primary" onclick="loadResources()" style="margin-left:auto">Refresh</button>
+    </div>
+    <div id="res-charts"><div class="muted">Loading…</div></div>
+  </div>
+
   <div class="section">
     <div class="section-title">Update from GitHub</div>
     <p class="muted" style="margin:0 0 12px">Pull the latest published build straight from GitHub — nothing to build or upload. The master updates first; slaves follow automatically.</p>
@@ -653,10 +688,10 @@ function showTab(name, btn) {
   if (name === 'dashboard') loadDashboard();
   if (name === 'sales')     loadSales();
   if (name === 'vouchers')  { loadSellers(); loadVouchers(); }
-  if (name === 'logs')      { startDevLog(); loadErrors(); loadRefunds(); }
+  if (name === 'logs')      { startDevLog(); loadActivity(); loadErrors(); loadRefunds(); }
   else                      { stopDevLog(); }
   if (name === 'settings')  { loadConfig(); loadSellers().then(renderPeopleSection); }
-  if (name === 'system')    checkGithub();
+  if (name === 'system')    { checkGithub(); loadResources(); }
 }
 
 // Manual refresh — re-run the active tab's loaders. Nothing auto-polls anymore (conservative on
@@ -667,9 +702,9 @@ function refreshActiveTab() {
   if      (name === 'dashboard') loadDashboard();
   else if (name === 'sales')     loadSales();
   else if (name === 'vouchers')  { loadSellers(); loadVouchers(); }
-  else if (name === 'logs')      { pollDevLog(); loadErrors(); loadRefunds(); }
+  else if (name === 'logs')      { pollDevLog(); loadActivity(); loadErrors(); loadRefunds(); }
   else if (name === 'settings')  { loadConfig(); loadSellers().then(renderPeopleSection); }
-  else if (name === 'system')    checkGithub();
+  else if (name === 'system')    { checkGithub(); loadResources(); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1970,6 +2005,30 @@ async function loadErrors() {
   } catch { tbody.innerHTML = '<tr><td colspan="3" style="color:#e74c3c">Failed to load</td></tr>'; }
 }
 
+async function loadActivity() {
+  const tbody = document.getElementById('act-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" class="muted">Loading...</td></tr>';
+  try {
+    const r = await fetch('/admin/activity');
+    if (!r.ok) { tbody.innerHTML = '<tr><td colspan="6" class="muted">No data</td></tr>'; return; }
+    const rows = await r.json();  // already newest-first
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="6" class="muted">No activity logged</td></tr>'; return; }
+    tbody.innerHTML = rows.map(e => {
+      const t = new Date((e.ts || 0) * 1000).toLocaleString();
+      const amt = e.coins ? `${e.coins} coin${e.coins > 1 ? 's' : ''}` : '—';
+      const rem = (e.remain != null) ? `${e.remain} min` : '—';
+      return `<tr>
+        <td style="white-space:nowrap" class="muted">${t}</td>
+        <td><span class="tag tag-${e.action}">${e.action}</span></td>
+        <td style="font-size:11px;font-family:monospace">${e.mac || '?'}</td>
+        <td>${amt}</td>
+        <td>${rem}</td>
+        <td style="font-size:11px;font-family:monospace" class="muted">${e.node || '—'}</td>
+      </tr>`;
+    }).join('');
+  } catch { tbody.innerHTML = '<tr><td colspan="6" style="color:#e74c3c">Failed to load</td></tr>'; }
+}
+
 async function loadRefunds() {
   const tbody = document.getElementById('ref-tbody');
   tbody.innerHTML = '<tr><td colspan="5" class="muted">Loading...</td></tr>';
@@ -1988,6 +2047,66 @@ async function loadRefunds() {
       </tr>` : '';
     }).join('');
   } catch { tbody.innerHTML = '<tr><td colspan="5" style="color:#e74c3c">Failed to load</td></tr>'; }
+}
+
+// ── Resource-utilization graph (System tab) ──────────────────────────────────
+// 24 h of 10-min buckets, each the window's worst moment (server-side). Bars are normalized to each
+// metric's own min–max window so a dip is visible even when free memory only wobbles a few percent;
+// the actual range is printed beside the current value. Hover a bar for its time; the hour ticks place
+// it, then Logs → Error Log gives the exact second of any SOCKETS-high / OUT-OF-SERVICE warning.
+function resBars(pts, { color, lo, hi, barColor, fmt }) {
+  const W = 480, H = 54, N = pts.length, bw = W / Math.max(N, 1), span = (hi - lo) || 1;
+  let bars = '';
+  for (let i = 0; i < N; i++) {
+    const v = pts[i].v;
+    const h = Math.max(1, Math.round((v - lo) / span * (H - 2)));
+    const c = barColor ? barColor(v) : color;
+    bars += `<rect x="${(i * bw).toFixed(2)}" y="${H - h}" width="${Math.max(bw - 0.4, 0.6).toFixed(2)}" height="${h}" fill="${c}">`
+          + `<title>${pts[i].t} · ${fmt(v)}</title></rect>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:54px;display:block;background:#111;border-radius:4px">${bars}</svg>`;
+}
+
+function resAxis(times) {
+  const idx = [0, 0.2, 0.4, 0.6, 0.8, 1].map(f => Math.min(times.length - 1, Math.round(f * (times.length - 1))));
+  return `<div class="axis">${idx.map(i => `<span>${times[i]}</span>`).join('')}</div>`;
+}
+
+function resBlock(title, cur, sub, svg, ax) {
+  return `<div style="margin-bottom:16px">
+    <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px">
+      <span style="font-size:12px;color:#9fb3c8">${title}</span>
+      <span style="font-size:14px;font-weight:bold">${cur}</span>
+      <span class="muted" style="font-size:11px;margin-left:auto">${sub}</span>
+    </div>${svg}${ax}</div>`;
+}
+
+async function loadResources() {
+  const box = document.getElementById('res-charts');
+  box.innerHTML = '<div class="muted">Loading…</div>';
+  try {
+    const r = await fetch('/admin/resources');
+    if (!r.ok) { box.innerHTML = '<div class="muted">No data</div>'; return; }
+    const d = await r.json();
+    const s = d.samples || [];
+    if (s.length < 2) { box.innerHTML = '<div class="muted">Collecting samples… (first bar within a minute)</div>'; return; }
+    const fmtT = t => { const dt = new Date((t || 0) * 1000); return String(dt.getHours()).padStart(2, '0') + ':' + String(dt.getMinutes()).padStart(2, '0'); };
+    const times = s.map(x => fmtT(x.t));
+    const dram = s.map(x => x.dram), psram = s.map(x => x.psram), sock = s.map(x => x.sock);
+    const P = arr => arr.map((v, i) => ({ v, t: times[i] }));
+    const last = a => a[a.length - 1];
+    const kb = v => (v / 1024).toFixed(0) + ' KB';
+    const dLo = Math.min(...dram), dHi = Math.max(...dram);
+    const pLo = Math.min(...psram), pHi = Math.max(...psram);
+    const ax = resAxis(times);
+    box.innerHTML =
+      resBlock('Free heap (internal)', kb(last(dram)), `min ${kb(dLo)} · max ${kb(dHi)}`,
+        resBars(P(dram), { color: '#5dade2', lo: dLo, hi: dHi, fmt: kb }), ax) +
+      resBlock('Free PSRAM', kb(last(psram)), `min ${kb(pLo)} · max ${kb(pHi)}`,
+        resBars(P(psram), { color: '#2ecc71', lo: pLo, hi: pHi, fmt: kb }), ax) +
+      resBlock('Sockets in use', `${last(sock)} / ${d.maxSock}`, `peak ${Math.max(...sock)}`,
+        resBars(P(sock), { lo: 0, hi: d.maxSock, barColor: v => v > 10 ? '#e74c3c' : '#f0b429', fmt: v => v + ' / ' + d.maxSock }), ax);
+  } catch { box.innerHTML = '<div style="color:#e74c3c">Failed to load</div>'; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

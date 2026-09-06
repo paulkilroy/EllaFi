@@ -221,7 +221,7 @@ esp_err_t handleRoot(PsychicRequest* request, PsychicResponse* response) {
   SessionParams* existing = HOTSPOT_SESSION_CACHE.findByIp(clientIp);
   bool isNew = (existing == nullptr || existing->clientMac.isEmpty());
 
-  ESP_LOGI(TAG, "======handleRoot [%s] ip=%s mac=%s apMac=%s ssid=%s radioId=%s paused=%lums openConn=%d",
+  ESP_LOGD(TAG, "handleRoot [%s] ip=%s mac=%s apMac=%s ssid=%s radioId=%s paused=%lums openConn=%d",
     isNew ? "NEW" : "RETURNING",
     clientIp.c_str(), clientMac.c_str(), apMac.c_str(),
     ssidName.c_str(), radioId.c_str(),
@@ -402,7 +402,7 @@ esp_err_t handleWsRequest(PsychicWebSocketRequest* request, httpd_ws_frame* fram
   if (!payloadIp.isEmpty()) clientIp = payloadIp;
 #endif
 
-  ESP_LOGI(TAG, "WS frame from socket #%d: clientIp=%s action=%s", socketFd, clientIp.c_str(), (doc["action"] | ""));
+  ESP_LOGD(TAG, "WS frame from socket #%d: clientIp=%s action=%s", socketFd, clientIp.c_str(), (doc["action"] | ""));
 
   SessionParams* session = HOTSPOT_SESSION_CACHE.findByIp(clientIp);
   if (session) {
@@ -657,8 +657,9 @@ void setupFsOtaRoute() {
 
     // Back up runtime data files before wiping the filesystem
     // config = device identity (loss = reprovision trip); vendo_history = the money journal;
-    // refunds = outstanding customer codes; errors = reject/fraud trail. Everything else rebuilds.
-    static const char* PRESERVE[] = {"/config.json", "/vendo_history.json", "/errors.log", "/refunds.log"};
+    // refunds = outstanding customer codes; errors = reject/fraud trail; activity = client event log.
+    // Everything else rebuilds.
+    static const char* PRESERVE[] = {"/config.json", "/vendo_history.json", "/errors.log", "/refunds.log", "/activity.log"};
     fb->nPreserved = 0;
     for (auto path : PRESERVE) {
       if (!LittleFS.exists(path)) continue;
@@ -1019,6 +1020,62 @@ esp_err_t handleAdminSockets(PsychicRequest* request, PsychicResponse* response)
   return response->send(200, "application/json", out.c_str());
 }
 
+// ── Resource-utilization history (24 h) ───────────────────────────────────────
+// The 30s sampler folds into a 10-min bucket holding that window's WORST moment (lowest free heap /
+// PSRAM, highest socket count) so a brief portal storm still shows; buckets commit into a 144-slot
+// ring = 24 h (~2.3 KB RAM). Feeds the admin's Resource Utilization graph. RAM-only, so the 3am reboot
+// resets it — the durable crash/outage breadcrumbs are the WARN lines in errors.log, not this.
+struct ResBucket { uint32_t t; uint32_t dram; uint32_t psram; uint16_t sock; };
+static const int RES_N = 144;                        // 10-min buckets → last 24 h
+static const uint32_t RES_BUCKET_MILLIS = 10UL * 60 * 1000;
+static ResBucket RES_RING[RES_N];
+static int RES_HEAD = 0, RES_COUNT = 0;
+// in-progress bucket accumulator (worst-case since the last commit)
+static uint32_t RES_ACC_DRAM = UINT32_MAX, RES_ACC_PSRAM = UINT32_MAX;
+static uint16_t RES_ACC_SOCK = 0;
+static bool     RES_ACC_DIRTY = false;
+static unsigned long RES_BUCKET_START = 0;
+
+void sampleResources() {
+  uint32_t dram  = ESP.getFreeHeap();
+  uint32_t psram = ESP.getFreePsram();
+  uint16_t sock  = (uint16_t)HTTP_SERVER.getClientList().size();
+  if (dram  < RES_ACC_DRAM)  RES_ACC_DRAM  = dram;   // min free = worst
+  if (psram < RES_ACC_PSRAM) RES_ACC_PSRAM = psram;
+  if (sock  > RES_ACC_SOCK)  RES_ACC_SOCK  = sock;   // max sockets = worst
+  RES_ACC_DIRTY = true;
+
+  if (RES_BUCKET_START == 0) RES_BUCKET_START = millis();
+  if (millis() - RES_BUCKET_START >= RES_BUCKET_MILLIS) {
+    ResBucket& b = RES_RING[RES_HEAD];
+    b.t = (uint32_t)time(NULL); b.dram = RES_ACC_DRAM; b.psram = RES_ACC_PSRAM; b.sock = RES_ACC_SOCK;
+    RES_HEAD = (RES_HEAD + 1) % RES_N;
+    if (RES_COUNT < RES_N) RES_COUNT++;
+    RES_ACC_DRAM = UINT32_MAX; RES_ACC_PSRAM = UINT32_MAX; RES_ACC_SOCK = 0;
+    RES_ACC_DIRTY = false;
+    RES_BUCKET_START = millis();
+  }
+}
+
+esp_err_t handleResources(PsychicRequest* request, PsychicResponse* response) {
+  JsonDocument doc;
+  doc["maxSock"] = HTTP_SERVER.config.max_open_sockets;
+  JsonArray arr = doc["samples"].to<JsonArray>();
+  int start = (RES_HEAD - RES_COUNT + RES_N) % RES_N;
+  for (int i = 0; i < RES_COUNT; i++) {              // oldest → newest, for left-to-right plotting
+    ResBucket& b = RES_RING[(start + i) % RES_N];
+    JsonObject o = arr.add<JsonObject>();
+    o["t"] = (long)b.t; o["dram"] = b.dram; o["psram"] = b.psram; o["sock"] = b.sock;
+  }
+  if (RES_ACC_DIRTY) {                               // in-progress bucket → a live current bar (no 10-min wait)
+    JsonObject o = arr.add<JsonObject>();
+    o["t"] = (long)time(NULL); o["dram"] = RES_ACC_DRAM; o["psram"] = RES_ACC_PSRAM; o["sock"] = RES_ACC_SOCK;
+  }
+  String out; serializeJson(doc, out);
+  response->addHeader("Cache-Control", "no-store");
+  return response->send(200, "application/json", out.c_str());
+}
+
 // ── Admin log (ring buffer) ───────────────────────────────────────────────────
 
 esp_err_t handleAdminLog(PsychicRequest* request, PsychicResponse* response) {
@@ -1049,6 +1106,39 @@ esp_err_t handleAdminLog(PsychicRequest* request, PsychicResponse* response) {
   serializeJson(doc, json);
   response->addHeader("Cache-Control", "no-store");
   return response->send(200, "application/json", json.c_str());
+}
+
+// ── Client activity log (coin auth/extend/refund/pause/resume) ────────────────
+// Each line of /activity.log is already a JSON object; return the most recent MAX as a JSON array,
+// newest first. Capped by COUNT (a busy day can grow the file past the boot purge) so the response
+// never balloons into one huge String — see the no-whole-file-String rule.
+
+esp_err_t handleActivity(PsychicRequest* request, PsychicResponse* response) {
+  if (!fsExists("/activity.log")) return response->send(200, "application/json", "[]");
+  File f = LittleFS.open("/activity.log", FILE_READ);
+  if (!f) return response->send(500, "text/plain", "Could not open activity.log");
+
+  static const int MAX = 200;
+  std::vector<String> ring(MAX);  // heap-backed ring of the last MAX raw lines
+  int n = 0, head = 0;
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (line.isEmpty()) continue;
+    ring[head] = line;
+    head = (head + 1) % MAX;
+    if (n < MAX) n++;
+  }
+  f.close();
+
+  String out = "[";
+  for (int i = 0; i < n; i++) {
+    if (i) out += ',';
+    out += ring[(head - 1 - i + 2 * MAX) % MAX];  // walk backwards = newest first
+  }
+  out += ']';
+  response->addHeader("Cache-Control", "no-store");
+  return response->send(200, "application/json", out.c_str());
 }
 
 // ── Admin sellers ─────────────────────────────────────────────────────────────
@@ -1870,6 +1960,7 @@ void setupWeb() {
   HTTP_SERVER.on("/ws", &WEBSOCKET_HANDLER);
 
   HTTP_SERVER.on("/refunds",           HTTP_GET,  handleRefunds)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/activity",    HTTP_GET,  handleActivity)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/errors",            HTTP_GET,  handleErrors)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/program",           HTTP_GET,  handleProgram)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/nodes",       HTTP_GET,  handleAdminNodes)->addMiddleware(adminAuth);
@@ -1887,6 +1978,7 @@ void setupWeb() {
 #endif
   HTTP_SERVER.on("/admin/log",         HTTP_GET,  handleAdminLog)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/sockets",     HTTP_GET,  handleAdminSockets)->addMiddleware(adminAuth);
+  HTTP_SERVER.on("/admin/resources",   HTTP_GET,  handleResources)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/sales",       HTTP_GET,  handleAdminSales)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/statement",   HTTP_GET,  handleAdminStatement)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard)->addMiddleware(adminAuth);
@@ -2010,6 +2102,7 @@ void processPause(const String& mac) {
   String errorDetail;
   if (disconnectOmadaClient(*session, errorDetail)) {
     session->pausedRemainingMillis = remaining;
+    appendActivityLog("PAUSE", session->clientMac, 0, (int)(remaining / MILLIS_PER_MINUTE));
     if (ws) { ws->sendMessage(buildStatusJson(*session, "paused").c_str()); ws->close(); }
   } else {
     deletePausedSessionFile(session->clientMac);
@@ -2035,6 +2128,7 @@ void processResume(const String& mac) {
   String errorDetail;
   if (authenticateOmadaClient(*session, (unsigned long long)pausedRemainingMillis, errorDetail)) {
     session->pausedRemainingMillis = 0;
+    appendActivityLog("RESUME", session->clientMac, 0, (int)(pausedRemainingMillis / MILLIS_PER_MINUTE));
     deletePausedSessionFile(session->clientMac);
     if (ws) { ws->sendMessage(buildStatusJson(*session, "resumed").c_str()); ws->close(); }
     refreshHotspotSessionCache();  // get updated clientId from Omada

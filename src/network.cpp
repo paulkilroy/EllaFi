@@ -174,7 +174,7 @@ void setupNetwork() {
 // ── Heartbeat ─────────────────────────────────────────────────────────────────
 
 void broadcastHeartbeat() {
-  ESP_LOGI(TAG, "heartbeat tx: build=%u mac=%s ip=%s",
+  ESP_LOGD(TAG, "heartbeat tx: build=%u mac=%s ip=%s",
            (unsigned)FIRMWARE_BUILD, WiFi.macAddress().c_str(), WiFi.localIP().toString().c_str());
   HeartbeatBody body = {};
   body.buildNumber = FIRMWARE_BUILD;

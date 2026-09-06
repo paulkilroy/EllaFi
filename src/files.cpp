@@ -90,6 +90,7 @@ void checkSerialCommands() {
 
 void setupLogs() {
   purgeOldLogEntries("/errors.log", 86400, 500);  // cap to last 500 — a controller-down flood can blow past the age window
+  purgeOldLogEntries("/activity.log", 7 * 86400, 1000);  // high-volume (every coin/auth/pause) — keep a week, cap to last 1000
   purgeOldLogEntries("/refunds.log");
   purgeOldLogEntries("/vendo_history.json",   365 * 86400);
   purgeOldLogEntries("/voucher_history.json", 365 * 86400);
@@ -397,6 +398,24 @@ void appendSaleLog(int coins, int minutes, const String& nodeMac) {
   doc["coins"] = coins;
   doc["min"]   = minutes;
   if (!nodeMac.isEmpty()) doc["node"] = nodeMac;
+  serializeJson(doc, f);
+  f.print('\n');
+  f.close();
+}
+
+void appendActivityLog(const char* action, const String& mac, int coins, int remainingMin, const String& node) {
+  File f = LittleFS.open("/activity.log", FILE_APPEND);
+  if (!f) {
+    ESP_LOGW(TAG, "appendActivityLog: can't open /activity.log — %s %s NOT persisted", action, mac.c_str());
+    return;
+  }
+  JsonDocument doc;
+  doc["ts"]     = (long)time(NULL);
+  doc["action"] = action;
+  doc["mac"]    = mac;
+  if (coins)             doc["coins"]  = coins;
+  if (remainingMin >= 0) doc["remain"] = remainingMin;
+  if (!node.isEmpty())   doc["node"]   = node;
   serializeJson(doc, f);
   f.print('\n');
   f.close();

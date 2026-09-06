@@ -357,7 +357,7 @@ static void logStacks(const char* ctx) {
   if (minHW < STACK_TIGHT_FREE_BYTES || strcmp(ctx, "boot") == 0)
     ESP_LOGW(TAG, "STACK %s: minFree=%u in '%s' (of loop/coin/ws/upd)", ctx, (unsigned)minHW, who);
   else
-    ESP_LOGI(TAG, "STACK %s: minFree=%u in '%s' (of loop/coin/ws/upd)", ctx, (unsigned)minHW, who);
+    ESP_LOGD(TAG, "STACK %s: minFree=%u in '%s' (of loop/coin/ws/upd)", ctx, (unsigned)minHW, who);
 }
 
 static void pingHealthcheck() {
@@ -443,7 +443,7 @@ static void pingHealthcheck() {
              dnsOk ? "OK" : "FAIL", dnsMs, rcode, millis() - r0);
   }
   else if (downCount) ESP_LOGW(TAG, "healthcheck /fail sent — %d node(s) down: %s", downCount, downMacs.c_str());
-  else                ESP_LOGI(TAG, "healthcheck ping ok");
+  else                ESP_LOGD(TAG, "healthcheck ping ok");
 }
 
 void loop() {
@@ -497,15 +497,32 @@ void loop() {
     // Proactive early-warning: if sockets are near the pool cap or DRAM can't fit a TLS handshake, record it
     // BEFORE it turns into an outage — so a slow degradation leaves a breadcrumb trail. The check runs every
     // 5s (the heap-walk isn't free, so NOT every loop); the WARN itself is throttled to once / 2 min while tight.
-    static unsigned long lastResCheck = 0, lastResWarn = 0;
+    static unsigned long lastResCheck = 0, lastResWarn = 0, lastSockWarn = 0;
     if (millis() - lastResCheck > 5000) {
       lastResCheck = millis();
-      if ((HTTP_SERVER.getClientList().size() >= HTTP_SERVER.config.max_open_sockets - 1u ||
+      unsigned sockInUse = HTTP_SERVER.getClientList().size();
+      // Socket utilization over 10 (of 12) = portal pool nearly exhausted. A distinct, named event
+      // (separate from the resource dump below) so it reads clearly and, once the Phase-B device port
+      // is on-device, maps to an Omada controller Alert — it rides the W/E → errors.log + forward path.
+      if (sockInUse > 10u && millis() - lastSockWarn > 2 * MILLIS_PER_MINUTE) {
+        lastSockWarn = millis();
+        ESP_LOGW(TAG, "SOCKETS high: %u/%u in use — portal pool nearly exhausted",
+                 sockInUse, (unsigned)HTTP_SERVER.config.max_open_sockets);
+      }
+      if ((sockInUse >= HTTP_SERVER.config.max_open_sockets - 1u ||
            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < 45000u) &&
           millis() - lastResWarn > 2 * MILLIS_PER_MINUTE) {
         lastResWarn = millis();
         logResources("TIGHT");
       }
+    }
+
+    // Feed the admin's resource-utilization graph — sample every 30s; sampleResources() folds these
+    // into 10-min worst-case buckets (144 = last 24 h).
+    static unsigned long lastResSample = 0;
+    if (millis() - lastResSample > 30000) {
+      lastResSample = millis();
+      sampleResources();
     }
     if (!ready && millis() - lastServiceRetry > 30000) {
       lastServiceRetry = millis();

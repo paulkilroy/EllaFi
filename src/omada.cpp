@@ -145,7 +145,7 @@ static OmadaCredentials getCredentials(String& errorDetail) {
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/login";
   String body = "{\"username\":\"" + ADMIN_USERNAME + "\",\"password\":\"" + ADMIN_PASSWORD + "\"}";
 
-  ESP_LOGI(TAG, "POST %s", url.c_str());
+  ESP_LOGD(TAG, "POST %s", url.c_str());
   h.begin(wc, url);
   h.addHeader("Content-Type", "application/json");
   int code = h.POST(body);
@@ -238,7 +238,7 @@ bool loadOmadaSites(String& errorDetail) {
 
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
                "/api/v2/user/sites?currentPage=1&currentPageSize=100";
-  ESP_LOGI(TAG, "GET %s", url.c_str());
+  ESP_LOGD(TAG, "GET %s", url.c_str());
 
   h.begin(wc, url);
   applyCredentials(h, creds);
@@ -323,7 +323,7 @@ bool authenticateOmadaClient(SessionParams& session, unsigned long long duration
   postData += "}";
 
   ESP_LOGI(TAG, "Authenticating client: %s for %llu ms", session.clientMac.c_str(), durationMillis);
-  ESP_LOGI(TAG, "POST %s", url.c_str());
+  ESP_LOGD(TAG, "POST %s", url.c_str());
 
   h.begin(wc, url);
   h.addHeader("Content-Type", "application/json");
@@ -373,7 +373,7 @@ bool extendOmadaClient(SessionParams& session, unsigned long long durationMillis
                "/cmd/clients/" + session.clientId + "/extend";
   String postData = "{\"period\":" + String((unsigned long long)durationMillis) + "}";
 
-  ESP_LOGI(TAG, "POST %s body=%s", url.c_str(), postData.c_str());
+  ESP_LOGD(TAG, "POST %s body=%s", url.c_str(), postData.c_str());
   h.begin(wc, url);
   h.addHeader("Content-Type", "application/json");
   applyCredentials(h, creds);
@@ -420,7 +420,7 @@ bool disconnectOmadaClient(SessionParams& session, String& errorDetail) {
                "/api/v2/hotspot/sites/" + SITE_ID +
                "/cmd/clients/" + session.clientId + "/disconnect";
 
-  ESP_LOGI(TAG, "POST %s (no body)", url.c_str());
+  ESP_LOGD(TAG, "POST %s (no body)", url.c_str());
   h.begin(wc, url);
   h.addHeader("Content-Type", "application/json");
   applyCredentials(h, creds);
@@ -470,7 +470,7 @@ JsonDocument getHotspotClientsJson() {
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
                "/api/v2/hotspot/sites/" + SITE_ID +
                "/clients?sorts.end=desc&currentPage=1&currentPageSize=200";
-  ESP_LOGI(TAG, "GET %s", url.c_str());
+  ESP_LOGD(TAG, "GET %s", url.c_str());
   h.begin(wc, url);
   applyCredentials(h, creds);
 
@@ -483,7 +483,7 @@ JsonDocument getHotspotClientsJson() {
   PsramSink sink;                // de-chunk the (large) body straight into PSRAM — no contiguous DRAM String
   int written = h.writeToStream(&sink);   // same de-chunk path getString() uses, but the 8 MB PSRAM is the sink
   h.end();
-  ESP_LOGI(TAG, "getHotspotClientsJson: HTTP %d, %d bytes", code, (int)sink.len());
+  ESP_LOGD(TAG, "getHotspotClientsJson: HTTP %d, %d bytes", code, (int)sink.len());
   if (code != 200 || written <= 0 || sink.len() == 0) {
     ESP_LOGE(TAG, "getHotspotClientsJson: bad response (code=%d written=%d len=%u oom=%d) — invalidating session",
              code, written, (unsigned)sink.len(), (int)sink.oom());
@@ -559,7 +559,7 @@ void refreshDeviceStatus() {
   xSemaphoreTake(DEVICE_STATUS_MUTEX, portMAX_DELAY);
   DEVICE_STATUS_JSON = out;
   xSemaphoreGive(DEVICE_STATUS_MUTEX);
-  ESP_LOGI(TAG, "refreshDeviceStatus: %d device(s)", n);
+  ESP_LOGD(TAG, "refreshDeviceStatus: %d device(s)", n);
 }
 
 JsonDocument getAllClientsJson() {
@@ -576,7 +576,7 @@ JsonDocument getAllClientsJson() {
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID +
                "/api/v2/sites/" + SITE_ID +
                "/clients?currentPage=1&currentPageSize=200&filters.active=true";
-  ESP_LOGI(TAG, "GET %s", url.c_str());
+  ESP_LOGD(TAG, "GET %s", url.c_str());
   h.begin(wc, url);
   applyCredentials(h, creds);
 
@@ -590,7 +590,7 @@ JsonDocument getAllClientsJson() {
   PsramSink sink;                // de-chunk the (large) body straight into PSRAM — no contiguous DRAM String
   int written = h.writeToStream(&sink);   // same de-chunk path getString() uses, but the 8 MB PSRAM is the sink
   h.end();
-  ESP_LOGI(TAG, "getAllClientsJson: HTTP %d, %d bytes", code, (int)sink.len());
+  ESP_LOGD(TAG, "getAllClientsJson: HTTP %d, %d bytes", code, (int)sink.len());
   if (code != 200 || written <= 0 || sink.len() == 0) {
     ESP_LOGW(TAG, "getAllClientsJson: bad response (code=%d written=%d len=%u oom=%d) — invalidating session",
              code, written, (unsigned)sink.len(), (int)sink.oom());
@@ -740,10 +740,10 @@ void refreshHotspotSessionCache() {
     if (!client["ssid"].isNull())    session->ssidName = client["ssid"].as<String>();
     if (!client["radioId"].isNull()) session->radioId  = String(client["radioId"].as<int>());
     updated++;
-    ESP_LOGI(TAG, "Session updated: IP=%s MAC=%s sessionEnd=%llu", session->clientIp.c_str(), mac.c_str(), (unsigned long long)session->sessionEndMillis);
+    ESP_LOGD(TAG, "Session updated: IP=%s MAC=%s sessionEnd=%llu", session->clientIp.c_str(), mac.c_str(), (unsigned long long)session->sessionEndMillis);
   }
 
-  ESP_LOGI(TAG, "refreshHotspotSessionCache: %d active session(s)", updated);
+  ESP_LOGD(TAG, "refreshHotspotSessionCache: %d active session(s)", updated);
 
   // Management-SSID tripwire: a hotspot/portal client should never appear on the SSID our
   // nodes live on. One that does = a customer breached isolation. Our own nodes aren't
@@ -770,14 +770,14 @@ void refreshHotspotSessionCache() {
     struct tm* t = localtime(&expSec);
     char timeBuf[32];
     strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", t);
-    ESP_LOGI(TAG, "  MAC=%-17s IP=%-15s remaining=%dm expires=%s.%03llu",
+    ESP_LOGD(TAG, "  MAC=%-17s IP=%-15s remaining=%dm expires=%s.%03llu",
       s.clientMac.c_str(), s.clientIp.c_str(), remainingMin,
       timeBuf, (unsigned long long)(s.sessionEndMillis % 1000));
   }
   HOTSPOT_SESSION_CACHE.unlock();
   LAST_CACHE_REFRESH_MILLIS = millis();
   }  // hotspotDoc/allDoc/merged freed here
-  ESP_LOGI(TAG, "heap after cache refresh: internal=%u  psram=%u", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
+  ESP_LOGD(TAG, "heap after cache refresh: internal=%u  psram=%u", (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getFreePsram());
 
   refreshControllerStatus();  // refresh cached controller status (reachable, AP count, TZ)
   refreshDeviceStatus();      // refresh AP up/down for the captive-page coverage map

@@ -234,7 +234,7 @@ void coinPulseTask(void*) {
     }
 
     unsigned long intervalSinceLast = prevAcceptedTimestampMicros > 0 ? pulse.timestampMicros - prevAcceptedTimestampMicros : 0;
-    ESP_LOGI(TAG, "coin pulse: src=%d width=%luus interval=%luus", pulse.source, pulse.widthMicros, intervalSinceLast);
+    ESP_LOGD(TAG, "coin pulse: src=%d width=%luus interval=%luus", pulse.source, pulse.widthMicros, intervalSinceLast);
 
     // Width filter — rejects piezo spikes at source on all nodes (PULSE_COINSLOT and PULSE_BUTTON)
     if (pulse.source == PULSE_COINSLOT || pulse.source == PULSE_BUTTON) {
@@ -262,7 +262,7 @@ void coinPulseTask(void*) {
     }
 
     prevAcceptedTimestampMicros = pulse.timestampMicros;
-    ESP_LOGI(TAG, "Coin pulse accepted - %s src=%d", IS_MASTER ? "master" : "slave", pulse.source);
+    ESP_LOGD(TAG, "Coin pulse accepted - %s src=%d", IS_MASTER ? "master" : "slave", pulse.source);
 
     if (IS_MASTER) {
       // Determine which node the coin came from (empty mac = master's own slot)
@@ -352,7 +352,7 @@ void coinSessionTask(void*) {
         int n = COIN_COUNT.fetch_add(1) + 1;
         nodeCounts[String(evt.mac)]++;
         COIN_DEADLINE_MILLIS.store(millis() + COIN_INSERT_TIMEOUT_MILLIS);
-        ESP_LOGI(TAG, "count=%d node=%s", n, evt.mac);
+        ESP_LOGD(TAG, "count=%d node=%s", n, evt.mac);
         xTaskNotify(UPDATE_CLIENT_TASK, 1, eSetBits);
         continue;
       }
@@ -368,7 +368,7 @@ void coinSessionTask(void*) {
 
 // Authenticates with Omada and pushes result via WS, then clears the session slot.
 static void finalizeSession(bool fraudEnded, const std::map<String, int>& nodeCounts) {
-  ESP_LOGI(TAG, "======finalizeSession (fraud=%d)", (int)fraudEnded);
+  ESP_LOGD(TAG, "finalizeSession (fraud=%d)", (int)fraudEnded);
 
   int coinCount = fraudEnded ? 0 : COIN_COUNT.load();
   COIN_COUNT.store(0);
@@ -405,6 +405,8 @@ static void finalizeSession(bool fraudEnded, const std::map<String, int>& nodeCo
 
       if (extendOmadaClient(*session, additionalMillis, errorDetail)) {
         success = true;
+        appendActivityLog("EXTEND", session->clientMac, coinCount,
+                          (int)((session->sessionEndMillis - nowMillis) / MILLIS_PER_MINUTE) + coinCount * MINUTES_PER_COIN);
         for (auto& kv : nodeCounts)
           appendSaleLog(kv.second, kv.second * MINUTES_PER_COIN, kv.first);
       } else {
@@ -418,6 +420,7 @@ static void finalizeSession(bool fraudEnded, const std::map<String, int>& nodeCo
 
       if (authenticateOmadaClient(*session, additionalMillis, errorDetail)) {
         success = true;
+        appendActivityLog("AUTH", session->clientMac, coinCount, coinCount * MINUTES_PER_COIN);
         for (auto& kv : nodeCounts)
           appendSaleLog(kv.second, kv.second * MINUTES_PER_COIN, kv.first);
       } else {
@@ -447,6 +450,7 @@ static void finalizeSession(bool fraudEnded, const std::map<String, int>& nodeCo
       if (errorSubtype == ERR_SUBTYPE_REFUNDABLE && session) {
         refundCode = generateRefundCode();
         appendRefundLog(session->clientMac, coinCount, coinCount * MINUTES_PER_COIN, refundCode);
+        appendActivityLog("REFUND", session->clientMac, coinCount, -1);
       }
       JsonDocument err;  // ArduinoJson escapes errorDetail (Omada's msg can contain quotes)
       err["type"] = "error";

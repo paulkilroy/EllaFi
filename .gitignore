@@ -48,3 +48,8 @@ omada-lab/findings-secrets.local
 omada-lab/_key.pem
 omada-lab/rc4key.local
 omada-lab/captured-config.local
+
+# editor/local + large reference artifacts (keep on disk, out of git)
+*.kicad_prl
+/demo.zip
+/ad61d594-*.png
