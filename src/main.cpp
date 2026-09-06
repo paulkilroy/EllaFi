@@ -77,6 +77,7 @@
 #include "led.h"
 #include "network.h"
 #include "reprovision.h"
+#include "omada_device.h"
 #include "money_store.h"
 
 #include <WiFi.h>
@@ -295,6 +296,7 @@ void setup() {
     setupWeb();        // ALWAYS up first, so /admin is reachable even if NTP/Omada are down
     setupOmada();      // best-effort — loop() retries login + site-load in the background
   }
+  setupOmadaDevice();  // Omada device plane (fake-AP) — M1: crypto self-test only; dormant otherwise
   setupTasks();
   // Persisted boot forensics — logged here (after the NTP attempt) so the timestamp is valid whenever
   // sync succeeded. On a WAN-down boot the clock is still bad, but appendErrorLog now keeps pre-sync
