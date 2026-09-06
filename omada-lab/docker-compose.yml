@@ -38,9 +38,13 @@ services:
     container_name: omada-emulator
     hostname: eap-emu           # pretends to be an EAP; MAC/model spoofed in the emulator code
     working_dir: /work
-    command: sleep infinity     # exec into it: docker compose -f omada-lab/docker-compose.yml exec emulator bash
+    # pip-install cryptography on startup so a container recreate doesn't wipe it (it lives in the
+    # ephemeral layer otherwise). Adds a few s to first start. exec into it:
+    #   docker compose -f omada-lab/docker-compose.yml exec emulator bash
+    command: sh -c "pip install --quiet --disable-pip-version-check cryptography 2>/dev/null; exec sleep infinity"
     volumes:
       - ./emulator:/work
+      - ./findings-secrets.local:/findings-secrets.local:ro   # netty RSA key (was docker cp'd, ephemeral) — mounted so it persists
     networks: [omada]
     depends_on: [controller]
 
