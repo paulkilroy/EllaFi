@@ -144,6 +144,7 @@ bool loadConfig() {
   PRICE_PER_COIN        = cfg("price_per_coin")           | 1;
   FALLBACK_PRICE_PER_VOUCHER = cfg("fallback_price_per_voucher") | 5;
   HEALTHCHECK_URL       = cfg("healthchecks_url")         | "";   // optional; empty = disabled
+  OMADA_DEVICE_ENABLE   = cfg("omada_device_enable")      | false;  // Omada device plane off by default
   STATIC_IP             = cfg("static_ip")                | "";   // optional; empty = DHCP
   STATIC_GATEWAY        = cfg("static_gateway")           | "";   // optional; default = <ip>.1
   STATIC_SUBNET         = cfg("static_subnet")            | "";   // optional; default = 255.255.255.0

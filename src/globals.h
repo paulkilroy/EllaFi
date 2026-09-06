@@ -107,6 +107,7 @@ extern unsigned long                COIN_SLOT_READY_MILLIS;  // suppress pulses 
 
 extern String MANAGEMENT_SSID;      // the SSID our nodes live on (from wifi_ssid); a hotspot client here = isolation breach
 extern String HEALTHCHECK_URL;      // Healthchecks.io ping URL (master dead-man's switch); empty = disabled
+extern bool   OMADA_DEVICE_ENABLE;  // config: omada_device_enable — start the Omada device plane (fake-AP)
 extern String MANAGEMENT_PASSWORD;
 extern String STATIC_IP;        // optional static-IP override (config static_ip); empty = DHCP
 extern String STATIC_GATEWAY;   // optional; default = the .1 of the IP's /24
@@ -123,7 +124,7 @@ constexpr int OMADA_AUTH_TYPE_VOUCHER         = 3;
 // ── Firmware version ─────────────────────────────────────────────────────────
 
 #define FIRMWARE_VERSION "1.4.2"
-#define FIRMWARE_BUILD   85       // increment on every release; used for slave version comparison
+#define FIRMWARE_BUILD   86       // increment on every release; used for slave version comparison
 
 // True byte size of the running firmware image, computed once at boot (ESP.getSketchSize()).
 // This is what the master serves to slaves for OTA — derived from the running partition, so it's

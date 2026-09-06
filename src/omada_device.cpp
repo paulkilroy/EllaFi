@@ -1,5 +1,8 @@
 #include "omada_device.h"
+#include "globals.h"
 
+#include <WiFi.h>
+#include <WiFiUdp.h>
 #include <mbedtls/md.h>
 #include <mbedtls/pk.h>
 #include <esp_random.h>
@@ -7,6 +10,16 @@
 #include "logger.h"   // must be included LAST — see logger.h
 
 static const char* TAG = "omadaDev";
+
+extern String CONTROLLER_BASE_URL;   // "https://host:port" — from omada.cpp/config
+extern bool   OMADA_DEVICE_ENABLE;   // config: omada_device_enable
+
+// ── device identity (discovery-safe: model name is public; hwId/oemId secrets are
+// only needed at adopt-time, added later from NVS). ───────────────────────────
+static const char* DEV_MODEL   = "EAP225-Outdoor";
+static const char* DEV_PROTOVER = "2.3.0";                 // ECSP protocol version (NOT firmware)
+static const char* DEV_CTRLID  = "c21f969b5f03d33d43e04f8f136e7682";  // md5("default") = factory→PENDING
+static const int   ECSP_DISCOVERY_PORT = 29810;
 
 // ── hex helper ────────────────────────────────────────────────────────────────
 static String toHexUpper(const uint8_t* b, size_t n) {
@@ -122,9 +135,76 @@ bool omadaDeviceCryptoSelfTest() {
   return ok;
 }
 
-// ── lifecycle (dormant; transport/discovery/adopt land in the next milestones) ─
+// ── discovery beacon (UDP :29810, plaintext ECSP frame) ───────────────────────
+// Wire format (omada-lab/discovery_beacon.py): [4-byte BE len][JSON {header,body}].
+// type=1 DISCOVERY; controllerId=md5("default") → the controller flags us factory → PENDING.
+static String controllerHost() {
+  // CONTROLLER_BASE_URL = "https://HOST:PORT" → HOST
+  int a = CONTROLLER_BASE_URL.indexOf("://");
+  if (a < 0) return "";
+  a += 3;
+  int b = CONTROLLER_BASE_URL.indexOf(':', a);
+  int c = CONTROLLER_BASE_URL.indexOf('/', a);
+  int end = CONTROLLER_BASE_URL.length();
+  if (b >= 0) end = min(end, b);
+  if (c >= 0) end = min(end, c);
+  return CONTROLLER_BASE_URL.substring(a, end);
+}
+
+static String buildDiscoveryFrame() {
+  String mac = WiFi.macAddress(); mac.toUpperCase();
+  String ip  = WiFi.localIP().toString();
+  uint32_t total = ESP.getHeapSize();
+  int memUti = total ? (int)(100 - (uint64_t)ESP.getFreeHeap() * 100 / total) : 40;
+
+  // hand-built to control key order/types exactly (types matter — see discovery_beacon.py)
+  String h = String("{\"seq\":1,\"version\":\"") + DEV_PROTOVER + "\",\"device\":\"ap\",\"mac\":\""
+           + mac + "\",\"type\":1,\"timestamp\":" + String((long)time(NULL)) + ",\"ip\":\"" + ip + "\"}";
+  String di = String("{\"name\":\"EllaFi-") + mac.substring(12) + "\",\"model\":\"" + DEV_MODEL
+           + "\",\"modelVersion\":\"1.0\",\"firmwareVersion\":\"1.0.0 Build 20260101 Rel.00000\","
+           + "\"hardwareVersion\":\"1.0\",\"upTime\":\"" + String(millis()/1000) + "\",\"cpuUti\":5,\"memUti\":"
+           + String(memUti) + ",\"wirelessLinked\":false}";
+  String dm = "{\"support_11ac\":true,\"support_lag\":false,\"supportMesh\":1,\"customizeRegion\":0,"
+              "\"lanPortsNum\":1,\"support_channelLimit\":false,\"supportDfs\":0,\"supportRoaming\":1,"
+              "\"countryCode\":1}";
+  String body = String("{\"deviceInfo\":") + di + ",\"deviceMisc\":" + dm
+              + ",\"controllerSetting\":{\"controllerId\":\"" + DEV_CTRLID + "\",\"destOmadacId\":\"\"}}";
+  String msg = String("{\"header\":") + h + ",\"body\":" + body + "}";
+
+  String frame; frame.reserve(msg.length() + 4);
+  uint32_t n = msg.length();
+  frame += (char)(n >> 24); frame += (char)(n >> 16); frame += (char)(n >> 8); frame += (char)n;
+  frame += msg;
+  return frame;
+}
+
+static void omadaDeviceTask(void*) {
+  WiFiUDP udp;
+  IPAddress bcast(255, 255, 255, 255);
+  ESP_LOGW(TAG, "device plane ENABLED — discovery beacon to %s:%d + broadcast, every 30s",
+           controllerHost().c_str(), ECSP_DISCOVERY_PORT);
+  for (;;) {
+    if (WiFi.status() == WL_CONNECTED) {
+      String frame = buildDiscoveryFrame();
+      String host = controllerHost();
+      // L3-directed to the controller (proven path) + subnet broadcast (real-AP path)
+      if (host.length()) {
+        udp.beginPacket(host.c_str(), ECSP_DISCOVERY_PORT);
+        udp.write((const uint8_t*)frame.c_str(), frame.length());
+        udp.endPacket();
+      }
+      udp.beginPacket(bcast, ECSP_DISCOVERY_PORT);
+      udp.write((const uint8_t*)frame.c_str(), frame.length());
+      udp.endPacket();
+      ESP_LOGD(TAG, "discovery beacon sent (%d bytes)", frame.length());
+    }
+    vTaskDelay(pdMS_TO_TICKS(30000));   // context times out ~40s without a beacon
+  }
+}
+
+// ── lifecycle ─────────────────────────────────────────────────────────────────
 void setupOmadaDevice() {
-  // Milestone 1 scaffold: verify the crypto is byte-correct on real silicon before
-  // any handshake code depends on it. The adopt task is not started yet.
-  omadaDeviceCryptoSelfTest();
+  omadaDeviceCryptoSelfTest();   // verify crypto is byte-correct before any handshake depends on it
+  if (!OMADA_DEVICE_ENABLE) { ESP_LOGI(TAG, "device plane disabled (omada_device_enable=false)"); return; }
+  xTaskCreatePinnedToCore(omadaDeviceTask, "omadaDev", 6144, nullptr, 1, nullptr, 0);
 }

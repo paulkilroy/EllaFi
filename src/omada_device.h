@@ -38,5 +38,7 @@ size_t ecspRsaPubEncrypt(const char* pubKeyPem, const uint8_t* in, size_t inLen,
 // Runs the crypto self-tests (canonical RC4 vector + MD5/SHA256 knowns). Logs PASS/FAIL.
 bool omadaDeviceCryptoSelfTest();
 
-// ── Lifecycle (task wired dormant until later milestones) ─────────────────────
-void setupOmadaDevice();   // best-effort; no-op unless enabled. Call after the web server is up.
+// ── Lifecycle ─────────────────────────────────────────────────────────────────
+// Runs the crypto self-test; if OMADA_DEVICE_ENABLE, starts omadaDeviceTask (the
+// discovery beacon → adoption → inform loop). Best-effort; never blocks boot/selling.
+void setupOmadaDevice();   // call after WiFi + web are up.
