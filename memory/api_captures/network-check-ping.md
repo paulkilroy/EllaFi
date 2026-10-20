@@ -22,3 +22,10 @@ Source: Claude Chrome plugin capture of the web UI's Network Check run. Session 
    Join chunks by seq until finish:true; decoded text is plain ping/traceroute output
    ("Round-trip min/avg/max = a/b/c ms", "Packets: Sent=.. Received=.. Lost=..").
    SUBSCRIBE BEFORE the POST or seq 0 can be missed.
+
+## Verified working (2026-10-20) + gotchas
+- The WS handshake is 403'd by the envoy gateway if ANY `Origin` header is present — omit it.
+  Send `Csrf-Token` header + the session cookies; STOMP CONNECT with heart-beat:0,0 works.
+- `source` must be a JSON list of MACs; `nid` = 32 client-generated hex chars.
+- Working tool: ellafi-usage-tracker repo `tools/uplink_ping.py` (pings each wireless-uplinked
+  AP's own uplink; first results: PtP 2.6ms avg, mesh hop1 2.9ms, hop2 1.1ms at idle).
