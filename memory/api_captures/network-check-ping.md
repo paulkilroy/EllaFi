@@ -29,3 +29,18 @@ Source: Claude Chrome plugin capture of the web UI's Network Check run. Session 
 - `source` must be a JSON list of MACs; `nid` = 32 client-generated hex chars.
 - Working tool: ellafi-usage-tracker repo `tools/uplink_ping.py` (pings each wireless-uplinked
   AP's own uplink; first results: PtP 2.6ms avg, mesh hop1 2.9ms, hop2 1.1ms at idle).
+
+## More gotchas (2026-10-21, from the Vercel collector)
+- A device runs only ONE network-check at a time: two concurrent POSTs for the same source
+  MAC produce NO results for either. Fire multi-test sweeps in batches of one-test-per-device.
+- Offline devices accept nothing useful — filter `statusCategory == 1` first or dead tests
+  burn the whole websocket collect budget.
+- SWITCHES accept the POST (errorCode 0, any deviceType 0/1/2) but NEVER stream results over
+  the WS — do not use them as sources. They still work as ping DESTINATIONS.
+- Pinging a switch's IP reads its management CPU (~3-5 ms answering, lowest-priority job),
+  not the wire (~0.1 ms) — forwarding is hardware. For per-hop latency, SYNTHESIZE:
+  path-to-router(device) minus path-to-router(parent) from the same sweep. Wired hops then
+  read sub-ms; radio hops carry the real cost.
+- Latency is strongly load-dependent (BES mesh: 0.8 ms at 4am, 21-25 ms at 10:40am with
+  PHY-min dipping to 6 Mbps on shared ch157) — never compare averages built from different
+  sample mixes; compare same-timestamp sweeps.
