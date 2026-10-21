@@ -5,8 +5,9 @@ Omada's WLAN optimization skips mesh APs entirely, so this was manual. Mesh back
 
 ## Change applied
 - BES: 2.4 ch 11 → **1**, width 40 → **20 MHz**
-- BNHS: width 40 → **20 MHz**; channel unintentionally followed to 1 — **to be set back to 11**
-  (fixed, not auto). Target: Negra 6 / BES 1 / BNHS 11.
+- BNHS: width 40 → **20 MHz**, channel fixed to **11** (auto had followed BES to 1 at first).
+- FINAL VERIFIED STATE (~14:30 Daram): Negra 6 / BES 1 / BNHS 11, all 20 MHz, all channels
+  FIXED not auto (auto re-picks at will and had re-collided them within minutes).
 - Negra, all 5 GHz radios: untouched.
 
 ## Why (evidence)
