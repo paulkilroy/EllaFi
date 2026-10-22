@@ -19,3 +19,11 @@ APs (the schools since 2026-10-21) return -39378 until a scan is triggered for t
 - files/sites/{site}/aps/{mac}/full-channel-detect/export
 
 Signal %: the UI's % column is derived from dBm (-64 ≈ 100% … -102 ≈ 0%).
+
+## Trigger confirmed (HAR, 2026-10-22) — per-AP, openapi/v1 via connector
+POST openapi/v1/{cid}/sites/{site}/aps/{mac}/full-channel-detect-start
+  body {"enableChannelUtil":false,"enableWifiInterference":true,"enableInterference":false}
+GET  .../aps/{mac}/full-channel-detect/status -> {wifiInterfStatus: 1 idle, 2 running, 0 done}
+Results via .../full-channel-detect/wlan-interference?filters.radioId={0|1} (see above).
+Tracker cron triggers all online APs nightly at 03:00 Daram (blackout, zero clients) and
+harvests to table ap_scan — the competitor-AP triangulation feed.
