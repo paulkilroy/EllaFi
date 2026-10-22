@@ -28,3 +28,14 @@ Also: BES retry 138%, BNHS 43%, Negra 22% (Omada Top-APs widget, day of change).
 - BES airtime out of the 80s; retry% collapses; 9–11h bars amber/green at same bar HEIGHT.
 - BNHS improves some (BES vacated its channel) once back on 11.
 - Judge via dashboard Topology tab day pills (hover = preview, click = pin) vs "avg".
+
+## Band steering: Balance → Prefer 5G/6G (site-wide), 2026-10-22 ~22:00 UTC (Oct 23 ~06:00 Daram)
+Balance had been holding ~50% of clients on 2.4 GHz at Darna/Grandma/Grandama (even client
+counts per band) — on the band that is 50–70% competitor airtime. Per-device steering
+thresholds left at default (one variable at a time).
+Baseline (3 days before, Balance mode): 5G % of traffic Darna 55 · Grandma 59 · Negra 79 ·
+House Big 56 · House AP 15 · Grandama House 78; 2.4 busy Darna 77 · Grandma 81 · Negra 73.
+Canaries (indoor, no usable 5G): House AP 3.1 disconnects/h, Grandama House 2.9/h.
+Verdict: `tools/tq tools/steer_check.py <change-time> 3` after 2–3 days. Success = 5G share of
+clients ~50% → 65–75% outdoors, 2.4 busy down. Roll back / tune the indoor APs' thresholds if
+canary disconnects rise by half or more.
