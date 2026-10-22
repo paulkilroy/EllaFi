@@ -29,7 +29,7 @@ Also: BES retry 138%, BNHS 43%, Negra 22% (Omada Top-APs widget, day of change).
 - BNHS improves some (BES vacated its channel) once back on 11.
 - Judge via dashboard Topology tab day pills (hover = preview, click = pin) vs "avg".
 
-## Band steering: Balance → Prefer 5G/6G (site-wide), 2026-10-22 ~22:00 UTC (Oct 23 ~06:00 Daram)
+## Band steering: Balance → Prefer 5G/6G (site-wide), 2026-10-22 18:44 UTC (Oct 23 02:44 Daram, inside the 02:00–06:00 radio blackout — first live effect 06:00)
 Balance had been holding ~50% of clients on 2.4 GHz at Darna/Grandma/Grandama (even client
 counts per band) — on the band that is 50–70% competitor airtime. Per-device steering
 thresholds left at default (one variable at a time).
