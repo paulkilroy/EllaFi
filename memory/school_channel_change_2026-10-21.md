@@ -84,7 +84,12 @@ Pings run FROM the house switch (Omada device ping):
 - ~03:10 → router: 23% loss, blocks of 6/7/10
 - 03:27 port 5 read STP "Blocking" once (Forwarding at ~02:45); loop detect 0
 - 03:35–03:45 remote API to controller failing
-- ~04:00 and ~04:05 → router: 0% and 0% (nothing changed on site)
+- ~04:55 → router: 0% and 0% (two runs; nothing changed on site)
+- PORT 5 LINK SPEED (port_poll): 1 Gbps steadily Oct 21 02:19 → Oct 24 04:15 Daram; 100 Mbps
+  from the 04:30 sample. ALL failing runs were at 1 Gbps, BOTH clean runs at 100 Mbps.
+  Gigabit uses all 4 pairs, 100M only 2 → pattern fits a bad pair 3/4 (cable, injector port,
+  switch port 5, or router adapter). Not proven. Test: lock port 5 at 100M-full for a day;
+  after each of Ella's swaps, return to auto and see whether gigabit holds.
 Cable test 02:15: port 5 "ok" reads 13 m though the cable is 1–3 m (test may span the injector).
 Starlink app: dish ping ~99.96–99.98%; router→PoP 100%; router→Cloudflare dropped 02:36–02:39
 (separate upstream issue). Ella's plan: baseline test → router restart → swap injector→router
