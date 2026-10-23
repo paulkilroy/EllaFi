@@ -54,7 +54,8 @@ canary disconnects rise by half or more.
 - KEY FINDING: PtP ch 153 @80 MHz and mesh ch 157 @80 MHz are the SAME 80 MHz block (149–161).
   PtP radio busy 35–38% evenings (max 63%) while carrying ~21 Mbps = mostly school mesh air.
   Moving the school mesh off 149–161 should cut PtP busy % even as it carries more.
-- Bridge speed test (controller), Oct 23 21:38 Daram, heavy rain, live traffic: ↑281.2 / ↓234.2 Mbps
+- Bridge speed tests (controller), heavy rain, live traffic: Oct 23 21:35 Daram ↑349.6 / ↓247.4 Mbps;
+  21:38 ↑281.2 / ↓234.2 Mbps (avg ↑315 / ↓241)
   — ~10x peak demand. Re-run after the point-to-multipoint change; expect higher once the
   school mesh leaves the 149–161 block.
 - Oct 23 evening incident: video calls failed. Cause = Starlink stalling in heavy rain (app
