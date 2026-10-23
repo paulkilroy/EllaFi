@@ -33,6 +33,16 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   12.5 / p95 22.7 / peak 26.2 Mbps (link ~300–400 usable); PtP radio busy 35–38% evenings, max
   63%. Expect busy % to DROP: PtP 153@80 MHz and mesh 157@80 MHz share the same 149–161 block
   today, so the PtP's airtime includes school mesh traffic. Also watch grandma's hour bars.
+- **On-site, late Nov: Starlink dish collector → Vercel.** The dish exposes local diagnostics
+  (the gRPC service at 192.168.100.1:9200, reachable only from inside the LAN): second-by-second
+  outages and their causes (obstruction, no satellite, rain/attenuation), ping drop rate,
+  latency, up/down throughput, and an obstruction map. The Oct 23 rain incident (throughput
+  falling to ~0 every 20–30 s) was invisible in our 15-minute averages. Plan: a small always-on
+  LAN box (Raspberry Pi / old phone with Termux; the ESP32 is a stretch for gRPC) runs a
+  starlink-grpc-tools-style poller every minute → pushes to Supabase → dashboard shows outage
+  seconds per hour next to the client-experience bars. Check first: the dish is reachable at
+  192.168.100.1 through the Starlink router (in bypass mode it needs a static route). Power it
+  from the house UPS so it logs through the outages it's meant to catch.
 - **Install-day for the SG2005P-PD stage:** add Negra/BES/BNHS to the optimizer exclude list,
   give each school 5G radio its own channel, measure the BNHS cable route (100 m hard limit).
 
