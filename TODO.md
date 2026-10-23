@@ -58,6 +58,11 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   facing an auto side can end up half duplex). Before Paul's visit, Ella can only reseat and look
   over the cables. On site: swap one piece at a time, set port 5 back to auto after each, and
   check whether 1000 Full holds with no ping loss; spare POE170S as the injector test.
+  **Oct 24 ~07:20 Daram: Ella reseated both cables; Paul then forced port 5 to 100 Full.** Since
+  the reseat: 1000-byte pings lost 3/100 at 1000, then 1/100 and 1/100 at 100 Full (before the
+  reseat, 32-byte pings lost 23–26% at 1000). Watching: `tools/tq tools/port5_history.py 24` in
+  the tracker repo (house-side router pings every 15 min + port speed). Still open: the duplex
+  check under load (speed test on the house Wi-Fi while pinging the router from the switch).
 - **House switch: move the controller (OC220) from port 4 to port 3 and feed the House AP through
   it.**
 - **Install-day for the SG2005P-PD stage:** add Negra/BES/BNHS to the optimizer exclude list,

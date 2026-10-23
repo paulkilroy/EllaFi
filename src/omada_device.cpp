@@ -13,6 +13,7 @@ static const char* TAG = "omadaDev";
 
 extern String CONTROLLER_BASE_URL;   // "https://host:port" — from omada.cpp/config
 extern bool   OMADA_DEVICE_ENABLE;   // config: omada_device_enable
+extern String OMADA_DEVICE_HOST;     // config: omada_device_host (empty = use the API controller host)
 
 // ── device identity (discovery-safe: model name is public; hwId/oemId secrets are
 // only needed at adopt-time, added later from NVS). ───────────────────────────
@@ -139,6 +140,9 @@ bool omadaDeviceCryptoSelfTest() {
 // Wire format (omada-lab/discovery_beacon.py): [4-byte BE len][JSON {header,body}].
 // type=1 DISCOVERY; controllerId=md5("default") → the controller flags us factory → PENDING.
 static String controllerHost() {
+  // Device plane may target a DIFFERENT controller than the API plane (e.g. API=cloud,
+  // device=local software controller). omada_device_host overrides; empty = the API host.
+  if (OMADA_DEVICE_HOST.length()) return OMADA_DEVICE_HOST;
   // CONTROLLER_BASE_URL = "https://HOST:PORT" → HOST
   int a = CONTROLLER_BASE_URL.indexOf("://");
   if (a < 0) return "";

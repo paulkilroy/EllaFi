@@ -53,3 +53,10 @@ omada-lab/captured-config.local
 *.kicad_prl
 /demo.zip
 /ad61d594-*.png
+
+# usage tracker runtime data (contains customer/device names; local only)
+scripts/usage_tracker/snapshots/
+scripts/usage_tracker/history/
+scripts/usage_tracker/family_codes.json
+scripts/usage_tracker/tracker.log
+scripts/usage_tracker/__pycache__/

@@ -145,6 +145,7 @@ bool loadConfig() {
   FALLBACK_PRICE_PER_VOUCHER = cfg("fallback_price_per_voucher") | 5;
   HEALTHCHECK_URL       = cfg("healthchecks_url")         | "";   // optional; empty = disabled
   OMADA_DEVICE_ENABLE   = cfg("omada_device_enable")      | false;  // Omada device plane off by default
+  OMADA_DEVICE_HOST     = cfg("omada_device_host")        | "";     // empty = default to the API controller host
   STATIC_IP             = cfg("static_ip")                | "";   // optional; empty = DHCP
   STATIC_GATEWAY        = cfg("static_gateway")           | "";   // optional; default = <ip>.1
   STATIC_SUBNET         = cfg("static_subnet")            | "";   // optional; default = 255.255.255.0
