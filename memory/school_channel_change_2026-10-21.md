@@ -39,3 +39,18 @@ Canaries (indoor, no usable 5G): House AP 3.1 disconnects/h, Grandama House 2.9/
 Verdict: `tools/tq tools/steer_check.py <change-time> 3` after 2–3 days. Success = 5G share of
 clients ~50% → 65–75% outdoors, 2.4 busy down. Roll back / tune the indoor APs' thresholds if
 canary disconnects rise by half or more.
+
+## PtP point-to-multipoint plan + capacity baseline (2026-10-23)
+- The EAP215-Bridge supports 1-to-4 multi-bridge (PtMP). The existing house server can feed a
+  2nd client at Negra's pole: bearing 164.6° vs grandma 173.5° (9° apart), 121 m. No new
+  server, no house port needed.
+- Negra then becomes the school's wired mesh root (BES/BNHS mesh one hop to it) and the school
+  mesh can move off 157 (e.g. ch 44). Negra's 5G stays double-duty until BES/BNHS are wired.
+- Two-device injector chain works: PtP client injector LAN↔LAN Negra injector (no switch).
+  It can't take a third device (BES) — that needs the SG2005P-PD.
+- Capacity (ptp_load.py, Oct 23): PtP today avg 6.1 / p95 15.8 / max 21.1 Mbps; Negra hop
+  avg 5.8 / p95 14.1 / max 22.4; combined avg 12.5 / p95 22.7 / max 26.2 Mbps vs ~300–400
+  usable (866 PHY, min seen 117). <10% of capacity.
+- KEY FINDING: PtP ch 153 @80 MHz and mesh ch 157 @80 MHz are the SAME 80 MHz block (149–161).
+  PtP radio busy 35–38% evenings (max 63%) while carrying ~21 Mbps = mostly school mesh air.
+  Moving the school mesh off 149–161 should cut PtP busy % even as it carries more.

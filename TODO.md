@@ -18,6 +18,24 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 - *Clear — no pre-launch blockers. The crash saga is closed (v1.3.11–13, see Done).*
 
+## 📡 Bakhaw network — checkpoints (detail: `memory/school_channel_change_2026-10-21.md`)
+
+- **Band-steering verdict (from Oct 25, after school hours).** Balance → Prefer 5G since
+  2026-10-22 18:44 UTC. Run `tools/tq tools/steer_check.py 2026-10-22T18:44 3` in the tracker repo.
+  Success = outdoor 5G client share ~50% → 65–75%, 2.4 busy down. Roll back if the indoor
+  canaries (House AP, Grandama House) show disconnects up by half or more.
+- **School via the EXISTING PtP server (point-to-multipoint), not yet done.** The EAP215-Bridge
+  supports 1-to-4 clients, and Negra's pole is 9° off the grandma beam at 121 m. Add the spare
+  bridge as a 2nd client on Negra's pole, injector-chain it LAN-to-LAN to Negra (Negra becomes
+  the school's wired root), move the school mesh to 5G ch 44. Do it in the 02:00–06:00 blackout
+  (touches the live grandma link).
+  **Re-measure after:** `tools/tq tools/ptp_load.py`. Baseline (Oct 23): PtP+school combined avg
+  12.5 / p95 22.7 / peak 26.2 Mbps (link ~300–400 usable); PtP radio busy 35–38% evenings, max
+  63%. Expect busy % to DROP: PtP 153@80 MHz and mesh 157@80 MHz share the same 149–161 block
+  today, so the PtP's airtime includes school mesh traffic. Also watch grandma's hour bars.
+- **Install-day for the SG2005P-PD stage:** add Negra/BES/BNHS to the optimizer exclude list,
+  give each school 5G radio its own channel, measure the BNHS cable route (100 m hard limit).
+
 ## 🟡 Resilience / ops
 
 - **Consider serving the captive portal from Omada instead of the ESP (scalability).** Today the ESP is
