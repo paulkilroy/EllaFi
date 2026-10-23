@@ -71,3 +71,22 @@ canary disconnects rise by half or more.
   was rainy with +30% school load (Negra mesh hop 28.4 GB 07–12 vs 21–22 GB). Can't attribute to
   steering vs load yet. Verdict: dry school day, Mon Oct 26+.
 - Either way: the school mesh is near saturation (+30% load → 4× latency). Strengthens the backbone case.
+
+## Oct 24 upstream drop investigation (Daram times) — raw results, no conclusions
+Path facts: Starlink router → cable → POE170S injector (LAN) → injector PoE → ~1–3 m cable →
+House switch port 5 (PD power-in). OC220 on switch port 4; PtP server on the OC220's 2nd port.
+Router sees one wired link only (Network → Devices: iPhone, mxchip, OC220, SG2005P-PD).
+Pings run FROM the house switch (Omada device ping):
+- → 8.8.8.8: 11% loss, one block of 11 (time not noted)
+- ~02:30 → dish 192.168.100.1 (TTL 63, reachable): 29% loss, blocks of 5/12/6/6, slow first reply after block
+- ~02:50 → router 192.168.1.1: 13 of 45 lost, blocks of 7 and 6
+- ~03:00 → controller 192.168.1.83 (port 4): 0% (control)
+- ~03:10 → router: 23% loss, blocks of 6/7/10
+- 03:27 port 5 read STP "Blocking" once (Forwarding at ~02:45); loop detect 0
+- 03:35–03:45 remote API to controller failing
+- ~04:00 and ~04:05 → router: 0% and 0% (nothing changed on site)
+Cable test 02:15: port 5 "ok" reads 13 m though the cable is 1–3 m (test may span the injector).
+Starlink app: dish ping ~99.96–99.98%; router→PoP 100%; router→Cloudflare dropped 02:36–02:39
+(separate upstream issue). Ella's plan: baseline test → router restart → swap injector→router
+cable → swap switch→injector cable → router into switch port 2 (PoE off), test after each.
+Only meaningful while drops are occurring.
