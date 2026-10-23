@@ -62,3 +62,12 @@ canary disconnects rise by half or more.
   throughput dropping to ~0 every 20–30 s, 20:36–20:44 Daram). LAN/PtP/mesh healthy (zero loss);
   the controller stayed up (6.4 days uptime). The iPhone app's "controller offline" and "PtP
   server no downlink" were the app losing its cloud view during the stalls.
+
+## First results (Oct 23, rainy, confounded)
+- Steering moved traffic to 5G: BES 67→86%, Darna 55→68, Negra 76→86, Grandama 79→86, House AP
+  16→23. Indoor canaries fine (House AP disc/h 3.6→2.3, Grandama 3.1→3.5). 2.4 busy did NOT drop
+  (competitor airtime floor).
+- School-hours path latency BES 21→85 ms, BNHS 21→57 (Darna wired control flat at 0.9). BUT Oct 23
+  was rainy with +30% school load (Negra mesh hop 28.4 GB 07–12 vs 21–22 GB). Can't attribute to
+  steering vs load yet. Verdict: dry school day, Mon Oct 26+.
+- Either way: the school mesh is near saturation (+30% load → 4× latency). Strengthens the backbone case.

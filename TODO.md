@@ -24,6 +24,10 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   2026-10-22 18:44 UTC. Run `tools/tq tools/steer_check.py 2026-10-22T18:44 3` in the tracker repo.
   Success = outdoor 5G client share ~50% → 65–75%, 2.4 busy down. Roll back if the indoor
   canaries (House AP, Grandama House) show disconnects up by half or more.
+  **School verdict needs a normal school day: Mon Oct 26 onward** (Oct 24–25 is a weekend). Oct 23
+  was a rainy day with +30% school load (Negra mesh hop 28.4 GB 07–12 vs ~22), which confounds
+  the jump in BES/BNHS school-hour latency (21 → 85 / 57 ms) and BES airtime (70 → 83%). Compare a
+  dry Monday against Oct 22 before changing BNHS's channel or the per-AP steering thresholds.
 - **School via the EXISTING PtP server (point-to-multipoint), not yet done.** The EAP215-Bridge
   supports 1-to-4 clients, and Negra's pole is 9° off the grandma beam at 121 m. Add the spare
   bridge as a 2nd client on Negra's pole, injector-chain it LAN-to-LAN to Negra (Negra becomes
