@@ -54,3 +54,10 @@ canary disconnects rise by half or more.
 - KEY FINDING: PtP ch 153 @80 MHz and mesh ch 157 @80 MHz are the SAME 80 MHz block (149–161).
   PtP radio busy 35–38% evenings (max 63%) while carrying ~21 Mbps = mostly school mesh air.
   Moving the school mesh off 149–161 should cut PtP busy % even as it carries more.
+- Bridge speed test (controller), Oct 23 21:38 Daram, heavy rain, live traffic: ↑281.2 / ↓234.2 Mbps
+  — ~10x peak demand. Re-run after the point-to-multipoint change; expect higher once the
+  school mesh leaves the 149–161 block.
+- Oct 23 evening incident: video calls failed. Cause = Starlink stalling in heavy rain (app
+  throughput dropping to ~0 every 20–30 s, 20:36–20:44 Daram). LAN/PtP/mesh healthy (zero loss);
+  the controller stayed up (6.4 days uptime). The iPhone app's "controller offline" and "PtP
+  server no downlink" were the app losing its cloud view during the stalls.
