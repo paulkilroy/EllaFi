@@ -47,6 +47,19 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   seconds per hour next to the client-experience bars. Check first: the dish is reachable at
   192.168.100.1 through the Starlink router (in bypass mode it needs a static route). Power it
   from the house UPS so it logs through the outages it's meant to catch.
+- **House switch port 5 (Starlink uplink): fix on site late Nov, not urgent.** Facts: the 15-min
+  poll showed 1000 Mbps from Oct 21 (first poll) to Oct 24 04:15 Daram, then 100 Mbps from 04:30.
+  Router pings from the switch lost 13–29% in blocks while at 1G (first seen Oct 24 00:45); at
+  100M three runs had 0% loss (one with 1000-byte packets). The control ping to the controller
+  (port 4) stayed at 0%. Suspects, unproven: a bad wire pair (1G uses all 4 pairs, 100M only 2) in
+  the switch→injector cable, the injector, switch port 5, the injector→router cable, or the
+  router adapter. Cost of staying at 100M: Starlink's ~150 Mbps is capped at ~94; 15-min peaks
+  so far were 34–44 Mbps. Confirm whether port 5 is forced to 100 Full or auto (a forced side
+  facing an auto side can end up half duplex). Before Paul's visit, Ella can only reseat and look
+  over the cables. On site: swap one piece at a time, set port 5 back to auto after each, and
+  check whether 1000 Full holds with no ping loss; spare POE170S as the injector test.
+- **House switch: move the controller (OC220) from port 4 to port 3 and feed the House AP through
+  it.**
 - **Install-day for the SG2005P-PD stage:** add Negra/BES/BNHS to the optimizer exclude list,
   give each school 5G radio its own channel, measure the BNHS cable route (100 m hard limit).
 
