@@ -50,6 +50,12 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   how many Gap phones move off Grandma AP / BNHS / Negra and whether those APs' weak-signal
   clients shrink; its voucher share. At install it was on fw 1.0.2 (→ 1.5.6 first; old fw
   double-counts usage), 2.4 ch 1 (→ 11), 5 GHz 153 (on the PtP's channel — move off 149–161).
+- **Negra AP hears its 2.4 GHz phones ~18 dB weaker than it should (found Oct 24).** A
+  building-aware coverage model (OSM houses + streets, AP heights) matches five of six outdoor
+  APs within ~3 dB on 2.4 GHz; Negra (20 ft) measures median −86 dBm / 87% of readings < −80 vs
+  ~−69 predicted, and has the worst 2.4 retry rate. Check its 2.4 antennas/connectors, mounting
+  and anything right in front of it (have Ella photograph it). Model + map: plan artifact,
+  strategic map "2.4 GHz coverage" layer. BES was moved a bit east — update its lat/lon.
 - **On-site, late Nov: Starlink dish collector → Vercel.** The dish exposes local diagnostics
   (the gRPC service at 192.168.100.1:9200, reachable only from inside the LAN): second-by-second
   outages and their causes (obstruction, no satellite, rain/attenuation), ping drop rate,
