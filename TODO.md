@@ -31,8 +31,14 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 - **School via the EXISTING PtP server (point-to-multipoint), not yet done.** The EAP215-Bridge
   supports 1-to-4 clients, and Negra's pole is 9° off the grandma beam at 121 m. Add the spare
   bridge as a 2nd client on Negra's pole, injector-chain it LAN-to-LAN to Negra (Negra becomes
-  the school's wired root), move the school mesh to 5G ch 44. Do it in the 02:00–06:00 blackout
-  (touches the live grandma link).
+  the school's wired root). Do it in the 02:00–06:00 blackout (touches the live grandma link).
+  **Channel — ch 44 is NOT clean (re-checked Oct 24):** every AP runs 80 MHz, so 44 sits in the
+  36–48 block with Grandma AP (40). Negra doesn't hear Grandma's 5G (BNHS barely, −89), but at Negra
+  that block has competitors: ZEPH −69 (36), Jazzly/ZEPH −75 (44), SHEM SHEM −82 (48). Today's
+  149–161 block has ZEPH −74/−75 (149) + our own PtP/House Big. Nearly empty at Negra: 52–64
+  (one radio at −105) and 100+ (−99) — both DFS (radar rules; check the controller offers them and
+  that mesh is allowed on DFS). Negra's SAVED 5G channel is 40 — it switches to that the moment
+  it has a wired uplink, so set it BEFORE linking. Gesziel must then avoid the school's block.
   **Re-measure after:** `tools/tq tools/ptp_load.py`. Baseline (Oct 23): PtP+school combined avg
   12.5 / p95 22.7 / peak 26.2 Mbps (link ~300–400 usable); PtP radio busy 35–38% evenings, max
   63%. Expect busy % to DROP: PtP 153@80 MHz and mesh 157@80 MHz share the same 149–161 block
