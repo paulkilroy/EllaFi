@@ -95,3 +95,21 @@ Starlink app: dish ping ~99.96–99.98%; router→PoP 100%; router→Cloudflare 
 (separate upstream issue). Ella's plan: baseline test → router restart → swap injector→router
 cable → swap switch→injector cable → router into switch port 2 (PoE off), test after each.
 Only meaningful while drops are occurring.
+
+## Oct 24 — school moved onto the PtP (point-to-multipoint), ~11:15 Daram (03:15 UTC)
+Facts (controller reads):
+- Spare bridge = EAP215-Bridge(US) **v2.0** (3-port, 24 V passive PoE only — house switch can't
+  power it; own injector). fw 1.0.0 → 1.1.2. Linked to the v3.0 PtP Server via Bridge → Rescan.
+  Named "Negra PtP Client"; Voucher/Piso/Test SSIDs off (Mahal still on, like the other bridges).
+- Link at Negra's: −53…−56 dBm, 866/866 Mbps on ch 153 (Grandma PtP Client: −60, 866/780).
+- Injector LAN↔LAN cable in → Negra kept its mesh uplink and listed the bridge as a downlink
+  (two paths); **Negra reboot** → Negra wired (controller shows wired uplink "House Swich" port 4,
+  1 Gbps — the PtP Server sits behind the controller on port 4), mesh dropped.
+- Negra's 5 GHz went to its SAVED channel **40** (80 MHz); BES and BNHS followed, meshed to Negra
+  on 40 (BNHS −67, BES −69). Grandma AP is also on 40 (Negra doesn't hear it; BNHS −89).
+  Planned: set Negra to 52 (80 MHz) — not yet saved at the time of this note.
+- Before (school hours 07–17, Oct 22 / Oct 23): path to router Negra 28/37 ms, BES 19/53,
+  BNHS 20/48; House Big 5G busy 44/45%; PtP Server busy 32/32% (max 59). Expect Negra ~7–15 ms.
+- Same day: Negra AP's antennas found pointed toward the sea (horizontal) — explains its
+  ~18 dB-weak 2.4 GHz; fix (point up) pending. Monday's school check compares against this new
+  setup, not Oct 22.
