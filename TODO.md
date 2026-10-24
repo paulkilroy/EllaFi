@@ -43,6 +43,13 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   12.5 / p95 22.7 / peak 26.2 Mbps (link ~300–400 usable); PtP radio busy 35–38% evenings, max
   63%. Expect busy % to DROP: PtP 153@80 MHz and mesh 157@80 MHz share the same 149–161 block
   today, so the PtP's airtime includes school mesh traffic. Also watch grandma's hour bars.
+- **Maridel AP (Gap street AP, up Oct 24) — low-mount penetration test, read after ~1 week
+  (~Oct 31).** EAP603 at 11.59139, 124.7654, cabled from the Grandma Switch, mounted only ~10 ft
+  up (others are pole/roof height). Question: how far does a street-level AP reach into the
+  CHB/wood houses? Measure: its distinct clients and their signal (RSSI) / link-speed spread;
+  how many Gap phones move off Grandma AP / BNHS / Negra and whether those APs' weak-signal
+  clients shrink; its voucher share. At install it was on fw 1.0.2 (→ 1.5.6 first; old fw
+  double-counts usage), 2.4 ch 1 (→ 11), 5 GHz 153 (on the PtP's channel — move off 149–161).
 - **On-site, late Nov: Starlink dish collector → Vercel.** The dish exposes local diagnostics
   (the gRPC service at 192.168.100.1:9200, reachable only from inside the LAN): second-by-second
   outages and their causes (obstruction, no satellite, rain/attenuation), ping drop rate,
