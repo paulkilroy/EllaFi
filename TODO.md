@@ -38,7 +38,7 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   149–161 block has ZEPH −74/−75 (149) + our own PtP/House Big. Nearly empty at Negra: 52–64
   (one radio at −105) and 100+ (−99) — both DFS (radar rules; check the controller offers them and
   that mesh is allowed on DFS). Negra's SAVED 5G channel is 40 — it switches to that the moment
-  it has a wired uplink, so set it BEFORE linking. Gesziel must then avoid the school's block.
+  it has a wired uplink, so set it BEFORE linking. Maridel must then avoid the school's block.
   **Re-measure after:** `tools/tq tools/ptp_load.py`. Baseline (Oct 23): PtP+school combined avg
   12.5 / p95 22.7 / peak 26.2 Mbps (link ~300–400 usable); PtP radio busy 35–38% evenings, max
   63%. Expect busy % to DROP: PtP 153@80 MHz and mesh 157@80 MHz share the same 149–161 block
