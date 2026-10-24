@@ -56,6 +56,14 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   ~−69 predicted, and has the worst 2.4 retry rate. Check its 2.4 antennas/connectors, mounting
   and anything right in front of it (have Ella photograph it). Model + map: plan artifact,
   strategic map "2.4 GHz coverage" layer. BES was moved a bit east — update its lat/lon.
+- **On-site, late Nov: WiGLE signal walk + house test (Paul).** Cheap Android phone with WiGLE
+  (free; logs every network's signal + GPS, ours and competitors'). (1) Walk every street once,
+  slowly; export the CSV for the tracker → real coverage map + competitor radio positions, to
+  re-tune the coverage model. (2) House test, 3–4 houses (2 near House Big at 40 ft, 2 near
+  BES/Maridel, low): stand still ~30 s at each spot — outside facing the AP, just inside the
+  door, middle room, back room — and note the time + spot (GPS can't tell rooms apart; match
+  by time). Differences = real wall and metal-roof losses vs the model's 10 / 20 dB.
+  Also: drone photo grid → photogrammetry (WebODM) for roofs, heights, unmapped houses.
 - **On-site, late Nov: Starlink dish collector → Vercel.** The dish exposes local diagnostics
   (the gRPC service at 192.168.100.1:9200, reachable only from inside the LAN): second-by-second
   outages and their causes (obstruction, no satellite, rain/attenuation), ping drop rate,
