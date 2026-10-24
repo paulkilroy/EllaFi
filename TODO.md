@@ -66,6 +66,14 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   door, middle room, back room — and note the time + spot (GPS can't tell rooms apart; match
   by time). Differences = real wall and metal-roof losses vs the model's 10 / 20 dB.
   Also: drone photo grid → photogrammetry (WebODM) for roofs, heights, unmapped houses.
+  (3) Note each competitor box's real spot during the walk (WiGLE logs them) — the plan map
+  places them by averaging our APs that hear them, which always lands inside our coverage, so
+  the Oct 24 "keep their APs?" math (best box +1.2%, Winnie's 5 +0.1%) is untrustworthy until
+  then. Re-run tools/coverage convert.py with the real positions.
+- **Competitor buyout / reseller (talk to Winnie first).** Gut the box, ESP32 EllaFi unit inside,
+  20% reseller commission; radio off. Need from Ella: daily take per box, their internet bill,
+  who owns which boxes. Plan page has a "What if we remove" selector (per-AP competitor share).
+  Watch Starlink data — 60 regulars ≈ +50 GB/day on top of ~200 GB/day.
 - **On-site, late Nov: Starlink dish collector → Vercel.** The dish exposes local diagnostics
   (the gRPC service at 192.168.100.1:9200, reachable only from inside the LAN): second-by-second
   outages and their causes (obstruction, no satellite, rain/attenuation), ping drop rate,
