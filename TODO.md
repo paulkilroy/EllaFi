@@ -100,6 +100,11 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   reseat, 32-byte pings lost 23–26% at 1000). Watching: `tools/tq tools/port5_history.py 24` in
   the tracker repo (house-side router pings every 15 min + port speed). Still open: the duplex
   check under load (speed test on the house Wi-Fi while pinging the router from the switch).
+  **Oct 25: port 5 rx error counter (openapi/v1 switches/ports/counters `rxErrors`) = 4.9% of all
+  frames since switch boot, and 5.8% live at 100 Full (25,784 of 443,891 frames in 4 min); txErrors 0;
+  every other port on both switches 0%.** Errors are on frames coming FROM the Starlink side. Remote
+  test: port 5 → 100M + Auto duplex; errors ~0 = mismatch from forcing (keep it), errors stay =
+  physical (cable/injector — Nov swap). Counters now stored every 15 min (port_poll.rx_errors).
 - **Negra PtP Client setup at the house (this weekend, Ella + Paul), in order:** (1) unplug House
   AP from its house-switch port, plug the Negra bridge in there (802.3af OK; own injector if it
   won't power); (2) adopt → turn OFF all 4 SSIDs first → name "Negra PtP Client" → upgrade → set
