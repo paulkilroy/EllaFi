@@ -211,6 +211,17 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 - **Coin-acceptor power relay has no single owner** — written from `ledTask`/`ledHalt`/`setup`/
   `handleProgram`. Design note, not a known bug.
 - TLS `setInsecure()` on the self-signed controller — **accepted** tradeoff.
+- **Alphanumeric voucher codes (Nov visit).** Codes are 8 digits (`codeForm:[0]`, `src/omada.cpp`
+  createVoucherGroup) — chosen because Omada's own PDF font confused 0/O; we now print the PDFs
+  ourselves (jsPDF, `web/admin.html`). Guess odds today ≈ unused printed codes ÷ 10⁸ per try; the
+  portal allows ~7 tries/min (berlynda: 30 in 4 min, Oct 18) and Omada has no lockout, so a script
+  could land one in days. Mixed letters+digits at 8 chars ≈ 36⁸ (~28,000× harder); 10 chars more.
+  Changes: (1) `codeForm` to digits+letters (confirm the value in the voucher-group API, e.g. [0,1]),
+  maybe codeLength 10; (2) portal `omada-html/index.html` voucher input: drop `inputmode="numeric"`,
+  add `autocapitalize="characters"`, upper-case before submit (check Omada's case rule);
+  (3) PDF: print codes in a monospace font with a slashed/dotted zero, or exclude look-alikes
+  (0/O, 1/I/L) if Omada allows; (4) old numeric groups keep working until sold out. Watch the
+  dashboard's Failed logins table for guessing in the meantime.
 
 ## 🔧 Hardware — current board (MPM3620A, in repo at `kicad/`)
 
