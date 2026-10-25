@@ -105,6 +105,9 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   every other port on both switches 0%.** Errors are on frames coming FROM the Starlink side. Remote
   test: port 5 → 100M + Auto duplex; errors ~0 = mismatch from forcing (keep it), errors stay =
   physical (cable/injector — Nov swap). Counters now stored every 15 min (port_poll.rx_errors).
+  **RESULT Oct 25 ~12:35 Daram: Paul set 100M + Auto duplex → 0 errors in 339,979 frames (was 5.8%).
+  It was a duplex mismatch caused by forcing Full.** The separate gigabit drop (blocks of lost pings at
+  1000 Auto) is still unexplained — keep the Nov cable/injector swap test before going back to Auto speed.
 - **Negra PtP Client setup at the house (this weekend, Ella + Paul), in order:** (1) unplug House
   AP from its house-switch port, plug the Negra bridge in there (802.3af OK; own injector if it
   won't power); (2) adopt → turn OFF all 4 SSIDs first → name "Negra PtP Client" → upgrade → set
