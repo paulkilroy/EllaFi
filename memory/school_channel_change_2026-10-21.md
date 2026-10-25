@@ -113,3 +113,22 @@ Facts (controller reads):
 - Same day: Negra AP's antennas found pointed toward the sea (horizontal) — explains its
   ~18 dB-weak 2.4 GHz; fix (point up) pending. Monday's school check compares against this new
   setup, not Oct 22.
+
+## Band-steering verdict (steer_check.py 2026-10-22T18:44 3; run Oct 25 ~16:00 Daram, 68 h after)
+- 5G share of CLIENTS (outdoor): BES 58→60, BNHS 41→31, Darna 48→53, Grandma 50→55, House Big 42→40,
+  Negra 59→67 — did NOT reach 65–75% (only Negra close). 5G share of TRAFFIC rose: BES 67→84,
+  Darna 55→67, House Big 57→72. 2.4 busy flat (75→78, 79→76, 77→78, 81→82, 68→67, 73→74) — the
+  competitor-airtime floor. Disconnects/h fell nearly everywhere (BES 19→7.7, BNHS 9.1→3.7).
+- Canaries: House AP 3.6→2.3/h (down), Grandama House 3.1→3.7/h (+19%, under the +50% bar) → keep, no tuning.
+- Confounded: after-window includes the Oct 24 PtP switchover, Maridel going live, a weekend, and rain.
+- Verdict: keep "Prefer 5G". It moved heavy users' traffic to 5G; it can't move phones that can't hold 5G
+  at the edge, and it can't lower 2.4 busy (that's competitors).
+
+## PtP point-to-multipoint — first comparison (Oct 24 03:30 UTC → Oct 25, weekend only)
+- Before (Oct 21–24): Grandma bridge avg 6.8 / p95 16.1 / max 21.1; school via Negra mesh 6.3 / 15.0 / 25.1;
+  combined 13.9 / 23.1 / 30.1 Mbps. PtP Server 5G busy avg 22%, evening 32%, max 63%.
+- After (Sat–Sun, no school): Grandma bridge 9.1 / 18.3 / 25.5; Negra bridge 2.8 / 7.3 / 10.7; combined
+  11.9 / 25.1 / 31.8 Mbps. PtP Server busy avg 33%, evening 51%, max 67% — UP ~half at similar carried load.
+- Likely causes (unproven): the server now takes turns with two clients; House Big 5G moved by the optimizer
+  to ch 149 (Oct 24 15:30) inside the PtP's 80 MHz block (149–161); PtP itself moved 153→149 Oct 25 06:30.
+  Capacity still ~10× peak demand. Re-run on a school day (Mon Oct 26+) for the real school comparison.
