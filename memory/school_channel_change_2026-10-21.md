@@ -132,3 +132,24 @@ Facts (controller reads):
 - Likely causes (unproven): the server now takes turns with two clients; House Big 5G moved by the optimizer
   to ch 149 (Oct 24 15:30) inside the PtP's 80 MHz block (149–161); PtP itself moved 153→149 Oct 25 06:30.
   Capacity still ~10× peak demand. Re-run on a school day (Mon Oct 26+) for the real school comparison.
+
+## SCHOOL VERDICT — Monday Oct 26, 07:00–12:00 Daram (vs Oct 22 clean / Oct 23 rainy +30%)
+| | Oct 22 (BNHS ch 11, no steering, mesh via House Big) | Oct 23 (BNHS ch 1, steering, rain) | Oct 26 (BNHS ch 1, steering, Negra on bridge) |
+|---|---|---|---|
+| school uplink GB 07–12 | 17.6 (Negra mesh hop) | 25.6 | 24.4 (Negra PtP Client) |
+| clients avg / peak | 18 / 25 | 20 / 29 | 18 / 23 |
+| rain 06–12 (feed) | 0 | 1.7 mm | 0.5 mm (light; feed can miss showers) |
+| BES 2.4 busy avg/max, retry | 68/91, 104% | 83/95, 95% | 72/91, 92% |
+| BNHS 2.4 busy, retry | 82/96, 131% (ch 11) | 80/90, 143% | 69/92, 59% |
+| Negra 2.4 busy, retry | 69/91, 182% | 71/87, 506% | 74/94, 55% |
+| path ms Negra med/p90/max | 6.4/49.8/636 | 7.1/51.3/625 | 4.1/6.1/10 |
+| path ms BES | 13.6/49.2/120 | 17.2/332/643 | 5.8/8.2/20 |
+| path ms BNHS | 10.3/36.6/135 | 16.9/60/668 | 5.5/7.1/10 |
+Decisions:
+1. **Steering did NOT raise school latency** — Oct 26 carried Oct-23-level load (+39% vs Oct 22) with steering on and had the
+   lowest latency of all three days, no loss. The Oct 23 spike was the shared House Big mesh hop under load (+rain), now gone
+   (confounded with the bridge change, but no evidence against steering). → **Keep Prefer 5G; do NOT raise BES/BNHS thresholds.**
+2. **BNHS on ch 1 did NOT raise BES airtime** — BES busy 68→72% for +39% load; retries flat/down. BNHS itself is much better on 1
+   (busy 82→69, retry 131→59%). Ch 11 at BNHS has 5 competitors ≥ −82 (Jazzly −56, ZEPH −60/−67) and no own AP; ch 1 has BES −60 +
+   ZEPH −64. → **Keep BNHS on 1; don't move back to 11.**
+Watch: BNHS→Negra mesh PHY ~258 Mbps slow direction at −74.5 (BES 864 at −72.5) — weakest link of the new layout.
