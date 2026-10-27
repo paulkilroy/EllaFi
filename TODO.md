@@ -155,6 +155,22 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ## 🟡 Features
 
+- **PisoWifi portal hosted by the controller; ESP32 only authorizes.** Switch EllaFi PisoWifi from
+  the External Portal (vendo box serves the page) to a controller-hosted portal page that calls the
+  ESP32 only when a customer pays. Prototyped: `omada-html/` (dedbdaa POC, 836a1de production page +
+  bundle), `scripts/upload_portal.py` (Import Customized Page), web b76 `/status` seeded from the
+  Omada redirect params (b5dd02b). Wins:
+  - the portal loads even when the vendo box is down (it was offline Oct 24–27 → PisoWifi phones
+    couldn't pay);
+  - **DHCP option 114** (the "Open Portal Page" / "Sign in to network" prompt on iPhone/Android) can
+    then point at the same controller portal on every guest VLAN (98 Voucher, 99 PisoWifi). It must
+    be an **https** address with a valid certificate, or phones ignore it and fall back to detection
+    probes (which is how the prompt works today). The Guest_Network option **144** = 192.168.0.3 is
+    the wrong code;
+  - fewer access-rule exceptions: PisoWifi phones never talk to the ESP32 directly.
+  - Target: with the ER706W/VLAN move (Nov visit). Detail: tracker `api/_changes.py` PLANNED +
+    ~/.claude memory `network_design.md`.
+
 - **AP coverage map (live up/down) on the screen.** Render a small, abstract per-village map (Bakhaw
   first; generalize to Daram/Samar) with a marker per Omada EAP, colored by live up/down status.
   - **Data source:** Omada admin API device/EAP status (we already hold an admin session) — NOT the
