@@ -114,9 +114,6 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   as 2nd client of the PtP Server (pushes channel + key); (3) unplug it promptly — once it has the
   key it can link to the PtP Server over the air while also cabled = possible loop; if the
   network stutters, unplug at once; (4) House AP back in. Bridge waits unpowered until Tue.
-- **Then: move the controller (OC220) from port 4 to port 3 and feed the House AP through it**
-  (right after the bridge setup above). The controller drops off briefly while moving — APs keep
-  serving; the tracker misses a poll at most.
 - **Install-day for the SG2005P-PD stage:** add Negra/BES/BNHS to the optimizer exclude list,
   give each school 5G radio its own channel, measure the BNHS cable route (100 m hard limit).
 
