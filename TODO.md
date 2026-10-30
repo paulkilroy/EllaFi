@@ -20,6 +20,11 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
 
 ## 📡 Bakhaw network — checkpoints (detail: `memory/school_channel_change_2026-10-21.md`)
 
+- **Controller-move watch (from Oct 30).** OC220 → house port 3, PtP Server direct on port 4. Paul thinks it
+  fixed the topology issues + the Omada support ticket. First day: STP blocks 56/day → 0, wired APs on radio → 0.
+  BUT port 5 (Starlink) rx errors back: 13k in 16 h after the outlet move (was 33/week), one 10 Mbps link at
+  13:30. Re-measure after a clean full day; if errors persist, Ella reseats the Starlink cable + POE170S injector.
+  Detail: ~/.claude memory controller_move_watch.md (baseline numbers).
 - **#1 for the Nov visit: properly ground the cables and switches.** Top priority, ahead of every
   other Nov job (Paul, 2026-10-30). The ER706W already died to an electrical storm + overheating.
 - **Band-steering verdict (from Oct 25, after school hours).** Balance → Prefer 5G since
