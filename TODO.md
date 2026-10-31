@@ -27,6 +27,14 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   Detail: ~/.claude memory controller_move_watch.md (baseline numbers).
 - **#1 for the Nov visit: properly ground the cables and switches.** Top priority, ahead of every
   other Nov job (Paul, 2026-10-30). The ER706W already died to an electrical storm + overheating.
+- **Nov visit: competitor voucher tests.** Buy a voucher from each big seller our APs hear (ZEPH,
+  SIYEON, Hezikiah, Winnie/Lady/Jazzly, GREYCEL, SHEM SHEM, Lourdes) and run
+  `~/.platformio/penv/bin/python3 test/wifi_compare.py "<seller>"` (~1.5 min, ≤60 MB a phase) — EllaFi
+  first as the baseline; each once in the 19–21 rush and once in the morning. Records price notes by hand;
+  the script logs speed per second (burst vs flat cap), lag at rest vs under load, and the **public IP** —
+  same IP on two networks at once = same Starlink dish (Ella: Winnie/Lady/Jazzly are one owner, separate
+  vouchers). Everyone on Daram is Starlink. Results → `~/ellafi-wifi-tests.csv`. Phone version for Ella:
+  speed.cloudflare.com + 1.1.1.1/cdn-cgi/trace for the IP.
 - **Band-steering verdict (from Oct 25, after school hours).** Balance → Prefer 5G since
   2026-10-22 18:44 UTC. Run `tools/tq tools/steer_check.py 2026-10-22T18:44 3` in the tracker repo.
   Success = outdoor 5G client share ~50% → 65–75%, 2.4 busy down. Roll back if the indoor
