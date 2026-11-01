@@ -5,7 +5,9 @@ Buy a voucher, log in, stand where their signal is good, then:
     ~/.platformio/penv/bin/python3 test/wifi_compare.py
 It names the run after the connected network (a name argument overrides it). macOS hides the network name from
 scripts — run `sudo ipconfig setverbose 1` once on the laptop to unlock it, or it asks you to type the name.
-Run it on EllaFi first as the baseline. ~1.5 min per run, ~10-20 MB on a capped network (≤60 MB a phase).
+Run it on EllaFi first as the baseline. ~2 min per run. Data: ~10-20 MB on a capped network for our phases (≤60 MB
+each), plus Apple's full-speed test ≈ speed × 20 s (~50 MB at 20 Mbps, ~250 MB at 100). On a data-limited voucher
+prefix NO_APPLE=1 to skip it.
 
 Measures, while pinging 1.1.1.1 and the network's gateway once a second:
   idle 20 s      → lag at rest
@@ -25,9 +27,14 @@ from statistics import median
 # Vultr's Singapore test file (near Starlink's PH exit); Cloudflare's __down rate-limits scripts (429) — fallback only
 DOWN_URLS = ["https://sgp-ping.vultr.com/vultr.com.100MB.bin", "https://speed.cloudflare.com/__down?bytes=25000000"]
 UP_URL = "https://speed.cloudflare.com/__up"
-PHASES = [("idle", 20), ("download", 30), ("upload", 15), ("recover", 10)]
+PHASES = [("idle", 20), ("download", 30), ("upload", 15), ("apple", 25), ("recover", 10)]
 if os.environ.get("QUICK"):                       # QUICK=1: a 20-second smoke test of the script itself
-    PHASES = [("idle", 5), ("download", 6), ("upload", 5), ("recover", 3)]
+    PHASES = [("idle", 5), ("download", 6), ("upload", 5), ("apple", 25), ("recover", 3)]
+if os.environ.get("NO_APPLE"):                    # skip the full-speed test on a data-limited voucher
+    PHASES = [p for p in PHASES if p[0] != "apple"]
+# Our own download/upload phases show the SHAPE (speed each second: burst-then-cap vs flat) but Python tops out
+# ~20/45 Mbps (Oct 31: Paul's 500 Mbps line). The "apple" phase runs macOS's built-in networkQuality — finds a nearby
+# Apple server, measures true capacity and lag at full load. Uses ~speed × 20 s of data (≈250 MB at 100 Mbps).
 STREAMS = 8          # download connections; 4 topped out ~10 Mbps from a far server (Dallas → Singapore, Oct 31)
 UP_STREAMS = 4
 CAP_BYTES = int(os.environ.get("CAP_MB", 60)) * 1_000_000   # a phase stops early past this, so an uncapped fast
@@ -42,9 +49,9 @@ lock = threading.Lock()
 stop = threading.Event()
 
 
-def sh(cmd):
+def sh(cmd, timeout=20):
     try:
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=20).stdout
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout).stdout
     except Exception:
         return ""
 
@@ -143,9 +150,18 @@ threading.Thread(target=pinger, args=("1.1.1.1", pings["internet"]), daemon=True
 if gw:
     threading.Thread(target=pinger, args=(gw, pings["gateway"]), daemon=True).start()
 
-rows, spans = [], {}
+rows, spans, apple = [], {}, {}
 for name, secs in PHASES:
     t0 = time.time(); end = phase_end[0] = t0 + secs
+    if name == "apple":
+        print("  apple    running macOS networkQuality (~25 s)…")
+        try:
+            apple = json.loads(sh(["networkQuality", "-s", "-c", "-M", str(secs)], timeout=secs + 30) or "{}")
+        except Exception as e:
+            errors.append(f"networkQuality: {e}")
+        spans[name] = (t0, time.time())
+        print(f"  apple    done{' ' * 30}")
+        continue
     with lock:
         moved[0] = 0
     if name in ("download", "upload"):
@@ -172,6 +188,8 @@ stop.set()
 
 
 def lag(host, phase):
+    if phase not in spans:
+        return None, None, None
     a, b = spans[phase]
     v = [ms for t, ms in pings[host] if a <= t <= b]
     got = sorted(x for x in v if x is not None)
@@ -190,19 +208,26 @@ summary = {
     "down_first5s_mbps": round(median(dl[:5]), 2) if dl else None,       # burst?
     "down_median_mbps": round(median(dl[5:] or dl), 2) if dl else None,  # what it settles to
     "up_median_mbps": round(median(ul[3:] or ul), 2) if ul else None,
+    # Apple networkQuality: true capacity + lag at FULL load (responsiveness is round trips per minute → ms)
+    "apple_down_mbps": round(apple["dl_throughput"] / 1e6, 1) if apple.get("dl_throughput") else None,
+    "apple_up_mbps": round(apple["ul_throughput"] / 1e6, 1) if apple.get("ul_throughput") else None,
+    "apple_idle_ms": round(apple["base_rtt"], 1) if apple.get("base_rtt") else None,
+    "apple_loaded_down_ms": round(60000 / apple["dl_responsiveness"]) if apple.get("dl_responsiveness") else None,
+    "apple_loaded_up_ms": round(60000 / apple["ul_responsiveness"]) if apple.get("ul_responsiveness") else None,
+    "apple_mb_used": round((apple.get("dl_bytes_transferred", 0) + apple.get("ul_bytes_transferred", 0)) / 1e6) if apple else None,
+    "apple_server": apple.get("test_endpoint"),
 }
 for host in ("internet", "gateway"):
-    for ph in ("idle", "download", "upload"):
+    for ph in ("idle", "download", "upload", "apple"):
         m, p, l = lag(host, ph)
         summary[f"{host}_{ph}_median_ms"], summary[f"{host}_{ph}_p95_ms"], summary[f"{host}_{ph}_loss_pct"] = m, p, l
 
 path = os.path.expanduser("~/ellafi-wifi-tests.csv")
-new = not os.path.exists(path)
-with open(path, "a", newline="") as f:
-    wr = csv.DictWriter(f, fieldnames=list(summary))
-    if new:
-        wr.writeheader()
-    wr.writerow(summary)
+old = list(csv.DictReader(open(path))) if os.path.exists(path) else []
+with open(path, "w", newline="") as f:          # rewrite, so rows from older versions keep lining up with new columns
+    wr = csv.DictWriter(f, fieldnames=list(summary), extrasaction="ignore")
+    wr.writeheader()
+    wr.writerows(old + [summary])
 os.makedirs(os.path.expanduser("~/ellafi-wifi-tests"), exist_ok=True)
 detail = os.path.expanduser(f"~/ellafi-wifi-tests/{re.sub(r'[^A-Za-z0-9]+', '_', label)}-{stamp:%m%d-%H%M}.csv")
 with open(detail, "w", newline="") as f:
@@ -214,6 +239,10 @@ print(f"\n{label}: down {summary['down_first5s_mbps']} → {summary['down_median
       f"up {summary['up_median_mbps']} Mbps")
 print(f"  lag to internet, median / p95 / loss: idle {lag('internet', 'idle')} · "
       f"while downloading {lag('internet', 'download')} · while uploading {lag('internet', 'upload')}")
+if apple:
+    print(f"  Apple full-speed test: {summary['apple_down_mbps']} down / {summary['apple_up_mbps']} up Mbps · lag idle "
+          f"{summary['apple_idle_ms']} ms → loaded {summary['apple_loaded_down_ms']} / {summary['apple_loaded_up_ms']} ms "
+          f"· {summary['apple_mb_used']} MB used · {summary['apple_server']}")
 print(f"  public IP {ip} ({colo}) — same IP on two networks at the same time = same Starlink dish")
 print(f"  saved → {path} and {detail}")
 if errors:
