@@ -2,8 +2,10 @@
 """Competitor Wi-Fi test (macOS laptop, standard library only) — Nov 2026 visit.
 
 Buy a voucher, log in, stand where their signal is good, then:
-    ~/.platformio/penv/bin/python3 test/wifi_compare.py "Winnie Malinao"
-Run it on EllaFi first as the baseline. ~1.5 min per run, ~20-40 MB of their data.
+    ~/.platformio/penv/bin/python3 test/wifi_compare.py
+It names the run after the connected network (a name argument overrides it). macOS hides the network name from
+scripts — run `sudo ipconfig setverbose 1` once on the laptop to unlock it, or it asks you to type the name.
+Run it on EllaFi first as the baseline. ~1.5 min per run, ~10-20 MB on a capped network (≤60 MB a phase).
 
 Measures, while pinging 1.1.1.1 and the network's gateway once a second:
   idle 20 s      → lag at rest
@@ -33,7 +35,6 @@ CAP_BYTES = int(os.environ.get("CAP_MB", 60)) * 1_000_000   # a phase stops earl
 urllib.request.install_opener(urllib.request.build_opener(urllib.request.HTTPSHandler(
     context=ssl.create_default_context(cafile="/etc/ssl/cert.pem" if os.path.exists("/etc/ssl/cert.pem") else None))))
 
-label = sys.argv[1] if len(sys.argv) > 1 else input("Network / seller name: ").strip()
 stamp = datetime.now()
 moved = [0]          # bytes moved by the active phase's streams
 lock = threading.Lock()
@@ -47,12 +48,23 @@ def sh(cmd):
         return ""
 
 
+def ssid():
+    """The connected network's name. macOS 14+ redacts it from every command-line tool unless one of these is set
+    up once: `sudo ipconfig setverbose 1` (ipconfig then shows it), or a Shortcut named "Wi-Fi Name" (one action:
+    Get Network Details → Wi-Fi → Network Name)."""
+    m = re.search(r"^\s*SSID : (.+)$", sh(["ipconfig", "getsummary", "en0"]), re.M)
+    if m and "redacted" not in m.group(1):
+        return m.group(1).strip()
+    out = sh(["shortcuts", "run", "Wi-Fi Name"]).strip()
+    return out if out and "redacted" not in out else None
+
+
 def wifi():
-    """SSID (macOS may hide it), channel, signal/noise, PHY mode of the current network."""
+    """Channel, signal/noise, PHY mode of the current network."""
     try:
         d = json.loads(sh(["system_profiler", "SPAirPortDataType", "-json"]))
         cur = d["SPAirPortDataType"][0]["spairport_airport_interfaces"][0].get("spairport_current_network_information", {})
-        return {"ssid": cur.get("_name"), "channel": cur.get("spairport_network_channel"),
+        return {"channel": cur.get("spairport_network_channel"),
                 "signal": cur.get("spairport_signal_noise"), "phy": cur.get("spairport_network_phymode")}
     except Exception:
         return {}
@@ -119,6 +131,9 @@ def up_stream():
 gw = re.search(r"gateway: (\S+)", sh(["route", "-n", "get", "default"]))
 gw = gw.group(1) if gw else None
 w = wifi()
+w["ssid"] = ssid()
+label = sys.argv[1] if len(sys.argv) > 1 else w["ssid"] or input(
+    "macOS is hiding the network name (one-time fix: `sudo ipconfig setverbose 1`). Network / seller name: ").strip()
 ip, colo = trace()
 print(f"{label} · SSID {w.get('ssid')} · {w.get('channel')} · signal {w.get('signal')} · gateway {gw} · public IP {ip} ({colo})")
 
