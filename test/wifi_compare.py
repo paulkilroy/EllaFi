@@ -28,7 +28,8 @@ UP_URL = "https://speed.cloudflare.com/__up"
 PHASES = [("idle", 20), ("download", 30), ("upload", 15), ("recover", 10)]
 if os.environ.get("QUICK"):                       # QUICK=1: a 20-second smoke test of the script itself
     PHASES = [("idle", 5), ("download", 6), ("upload", 5), ("recover", 3)]
-STREAMS = 4
+STREAMS = 8          # download connections; 4 topped out ~10 Mbps from a far server (Dallas → Singapore, Oct 31)
+UP_STREAMS = 4
 CAP_BYTES = int(os.environ.get("CAP_MB", 60)) * 1_000_000   # a phase stops early past this, so an uncapped fast
                                                               # network can't eat a data-limited voucher
 # the PlatformIO Python ships without a CA bundle — use macOS's
@@ -148,7 +149,7 @@ for name, secs in PHASES:
     with lock:
         moved[0] = 0
     if name in ("download", "upload"):
-        for _ in range(STREAMS if name == "download" else 2):
+        for _ in range(STREAMS if name == "download" else UP_STREAMS):
             threading.Thread(target=down_stream if name == "download" else up_stream, daemon=True).start()
     last = 0
     while time.time() < end:
