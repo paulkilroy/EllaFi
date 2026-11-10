@@ -29,9 +29,20 @@ kicad/sim/board/scope.html
 kicad/fab/
 omada-html/ellafi-poc.zip
 tools/uptime_report.html
+# Shaper lab run outputs (header captures, ~750 MB) — summaries live in memory/shaper_lab.md
+lab/farm/results/
+lab/**/__pycache__/
 # Proprietary decompiled/extracted TP-Link controller code — analysis only, never commit
 omada-lab/_jars/
+omada-lab/_jars_*/
+omada-lab/_webui_*/
 omada-lab/_jadx*/
+# API catalog: scripts, overlay, INDEX.md and spec_stats.json are tracked; big regenerable outputs are not
+omada-lab/api_catalog/catalog.json
+omada-lab/api_catalog/openapi.json
+omada-lab/api_catalog/openapi.yaml
+omada-lab/api_catalog/omada-api.html
+omada-lab/api_catalog/_render.json
 omada-lab/_cls/
 omada-lab/_focus/
 omada-lab/_recover/

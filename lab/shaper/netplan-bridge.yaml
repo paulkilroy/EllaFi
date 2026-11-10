@@ -1,0 +1,28 @@
+# Shaper box: transparent bridge across the two built-in ports (eno1 = router side, enp4s0 = AP side).
+# The box's own address rides on br0 (DHCP, same MAC as eno1 so it keeps its lease). No STP: it sits in a line.
+network:
+  version: 2
+  ethernets:
+    eno1:
+      match:
+        macaddress: "84:47:09:91:ce:01"
+      set-name: eno1
+      dhcp4: false
+      dhcp6: false
+    enp4s0:
+      dhcp4: false
+      dhcp6: false
+    enxc84bd6e9e685:
+      dhcp4: false
+      dhcp6: false
+      optional: true
+  bridges:
+    br0:
+      interfaces: [eno1, enp4s0]
+      macaddress: "84:47:09:91:ce:01"
+      dhcp4: true
+      dhcp-identifier: mac          # ask DHCP as eno1's MAC, so the box keeps its address (.103)
+      dhcp6: false
+      parameters:
+        stp: false
+        forward-delay: 0

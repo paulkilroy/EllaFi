@@ -16,6 +16,15 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   the device's own /24, confirm the hit by requesting `/<controller_id>/api/v2/…`, then rewrite `omada_url`.
   Zero-code stopgap: give the controller a **DHCP reservation** so it stops drifting.
 
+- **🔴 Shaper (PARKED 2026-11-10 while Paul is in NYC) — detail + ordered to-dos: `memory/shaper_lab.md`.**
+  Every Omada limit drops (AP `rate_limit.ko`, ER605 gateway too: lab 32–37% lost). Our bridge box
+  (`lab/shaper/shaper.py`, per-MAC HTB 2/1 + fq_codel) queues instead: 200 ms wait → **0.5% lost on Paul's
+  iPhone with real FB Reels**, ping avg 16 ms; only the first ~minute of a cold start has 1–2 s slow starts.
+  Next: fix fake-phone hang → rerun bad-phone/256-lane sweeps → speed bank (`--burst-kb 10240` first) →
+  iPhone Omada-vs-shaper same-day comparison → Teams priority class → box load test → install-ready + monitoring
+  → Bakhaw switchover plan (approval). TP-Link case #350801 reply drafted, held until Paul approves.
+  Lab left: shaper down, Mahal AP limit off.
+
 - *Clear — no pre-launch blockers. The crash saga is closed (v1.3.11–13, see Done).*
 
 ## 📡 Bakhaw network — checkpoints (detail: `memory/school_channel_change_2026-10-21.md`)
@@ -85,6 +94,27 @@ Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ 
   places them by averaging our APs that hear them, which always lands inside our coverage, so
   the Oct 24 "keep their APs?" math (best box +1.2%, Winnie's 5 +0.1%) is untrustworthy until
   then. Re-run tools/coverage convert.py with the real positions.
+- **5 GHz home booster strategy (Paul, Nov 2).** Don't copy the competitors' flood of cheap 2.4-only
+  boxes. Build a few high, powerful 5 GHz stations; customers BUY a ~₱1,000 locked booster that
+  picks up our 5 GHz at a window and repeats it inside (2.4 inside at low power; the metal roof
+  keeps it in). Data: 2.4 busy 75–80% but our own sending only 8–17% (~160 neighbour radios on
+  1/6/11); 5 GHz busy 2–37%, but 5 GHz customers' median is −82 dBm (doesn't get indoors).
+  ~24% of 2.4 devices never seen on 5 GHz → keep a small 2.4 service.
+  GATE: per-phone vouchers must survive the booster (controller must see each phone, not one box).
+  (1) Paul, OKC lab: stock TP-Link RE315 (₱1,000 PH; High Speed Mode = 5 GHz uplink / 2.4 inside)
+  on a portal SSID + 2 phones; check the controller sees two separate clients/vouchers. Ella only
+  judges whether customers would buy it (no hardware testing). If it passes → Lazada bulk buy
+  (official TP-Link LazMall store). (2) Samples: Cudy TR1200 (tiny, MT7613, OpenWrt 24.10, no DFS →
+  uplink only on our DFS channels) + Comfast CF-WR617AC (MT7612E, OpenWrt); WDS test on site late
+  Nov vs BES/Darna (DFS) and Grandma (ch 40). (3) Pilot station on a non-DFS channel + 3 houses.
+  Skip: CF-WR302S, TL-WR802N (2.4 only), TL-WR902AC (OpenWrt not recommended). NTC approval
+  matters at volume (Cudy/TP-Link sold officially in PH).
+  Paul, same day: STOCK FIRMWARE IS FINE (OpenWrt only if needed). We keep the admin password and
+  seal the reset button. Inside network on LOWEST power so it doesn't add to outdoor crowding or
+  pull in passers-by who could reach our station directly; the 5 GHz link to the station stays at
+  normal power. Needs cross-band: pick up 5 GHz, serve inside on 2.4 (TP-Link "High Speed Mode";
+  check the RE220 has it). The stations are the real advantage: a reset box is just a generic
+  extender, and on a competitor's 2.4 network it fixes nothing.
 - **Competitor buyout / reseller (talk to Winnie first).** Gut the box, ESP32 EllaFi unit inside,
   20% reseller commission; radio off. Need from Ella: daily take per box, their internet bill,
   who owns which boxes. Plan page has a "What if we remove" selector (per-AP competitor share).
