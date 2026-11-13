@@ -1202,7 +1202,7 @@ esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response
       JsonArray codes = out["codes"].to<JsonArray>();
       for (JsonObject v : raw["result"]["data"].as<JsonArray>()) codes.add(v["code"].as<String>());
       int totalRows = raw["result"]["totalRows"].as<int>();
-      out["totalPages"] = (totalRows + 129) / 130;
+      out["totalPages"] = (totalRows + VOUCHERS_PER_PAGE - 1) / VOUCHERS_PER_PAGE;
       String json; serializeJson(out, json);
       return response->send(200, "application/json", json.c_str());
     }
@@ -1231,7 +1231,7 @@ esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response
       entry["id"]          = g["id"];
       entry["name"]        = name;
       entry["seller"]      = seller;
-      entry["pages"]       = max(1, (totalCount + 129) / 130);
+      entry["pages"]       = max(1, (totalCount + VOUCHERS_PER_PAGE - 1) / VOUCHERS_PER_PAGE);
       entry["duration"]    = g["duration"].as<int>();
       entry["price"]       = price;
       entry["createdTime"] = g["createdTime"].as<uint64_t>();
@@ -1263,7 +1263,7 @@ esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response
   if (pages < 1 || durationMin < 1 || price < 1 || seller.isEmpty())
     return response->send(400, "text/plain", "Missing required fields");
 
-  int qty          = pages * 130;
+  int qty          = pages * VOUCHERS_PER_PAGE;
   int durationHrs  = durationMin / 60;
   // Short hex tag (low 24 bits of epoch, ≤6 chars) keeps each batch's name unique so the same
   // price/duration/seller can be re-stocked — the controller rejects duplicate group names (-42059).

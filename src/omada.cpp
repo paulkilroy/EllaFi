@@ -873,7 +873,7 @@ JsonDocument getVoucherCodesJson(const String& groupId, int page) {
   if (creds.loginMs == 0) return JsonDocument();
   WiFiClientSecure wc; TlsGuard tlsg; HTTPClient h; wc.setInsecure();
   String url = CONTROLLER_BASE_URL + "/" + CONTROLLER_ID + "/api/v2/hotspot/sites/" + SITE_ID +
-               "/voucherGroups/" + groupId + "?currentPage=" + String(page) + "&currentPageSize=130";
+               "/voucherGroups/" + groupId + "?currentPage=" + String(page) + "&currentPageSize=" + String(VOUCHERS_PER_PAGE);
   h.begin(wc, url); applyCredentials(h, creds);
   int code = h.GET();
   if (code <= 0) { h.end(); return JsonDocument(); }
