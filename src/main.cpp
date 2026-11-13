@@ -79,6 +79,7 @@
 #include "reprovision.h"
 #include "omada_device.h"
 #include "money_store.h"
+#include "sales_sync.h"
 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -150,6 +151,7 @@ std::atomic<unsigned long>  COIN_DEADLINE_MILLIS{0};
 String MANAGEMENT_SSID;
 String MANAGEMENT_PASSWORD;
 String HEALTHCHECK_URL;
+String TRACKER_URL;
 bool   OMADA_DEVICE_ENABLE = false;
 String OMADA_DEVICE_HOST;
 String STATIC_IP;
@@ -475,6 +477,9 @@ void loop() {
     lastHeartbeat = millis();
     broadcastHeartbeat();
   }
+
+  // Coin sales → the usage tracker (master only; every 10 min, every minute while catching up)
+  salesSyncTick();
 
   // Periodic stack head-room check (all nodes) — slow-moving, so 10 min is plenty; catches a task creeping
   // toward overflow before it panics.

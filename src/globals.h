@@ -107,6 +107,7 @@ extern unsigned long                COIN_SLOT_READY_MILLIS;  // suppress pulses 
 
 extern String MANAGEMENT_SSID;      // the SSID our nodes live on (from wifi_ssid); a hotspot client here = isolation breach
 extern String HEALTHCHECK_URL;      // Healthchecks.io ping URL (master dead-man's switch); empty = disabled
+extern String TRACKER_URL;          // usage tracker's coin-sales endpoint (sales_sync.cpp); empty = disabled
 extern bool   OMADA_DEVICE_ENABLE;  // config: omada_device_enable — start the Omada device plane (fake-AP)
 extern String OMADA_DEVICE_HOST;    // config: omada_device_host — device-plane controller (empty = use the API controller host)
 extern String MANAGEMENT_PASSWORD;

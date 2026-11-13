@@ -144,6 +144,9 @@ bool loadConfig() {
   PRICE_PER_COIN        = cfg("price_per_coin")           | 1;
   FALLBACK_PRICE_PER_VOUCHER = cfg("fallback_price_per_voucher") | 5;
   HEALTHCHECK_URL       = cfg("healthchecks_url")         | "";   // optional; empty = disabled
+  // coin sales → the usage tracker; on unless config sets "tracker_url": "" (a bench device signs with its own
+  // Omada password, so the production tracker refuses it anyway)
+  TRACKER_URL           = cfg("tracker_url")              | "https://ellafi-usage-tracker.vercel.app/api/vendo/sales";
   OMADA_DEVICE_ENABLE   = cfg("omada_device_enable")      | false;  // Omada device plane off by default
   OMADA_DEVICE_HOST     = cfg("omada_device_host")        | "";     // empty = default to the API controller host
   STATIC_IP             = cfg("static_ip")                | "";   // optional; empty = DHCP
