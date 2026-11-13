@@ -19,6 +19,9 @@ Fill order whenever a slot is free:
 Swipe: the old video's unfinished pieces are cancelled (QUIC STOP_SENDING); data still arriving for them counts
 as wasted. Per swipe it records whether the new video was ready (--start-s buffered) and, if not, the wait;
 plus freezes while watching. Pieces are files /p<bytes> on the lsquic server (64 KB steps).
+Never hangs (Nov 13 fix; the overnight run of Nov 9 hung 01:03 -> 11:57): every wait stops at the end time and
+the result says "stuck" and where; a piece that gets no data for --stall-s is stopped, logged in "stalls" (which
+video, piece, connection) and fetched again; connecting and closing have time limits.
 Run: ~/qenv/bin/python scroll3.py --minutes 4 --slots 4 --name p1
 """
 import argparse, asyncio, json, ssl, time
@@ -30,7 +33,8 @@ from aioquic.h3.events import DataReceived
 from aioquic.quic.configuration import QuicConfiguration
 
 STEP = 65536
-STATS = {"bytes": 0, "wasted_after_cancel": 0}
+STATS = {"bytes": 0, "wasted_after_cancel": 0, "stalls": []}
+STALL_LOG_MAX = 50
 
 
 class Video:
@@ -58,6 +62,8 @@ class H3Client(QuicConnectionProtocol):
     def __init__(self, *args, **kw):
         super().__init__(*args, **kw)
         self.h3 = H3Connection(self._quic); self.reqs = {}     # stream id -> (video, piece, done future)
+        self.last = {}                                         # stream id -> time of its last data
+        self.n = 0                                             # connection number, for the stall log
 
     def quic_event_received(self, ev):
         for e in self.h3.handle_event(ev):
@@ -65,6 +71,7 @@ class H3Client(QuicConnectionProtocol):
             if r is None:
                 continue
             v, k, done = r
+            self.last[e.stream_id] = time.time()
             if isinstance(e, DataReceived):
                 n = len(e.data); STATS["bytes"] += n
                 if v.cancelled:
@@ -74,9 +81,10 @@ class H3Client(QuicConnectionProtocol):
             if getattr(e, "stream_ended", False) and not done.done():
                 done.set_result(True)
 
-    async def fetch(self, v, k, host):
+    async def fetch(self, v, k, host, stall_s, t0):
         sid = self._quic.get_next_available_stream_id()
         done = asyncio.get_running_loop().create_future(); self.reqs[sid] = (v, k, done)
+        start = self.last[sid] = time.time()
         self.h3.send_headers(sid, [(b":method", b"GET"), (b":scheme", b"https"), (b":authority", host.encode()),
                                    (b":path", f"/p{v.piece}".encode())], end_stream=True)
         self.transmit()
@@ -86,10 +94,18 @@ class H3Client(QuicConnectionProtocol):
                     self._quic.stop_stream(sid, 0); self.transmit()
                     await asyncio.sleep(1.0)                      # in-flight data still lands, counted as waste
                     return False
+                if time.time() - self.last[sid] > stall_s:        # no data for stall_s: stop it, log it, retry
+                    if len(STATS["stalls"]) < STALL_LOG_MAX:
+                        STATS["stalls"].append({"at_s": round(start - t0, 1), "video": v.i, "piece": k, "conn": self.n,
+                                                "got": v.got[k], "of": v.piece,
+                                                "quiet_s": round(time.time() - self.last[sid], 1)})
+                    self._quic.stop_stream(sid, 0); self.transmit()
+                    v.got[k] = 0                                  # fetched again from the start
+                    return False
                 await asyncio.sleep(0.01)
             return True
         finally:
-            self.reqs.pop(sid, None)
+            self.reqs.pop(sid, None); self.last.pop(sid, None)
 
 
 async def main():
@@ -106,6 +122,7 @@ async def main():
     p.add_argument("--ahead-s", type=float, default=20, help="current video kept this far ahead of playback")
     p.add_argument("--ahead", type=int, default=27, help="videos ahead that get their first piece")
     p.add_argument("--watch-s", type=float, default=4)
+    p.add_argument("--stall-s", type=float, default=20, help="a piece with no data this long is stopped and retried")
     p.add_argument("--name", default="phone")
     a = p.parse_args()
     u = urlparse(a.url)
@@ -118,9 +135,10 @@ async def main():
     cfg = QuicConfiguration(is_client=True, alpn_protocols=H3_ALPN, verify_mode=ssl.CERT_NONE, server_name=a.sni,
                             max_data=256 << 20, max_stream_data=16 << 20)
     stack, conns = [], []
-    for _ in range(a.conns):
+    for n in range(a.conns):
         cm = connect(u.hostname, u.port or 443, configuration=cfg, create_protocol=H3Client)
-        conns.append(await cm.__aenter__()); stack.append(cm)
+        c = await asyncio.wait_for(cm.__aenter__(), 15); c.n = n
+        conns.append(c); stack.append(cm)
     st = {"cur": 0}
 
     def want(v, k):
@@ -146,20 +164,26 @@ async def main():
                 await asyncio.sleep(0.01); continue
             v, k = j
             v.state[k] = "busy"
-            ok = await c.fetch(v, k, a.sni)
+            ok = await c.fetch(v, k, a.sni, a.stall_s, t_open)
             v.state[k] = "done" if ok else "todo"
 
-    tasks = [asyncio.create_task(slot(conns[i % a.conns])) for i in range(a.slots)]
-    waits, freezes = [], []
     t_open = time.time()
-    while videos[0].playable() < need:
+    tasks = [asyncio.create_task(slot(conns[i % a.conns])) for i in range(a.slots)]
+    waits, freezes, stuck = [], [], None
+    deadline = t_open + a.minutes * 60                # nothing waits past this, the first video included
+    while videos[0].playable() < need and time.time() < deadline:
         await asyncio.sleep(0.01)
     first_wait = time.time() - t_open
+    if videos[0].playable() < need:
+        stuck = "first video"
     t_end = time.time() + a.minutes * 60
-    while time.time() < t_end:
+    deadline = t_end + 30                             # a last swipe may wait up to 30 s past the end
+    while not stuck and time.time() < t_end:
         v = videos[st["cur"]]
         frozen, t = 0.0, time.time()
         while v.played < a.watch_s:                   # watch exactly watch_s seconds of video
+            if time.time() > deadline:
+                stuck = f"watching video {v.i}"; break
             await asyncio.sleep(0.02)
             dt = time.time() - t; t = time.time()
             if v.playable() >= min(v.received() if all(s == "done" for s in v.state) else 1e18, bps * (v.played + dt)):
@@ -167,18 +191,28 @@ async def main():
             else:
                 frozen += dt
         freezes.append(frozen)
+        if stuck:
+            break
         v.cancelled = True                            # swipe
         st["cur"] += 1
         nv = videos[st["cur"]]
         t0 = time.time()
         while nv.playable() < need:                   # is the next video ready? if not, how long do we wait
+            if time.time() > deadline:
+                stuck = f"waiting for video {nv.i}"; break
             await asyncio.sleep(0.01)
         waits.append(time.time() - t0)
+    # where it stuck: the pieces still downloading, how far along and how long since their last data
+    busy = [{"video": c.reqs[sid][0].i, "piece": c.reqs[sid][1], "conn": c.n, "got": c.reqs[sid][0].got[c.reqs[sid][1]],
+             "quiet_s": round(time.time() - c.last.get(sid, time.time()), 1)}
+            for c in conns for sid in list(c.reqs)] if stuck else []
     for t in tasks:
         t.cancel()
     played_bytes = sum(min(x.received(), int(bps * x.played)) for x in videos[:st["cur"] + 1])
     q = lambda xs, f: round(sorted(xs)[min(len(xs) - 1, int(f * len(xs)))], 2) if xs else None
-    print(json.dumps({"name": a.name, "swipes": len(waits), "first_video_wait_s": round(first_wait, 2),
+    print(json.dumps({"name": a.name, "stuck": bool(stuck), "stuck_at": stuck, "busy_when_stuck": busy[:20],
+                      "stalls": len(STATS["stalls"]), "stall_log": STATS["stalls"],
+                      "swipes": len(waits), "first_video_wait_s": round(first_wait, 2),
                       "ready_at_swipe_pct": round(100 * sum(w < 0.05 for w in waits) / max(len(waits), 1)),
                       "wait_s": {"median": q(waits, .5), "p90": q(waits, .9), "max": q(waits, 1)},
                       "freeze_s_total": round(sum(freezes), 1), "videos_with_freeze": sum(f > 0.05 for f in freezes),
@@ -186,10 +220,11 @@ async def main():
                       "mb_watched": round(played_bytes / 1e6, 1),
                       "mb_wasted_after_cancel": round(STATS["wasted_after_cancel"] / 1e6, 1),
                       "settings": {k: getattr(a, k) for k in ("conns", "slots", "kbps", "piece_s", "video_s", "start_s",
-                                                              "ahead_s", "ahead", "watch_s")}}))
+                                                              "ahead_s", "ahead", "watch_s", "stall_s")}}),
+          flush=True)
     for cm in stack:
         try:
-            await cm.__aexit__(None, None, None)
+            await asyncio.wait_for(cm.__aexit__(None, None, None), 5)
         except Exception:
             pass
 
