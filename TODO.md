@@ -1,394 +1,66 @@
-# EllaFi — TODO / Roadmap
+# EllaFi — TODO
 
-Single source of truth for outstanding work. Design **specs** live in `memory/*_design.md`; the
-release **test checklist** is `memory/test_plan.md`; the Omada **API catalog** is
-`memory/api_captures/`. This file is the index of *what's left*; those are the *details*.
+Everything still open, numbered (rewritten 2026-11-14). Finished items are deleted; detail lives in the files
+named. ⛔ = needs Paul's OK.
 
-Legend: 🔴 near-term / pre-launch · 🟡 planned · 🟢 docs/tooling · ✅ done this cycle (bottom).
+## A. Shaper — lab, while Paul is home (`memory/shaper_lab.md`)
 
----
+1. **Shaper starts at boot.** Service + saved settings are written (`lab/shaper/ellafi-shaper.service`,
+   `shaper.conf`); install on the box and do a reboot test.
+2. **iPhone runs with Paul:** Omada 2/1 (fair "before"), shaper + 10 MB speed bank, shaper without the bank.
+   First make `iphone_record.sh` find the iPhone by MAC, not 192.168.0.108.
+3. **Overnight reruns** (`overnight3.sh`): weak/bad phones, 4 Mbps ceiling, 256 lanes, repeats. Scripts should
+   first check all 3 fake phones are connected.
+4. **Mahal never capped, automatically:** the box asks the controller each minute which devices are on Mahal and
+   gives them no lane. No QoS.
 
-## 🔴 Near-term (next up)
+## B. Shaper box — MeLE Quieter DL (arrives Nov 14)
 
-- **🟡 Controller auto-discovery (local HW controller)** — kill the "controller IP moved, config stale" outages.
-  mDNS is out (Omada doesn't advertise it). Options: read **DHCP Option 138** (an Omada gateway can serve it)
-  via an lwIP custom-option hook, or a **subnet-scan fallback** on `setupOmada` failure — TCP-probe :443 across
-  the device's own /24, confirm the hit by requesting `/<controller_id>/api/v2/…`, then rewrite `omada_url`.
-  Zero-code stopgap: give the controller a **DHCP reservation** so it stops drifting.
+5. **Set it up:** Ubuntu, bridge, shaper + boot service, power-on after power loss, temperature readings.
+6. **Admin gateway:** Tailscale subnet router so Paul reaches the whole Bakhaw network (controller, APs,
+   VendoAdmin, dish) from anywhere.
+7. **Load test:** 100–300 Mbps through ~250 lanes overnight, watch CPU and temperature.
+8. **Monitoring + Reliability timeline:** the box collects Starlink dish history, pings and per-phone bytes;
+   SiteDashboard's Network tab shows it like the Aug "EllaFi Reliability" page (`tools/uptime_report.html`).
 
-- **🔴 Shaper (PARKED 2026-11-10 while Paul is in NYC) — detail + ordered to-dos: `memory/shaper_lab.md`.**
-  Every Omada limit drops (AP `rate_limit.ko`, ER605 gateway too: lab 32–37% lost). Our bridge box
-  (`lab/shaper/shaper.py`, per-MAC HTB 2/1 + fq_codel) queues instead: 200 ms wait → **0.5% lost on Paul's
-  iPhone with real FB Reels**, ping avg 16 ms; only the first ~minute of a cold start has 1–2 s slow starts.
-  Next: fix fake-phone hang → rerun bad-phone/256-lane sweeps → speed bank (`--burst-kb 10240` first) →
-  iPhone Omada-vs-shaper same-day comparison → Teams priority class → box load test → install-ready + monitoring
-  → Bakhaw switchover plan (approval). TP-Link case #350801 reply drafted, held until Paul approves.
-  Lab left: shaper down, Mahal AP limit off.
+## D. Nov trip
 
-- *Clear — no pre-launch blockers. The crash saga is closed (v1.3.11–13, see Done).*
+11. **Ground the cables and switches — #1 priority.**
+12. **Release the firmware:** E3 voucher sheet + coin sales to SiteDashboard; then watch `vendo_sale` fill.
+13. **Install the OC300** (30,000 vouchers vs 10,000).
+14. **Install the second Starlink** before the ~Dec 5 throttle.
+15. **Shaper "before" at Bakhaw:** iPhone Reels runs on Omada 2/1, rush hour and morning.
+16. **Install the two new switches;** confirm the Starlink link holds 1000 with no lost pings, school APs on
+    their own channels.
+17. **Maridel AP:** new cable / cable end.
+18. **Hardwire the school with cable instead of mesh;** measure runs first (100 m limit).
+19. **Negra 2.4 GHz antennas** are pointed sideways toward the sea — fix.
+20. **WiGLE signal walk + house test** for a real coverage map and wall/roof losses.
+21. **Network move:** ER706W + VLANs, CustomerPortal hosted by the controller, DHCP option 114
+    (memory network_design.md).
 
-## 📡 Bakhaw network — checkpoints (detail: `memory/school_channel_change_2026-10-21.md`)
+## E. Firmware
 
-- **Controller-move watch (from Oct 30).** OC220 → house port 3, PtP Server direct on port 4. Paul thinks it
-  fixed the topology issues + the Omada support ticket. First day: STP blocks 56/day → 0, wired APs on radio → 0.
-  BUT port 5 (Starlink) rx errors back: 13k in 16 h after the outlet move (was 33/week), one 10 Mbps link at
-  13:30. Re-measure after a clean full day; if errors persist, Ella reseats the Starlink cable + POE170S injector.
-  Detail: ~/.claude memory controller_move_watch.md (baseline numbers).
-- **#1 for the Nov visit: properly ground the cables and switches.** Top priority, ahead of every
-  other Nov job (Paul, 2026-10-30). The ER706W already died to an electrical storm + overheating.
-- **Nov visit: competitor voucher tests.** Buy a voucher from each big seller our APs hear (ZEPH,
-  SIYEON, Hezikiah, Winnie/Lady/Jazzly, GREYCEL, SHEM SHEM, Lourdes) and run
-  `~/.platformio/penv/bin/python3 test/wifi_compare.py "<seller>"` (~1.5 min, ≤60 MB a phase) — EllaFi
-  first as the baseline; each once in the 19–21 rush and once in the morning. Records price notes by hand;
-  the script logs speed per second (burst vs flat cap), lag at rest vs under load, and the **public IP** —
-  same IP on two networks at once = same Starlink dish (Ella: Winnie/Lady/Jazzly are one owner, separate
-  vouchers). Everyone on Daram is Starlink. Results → `~/ellafi-wifi-tests.csv`. Phone version for Ella:
-  speed.cloudflare.com + 1.1.1.1/cdn-cgi/trace for the IP.
-- **Band-steering verdict (from Oct 25, after school hours).** Balance → Prefer 5G since
-  2026-10-22 18:44 UTC. Run `tools/tq tools/steer_check.py 2026-10-22T18:44 3` in the tracker repo.
-  Success = outdoor 5G client share ~50% → 65–75%, 2.4 busy down. Roll back if the indoor
-  canaries (House AP, Grandama House) show disconnects up by half or more.
-  **School verdict needs a normal school day: Mon Oct 26 onward** (Oct 24–25 is a weekend). Oct 23
-  was a rainy day with +30% school load (Negra mesh hop 28.4 GB 07–12 vs ~22), which confounds
-  the jump in BES/BNHS school-hour latency (21 → 85 / 57 ms) and BES airtime (70 → 83%). Compare a
-  dry Monday against Oct 22 before changing BNHS's channel or the per-AP steering thresholds.
-- **School via the EXISTING PtP server (point-to-multipoint), not yet done.** The EAP215-Bridge
-  supports 1-to-4 clients, and Negra's pole is 9° off the grandma beam at 121 m. Add the spare
-  bridge as a 2nd client on Negra's pole, injector-chain it LAN-to-LAN to Negra (Negra becomes
-  the school's wired root). Do it in the 02:00–06:00 blackout (touches the live grandma link).
-  **Channel — ch 44 is NOT clean (re-checked Oct 24):** every AP runs 80 MHz, so 44 sits in the
-  36–48 block with Grandma AP (40). Negra doesn't hear Grandma's 5G (BNHS barely, −89), but at Negra
-  that block has competitors: ZEPH −69 (36), Jazzly/ZEPH −75 (44), SHEM SHEM −82 (48). Today's
-  149–161 block has ZEPH −74/−75 (149) + our own PtP/House Big. Nearly empty at Negra: 52–64
-  (one radio at −105) and 100+ (−99) — both DFS (radar rules; check the controller offers them and
-  that mesh is allowed on DFS). Negra's SAVED 5G channel is 40 — it switches to that the moment
-  it has a wired uplink, so set it BEFORE linking. Maridel must then avoid the school's block.
-  **Re-measure after:** `tools/tq tools/ptp_load.py`. Baseline (Oct 23): PtP+school combined avg
-  12.5 / p95 22.7 / peak 26.2 Mbps (link ~300–400 usable); PtP radio busy 35–38% evenings, max
-  63%. Expect busy % to DROP: PtP 153@80 MHz and mesh 157@80 MHz share the same 149–161 block
-  today, so the PtP's airtime includes school mesh traffic. Also watch grandma's hour bars.
-- **Maridel AP (Gap street AP, up Oct 24) — low-mount penetration test, read after ~1 week
-  (~Oct 31).** EAP603 at 11.59139, 124.7654, cabled from the Grandma Switch, mounted only ~10 ft
-  up (others are pole/roof height). Question: how far does a street-level AP reach into the
-  CHB/wood houses? Measure: its distinct clients and their signal (RSSI) / link-speed spread;
-  how many Gap phones move off Grandma AP / BNHS / Negra and whether those APs' weak-signal
-  clients shrink; its voucher share. At install it was on fw 1.0.2 (→ 1.5.6 first; old fw
-  double-counts usage), 2.4 ch 1 (→ 11), 5 GHz 153 (on the PtP's channel — move off 149–161).
-- **Negra AP hears its 2.4 GHz phones ~12–24 dB weaker than it should (found Oct 24; the size
-  depends on how the coverage model splits areas — ~12 dB after the House Big south-east fix).
-  Antennas found pointed sideways toward the sea.** A
-  building-aware coverage model (OSM houses + streets, AP heights) matches five of six outdoor
-  APs within ~3 dB on 2.4 GHz; Negra (20 ft) measures median −86 dBm / 87% of readings < −80 vs
-  ~−69 predicted, and has the worst 2.4 retry rate. Check its 2.4 antennas/connectors, mounting
-  and anything right in front of it (have Ella photograph it). Model + map: plan artifact,
-  strategic map "2.4 GHz coverage" layer. BES was moved a bit east — update its lat/lon.
-- **On-site, late Nov: WiGLE signal walk + house test (Paul).** Cheap Android phone with WiGLE
-  (free; logs every network's signal + GPS, ours and competitors'). (1) Walk every street once,
-  slowly; export the CSV for the tracker → real coverage map + competitor radio positions, to
-  re-tune the coverage model. (2) House test, 3–4 houses (2 near House Big at 40 ft, 2 near
-  BES/Maridel, low): stand still ~30 s at each spot — outside facing the AP, just inside the
-  door, middle room, back room — and note the time + spot (GPS can't tell rooms apart; match
-  by time). Differences = real wall and metal-roof losses vs the model's 10 / 20 dB.
-  Also: drone photo grid → photogrammetry (WebODM) for roofs, heights, unmapped houses.
-  (3) Note each competitor box's real spot during the walk (WiGLE logs them) — the plan map
-  places them by averaging our APs that hear them, which always lands inside our coverage, so
-  the Oct 24 "keep their APs?" math (best box +1.2%, Winnie's 5 +0.1%) is untrustworthy until
-  then. Re-run tools/coverage convert.py with the real positions.
-- **5 GHz home booster strategy (Paul, Nov 2).** Don't copy the competitors' flood of cheap 2.4-only
-  boxes. Build a few high, powerful 5 GHz stations; customers BUY a ~₱1,000 locked booster that
-  picks up our 5 GHz at a window and repeats it inside (2.4 inside at low power; the metal roof
-  keeps it in). Data: 2.4 busy 75–80% but our own sending only 8–17% (~160 neighbour radios on
-  1/6/11); 5 GHz busy 2–37%, but 5 GHz customers' median is −82 dBm (doesn't get indoors).
-  ~24% of 2.4 devices never seen on 5 GHz → keep a small 2.4 service.
-  GATE: per-phone vouchers must survive the booster (controller must see each phone, not one box).
-  (1) Paul, OKC lab: stock TP-Link RE315 (₱1,000 PH; High Speed Mode = 5 GHz uplink / 2.4 inside)
-  on a portal SSID + 2 phones; check the controller sees two separate clients/vouchers. Ella only
-  judges whether customers would buy it (no hardware testing). If it passes → Lazada bulk buy
-  (official TP-Link LazMall store). (2) Samples: Cudy TR1200 (tiny, MT7613, OpenWrt 24.10, no DFS →
-  uplink only on our DFS channels) + Comfast CF-WR617AC (MT7612E, OpenWrt); WDS test on site late
-  Nov vs BES/Darna (DFS) and Grandma (ch 40). (3) Pilot station on a non-DFS channel + 3 houses.
-  Skip: CF-WR302S, TL-WR802N (2.4 only), TL-WR902AC (OpenWrt not recommended). NTC approval
-  matters at volume (Cudy/TP-Link sold officially in PH).
-  Paul, same day: STOCK FIRMWARE IS FINE (OpenWrt only if needed). We keep the admin password and
-  seal the reset button. Inside network on LOWEST power so it doesn't add to outdoor crowding or
-  pull in passers-by who could reach our station directly; the 5 GHz link to the station stays at
-  normal power. Needs cross-band: pick up 5 GHz, serve inside on 2.4 (TP-Link "High Speed Mode";
-  check the RE220 has it). The stations are the real advantage: a reset box is just a generic
-  extender, and on a competitor's 2.4 network it fixes nothing.
-- **Competitor buyout / reseller (talk to Winnie first).** Gut the box, ESP32 EllaFi unit inside,
-  20% reseller commission; radio off. Need from Ella: daily take per box, their internet bill,
-  who owns which boxes. Plan page has a "What if we remove" selector (per-AP competitor share).
-  Watch Starlink data — 60 regulars ≈ +50 GB/day on top of ~200 GB/day.
-- **On-site, late Nov: Starlink dish collector → Vercel.** The dish exposes local diagnostics
-  (the gRPC service at 192.168.100.1:9200, reachable only from inside the LAN): second-by-second
-  outages and their causes (obstruction, no satellite, rain/attenuation), ping drop rate,
-  latency, up/down throughput, and an obstruction map. The Oct 23 rain incident (throughput
-  falling to ~0 every 20–30 s) was invisible in our 15-minute averages. Plan: a small always-on
-  LAN box (Raspberry Pi / old phone with Termux; the ESP32 is a stretch for gRPC) runs a
-  starlink-grpc-tools-style poller every minute → pushes to Supabase → dashboard shows outage
-  seconds per hour next to the client-experience bars. Check first: the dish is reachable at
-  192.168.100.1 through the Starlink router (in bypass mode it needs a static route). Power it
-  from the house UPS so it logs through the outages it's meant to catch.
-- **House switch port 5 (Starlink uplink): fix on site late Nov, not urgent.** Facts: the 15-min
-  poll showed 1000 Mbps from Oct 21 (first poll) to Oct 24 04:15 Daram, then 100 Mbps from 04:30.
-  Router pings from the switch lost 13–29% in blocks while at 1G (first seen Oct 24 00:45); at
-  100M three runs had 0% loss (one with 1000-byte packets). The control ping to the controller
-  (port 4) stayed at 0%. Suspects, unproven: a bad wire pair (1G uses all 4 pairs, 100M only 2) in
-  the switch→injector cable, the injector, switch port 5, the injector→router cable, or the
-  router adapter. Cost of staying at 100M: Starlink's ~150 Mbps is capped at ~94; 15-min peaks
-  so far were 34–44 Mbps. Confirm whether port 5 is forced to 100 Full or auto (a forced side
-  facing an auto side can end up half duplex). Before Paul's visit, Ella can only reseat and look
-  over the cables. On site: swap one piece at a time, set port 5 back to auto after each, and
-  check whether 1000 Full holds with no ping loss; spare POE170S as the injector test.
-  **Oct 24 ~07:20 Daram: Ella reseated both cables; Paul then forced port 5 to 100 Full.** Since
-  the reseat: 1000-byte pings lost 3/100 at 1000, then 1/100 and 1/100 at 100 Full (before the
-  reseat, 32-byte pings lost 23–26% at 1000). Watching: `tools/tq tools/port5_history.py 24` in
-  the tracker repo (house-side router pings every 15 min + port speed). Still open: the duplex
-  check under load (speed test on the house Wi-Fi while pinging the router from the switch).
-  **Oct 25: port 5 rx error counter (openapi/v1 switches/ports/counters `rxErrors`) = 4.9% of all
-  frames since switch boot, and 5.8% live at 100 Full (25,784 of 443,891 frames in 4 min); txErrors 0;
-  every other port on both switches 0%.** Errors are on frames coming FROM the Starlink side. Remote
-  test: port 5 → 100M + Auto duplex; errors ~0 = mismatch from forcing (keep it), errors stay =
-  physical (cable/injector — Nov swap). Counters now stored every 15 min (port_poll.rx_errors).
-  **RESULT Oct 25 ~12:35 Daram: Paul set 100M + Auto duplex → 0 errors in 339,979 frames (was 5.8%).
-  It was a duplex mismatch caused by forcing Full.** The separate gigabit drop (blocks of lost pings at
-  1000 Auto) is still unexplained — keep the Nov cable/injector swap test before going back to Auto speed.
-- **Negra PtP Client setup at the house (this weekend, Ella + Paul), in order:** (1) unplug House
-  AP from its house-switch port, plug the Negra bridge in there (802.3af OK; own injector if it
-  won't power); (2) adopt → turn OFF all 4 SSIDs first → name "Negra PtP Client" → upgrade → set
-  as 2nd client of the PtP Server (pushes channel + key); (3) unplug it promptly — once it has the
-  key it can link to the PtP Server over the air while also cabled = possible loop; if the
-  network stutters, unplug at once; (4) House AP back in. Bridge waits unpowered until Tue.
-- **Install-day for the SG2005P-PD stage:** add Negra/BES/BNHS to the optimizer exclude list,
-  give each school 5G radio its own channel, measure the BNHS cable route (100 m hard limit).
+22. **Find the controller automatically when its IP moves — important, test it.** DHCP option 138 or a subnet
+    scan; stopgap is a DHCP reservation.
+23. **Remove the voucher tab from VendoAdmin** — vouchers live in VoucherAdmin now, and the tab froze the page
+    whenever the controller was down.
+24. **Change WiFi in the field** without a cable (`memory/field_reprovisioning_design.md`).
+26. **Read-only file viewer on VendoAdmin** (passwords masked, capped reads).
+27. **Session-cache refactor** — rethink in the new design (↓ #29).
+28. **Coin relay has no single owner** — rethink in the new design (↓ #29).
+29. **Masterless "pick-your-box" vendo design** — concurrent payers, per-box reservation (replaces the
+    single `COIN_SESSION_SLOT`), naming-convention discovery (`ellafi1…9.local`), stay on the current
+    `extPortal/auth`+`extend` path (no vouchers — By-Usage can't be topped up). Gated by a real-phone
+    reachability POC (client isolation is make-or-break). Full design + POC checklist:
+    `memory/distributed_vendo_design.md`.
 
-## 🟡 Resilience / ops
+## F. SiteDashboard / docs
 
-- **Consider serving the captive portal from Omada instead of the ESP (scalability).** Today the ESP is
-  Omada's *External Portal Server* — it serves the portal HTML/WS to every client, putting it in the
-  client-facing hot path (the 16-LWIP-socket limit behind the OUT-OF-SERVICE saga; now mitigated by
-  close-after-response + TCP keepalive, b66/67 — see `memory/esp32_socket_starvation_fix.md` / ~/.claude).
-  JuanFi-style alternative: upload the portal to Omada's **Import Customized Page** (Settings → Authentication
-  → Portal Customization; the controller serves it — 2 MB self-contained, our bundle is only ~194 KB), and
-  demote the ESP to a thin **coin API**: `POST /coin/claim {clientMac,apMac,ssid,radioId}` seeds the session +
-  claims the single coin slot, `GET /coin/status` polls, then grant. Auth stays native — the page POSTs to
-  Omada's own `/portal/auth` (same-origin, no CORS). The ESP then holds ~zero client sockets → scales like a
-  PisoWiFi. **Open questions before committing (need a real-phone POC):** (a) the captive mini-browser (CNA)
-  may block cross-origin fetch to the ESP; (b) mixed content if Omada serves the portal over HTTPS but the ESP
-  is HTTP; (c) grant model — **A** ESP mints a voucher → page submits it (native, but pollutes seller sales
-  tracking) vs **B** ESP authorizes the MAC directly via the current API (cleaner, but unverified under a
-  *local* custom portal). Format reference: `demo.zip` (Omada sample) analyzed; POC test page in scratchpad.
-  Not urgent — the socket fix removed the immediate pressure; this is the structural escape hatch if load grows.
+30. **Caching redesign:** store each section's data after the 15-min run, build the page on every visit, so
+    deploys show at once and "rebuild" goes away.
+31. **README rewrite** so a newcomer can install, flash, configure and test EllaFi.
 
-- **Move blocking Omada TLS off the HTTP thread — responsiveness, NOT a crash fix.** The voucher handlers
-  (`getVoucherGroupsJson` / `createVoucherGroup` / `getVoucherHistoryJson` / `getVoucherCodesJson`) make
-  live Omada calls on the esp_http_server thread; during a controller outage each blocks the handler for
-  the full TLS timeout, so the admin page stalls. Route them through a worker task the way `/admin/recheck`
-  does. **No longer a corruption risk** — that was the `CREDS_MUTEX` re-creation, fixed in v1.3.11; this is
-  now purely a latency/UX improvement.
-- **Auto master election + failover/takeover.** Static master = single point of failure. Full design
-  (gossip HELLO 300ms, lowest-MAC self-promote after ~2s of no master heartbeat, uptime-weighted) →
-  **`memory/master_election_design.md`** (status: not yet implemented — deploy config-master first).
-- **Field WiFi re-provisioning** (change SSID/pw without serial when the node falls off the network).
-  Full design → **`memory/field_reprovisioning_design.md`** (status: agreed, not yet built). Summary:
-  bespoke SoftAP (not BLE); solid-red LED on disconnect → hold internal GPIO0 boot button ~3s →
-  SoftAP for a 5-min window; locked-box physical gate, so no PoP (security1/NULL — encrypted channel,
-  optional `provisioning_pop`); creds → config.json → reboot. Cheap companion: backup-SSID list in config.
+## G. Ideas — not this trip
 
-## 🟡 Features
-
-- **PisoWifi portal hosted by the controller; ESP32 only authorizes.** Switch EllaFi PisoWifi from
-  the External Portal (vendo box serves the page) to a controller-hosted portal page that calls the
-  ESP32 only when a customer pays. Prototyped: `omada-html/` (dedbdaa POC, 836a1de production page +
-  bundle), `scripts/upload_portal.py` (Import Customized Page), web b76 `/status` seeded from the
-  Omada redirect params (b5dd02b). Wins:
-  - the portal loads even when the vendo box is down (it was offline Oct 24–27 → PisoWifi phones
-    couldn't pay);
-  - **DHCP option 114** (the "Open Portal Page" / "Sign in to network" prompt on iPhone/Android) can
-    then point at the same controller portal on every guest VLAN (98 Voucher, 99 PisoWifi). It must
-    be an **https** address with a valid certificate, or phones ignore it and fall back to detection
-    probes (which is how the prompt works today). The Guest_Network option **144** = 192.168.0.3 is
-    the wrong code;
-  - fewer access-rule exceptions: PisoWifi phones never talk to the ESP32 directly.
-  - Target: with the ER706W/VLAN move (Nov visit). Detail: tracker `api/_changes.py` PLANNED +
-    ~/.claude memory `network_design.md`.
-
-- **AP coverage map (live up/down) on the screen.** Render a small, abstract per-village map (Bakhaw
-  first; generalize to Daram/Samar) with a marker per Omada EAP, colored by live up/down status.
-  - **Data source:** Omada admin API device/EAP status (we already hold an admin session) — NOT the
-    coin-node `nodeMap` heartbeats (that's the 3 coin acceptors, not the EAPs). Need to find the EAP
-    device-status endpoint; poll + push to the page over the existing `/ws` + `/status` (live, not cached).
-  - **Rendering:** lightweight inline SVG traced from a real map — village outline / key roads, AP
-    markers placed from lat/lon normalized into the SVG viewbox. No heavy map lib; only marker colors
-    update live. Keep the response small (no whole-file String builds).
-  - **Inputs needed from operator:** Google Map screenshot of each village (tracing ref), AP lat/lon,
-    and the exact EAP names as they appear in Omada (to bind markers to status).
-  - **Open:** which screen — customer-facing captive page vs. admin/ops view? (drives placement + auth)
-
-- **Omada config helper + analyzer.** Help operators set up Omada, and have the firmware
-  **inspect the controller config and report/repair** whether it's deployment-ready:
-  - detect whether there's a **router** and that **VLAN segmentation** is in place (customers off the
-    management VLAN/SSID);
-  - detect **controller type/model**;
-  - create the needed **hotspot portals** — a **voucher** portal *and* an **External-Portal (vendo)**
-    portal — and the **SSIDs** to enforce segmentation;
-  - flag/fix anything else needed for a working deployment.
-  - Folds in audit **S1** (bind admin to a management VLAN/SSID). Pairs with the existing
-    SSID-isolation tripwire (detect) by adding *repair*.
-- **Omada client-cache optimization (session-tracking refactor).** Kill the 60s two-call refresh of
-  `HOTSPOT_SESSION_CACHE` (hotspot/clients + all-clients); look up `clientId` on-demand at extend/pause
-  instead; also dissolves the C2 re-IP problem. **Open question (now testable):** can we drop
-  `apMac`/`radioId` from auth? — was blocked by the voucher SSID (`-41501`), but the **EllaFi PisoWiFi**
-  External-Portal SSID on Bakhaw is now a clean target. Run `test/auth_field_probe.py` against a
-  pending client there.
-- **✅ Coin-slot boot-glitch characterization — MEASURED (2026-08-09).** Endpoint built
-  (`POST/GET /admin/coinslot/boottest`, build 60): cycles Q1 N times, captures every raw pulse for 3s
-  after each power-on, bypassing the filters (which stay untouched); sessions locked out during a run.
-  Result on the bench box's CH-926 (operator confirmed the acceptor audibly cycling): **40 power-ons
-  across two days — incl. an overnight-cold first cycle — zero pulses, zero stuck-low.** This acceptor's
-  power-on is clean. `COINSLOT_BOOT_SUPPRESS_MILLIS` stays 500ms as free margin (other units/models may
-  differ — rerun the endpoint on the new board at bring-up, and on any newly deployed acceptor).
-- **Reconsider the fraud abort / bounce handling — ONLY if field data ever shows it.** The board co-sim
-  (`kicad/sim/board/`, day-in-the-life bench) showed a *worn* acceptor with bouncing contacts generates
-  2-3 sub-width fragments per coin → 3-strike fraud abort kills the paying customer's session. BUT: zero
-  reports of this in the wild (JuanFi groups), and the width check has proven field value against pitik
-  on the old board — so the check stays as-is. The admin "Rejects" column is the instrument: the bounce
-  signature is rejects clustered around accepted coins. If that ever shows up, the analyzed fixes are
-  ISR-level merge (gaps <1ms = same pulse, with flicker count as a health metric) or task-level
-  forgiveness (don't count sub-width pulses within ~10ms of an accepted coin as fraud); either can be
-  proven in `cosim_replay.py` against the existing waveforms before touching coin.cpp.
-- **LittleFS browser (admin, read-only).** A "what's actually on the device" panel — would have caught
-  the stale-`config.json` confusion instantly, and exposes `sellers.json`/history files we can't see today.
-  Flat 6-file set (`config.json`, `sellers.json`, `errors.log`, `refunds.log`, `vendo_history.json`,
-  `voucher_history.json`). `GET /admin/fs` (name + size + mtime) and `GET /admin/fs/read?path=` with
-  **config.json routed through the existing password-masking** and **capped/streamed reads** (no whole-file
-  String). **Read-only** — no delete/edit (config edits stay on the validated `/admin/config` path).
-
-## 🟡 Security — open items from the 2026-06-10 audit
-
-(Most of the audit is done — see bottom. These remain.)
-- **Signed OTA (S2).** HMAC now stops a forged OTA *trigger*, but the firmware image itself is still
-  flashed **without signature verification**. Sign at release, verify against an embedded key before
-  `Update.end()` (master serve + slave pull). High value once OTA is load-bearing.
-- **`/fw.bin` is unauthenticated (S5).** Accept (HMAC-gated trigger reduces risk) or gate it.
-- **LittleFS multi-task writes (C5) — ✓ resolved.** The v1.3.12/13 soaks flooded `appendErrorLog` from
-  httpd/WS/loop tasks for 10+ min with zero corruption; the LittleFS asserts we chased were the `close(0)`
-  fd bug (fixed v1.3.12), not concurrency. `esp_littlefs`'s lock holds under load.
-- **Coin-acceptor power relay has no single owner** — written from `ledTask`/`ledHalt`/`setup`/
-  `handleProgram`. Design note, not a known bug.
-- TLS `setInsecure()` on the self-signed controller — **accepted** tradeoff.
-- **Alphanumeric voucher codes (Nov visit).** Codes are 8 digits (`codeForm:[0]`, `src/omada.cpp`
-  createVoucherGroup) — chosen because Omada's own PDF font confused 0/O; we now print the PDFs
-  ourselves (jsPDF, `web/admin.html`). Guess odds today ≈ unused printed codes ÷ 10⁸ per try; the
-  portal allows ~7 tries/min (berlynda: 30 in 4 min, Oct 18) and Omada has no lockout, so a script
-  could land one in days. Mixed letters+digits at 8 chars ≈ 36⁸ (~28,000× harder); 10 chars more.
-  Changes: (1) `codeForm` to digits+letters (confirm the value in the voucher-group API, e.g. [0,1]),
-  maybe codeLength 10; (2) portal `omada-html/index.html` voucher input: drop `inputmode="numeric"`,
-  add `autocapitalize="characters"`, upper-case before submit (check Omada's case rule);
-  (3) PDF: print codes in a monospace font with a slashed/dotted zero, or exclude look-alikes
-  (0/O, 1/I/L) if Omada allows; (4) old numeric groups keep working until sold out. Watch the
-  dashboard's Failed logins table for guessing in the meantime.
-
-## 🔧 Hardware — current board (MPM3620A, in repo at `kicad/`)
-
-*(Rewritten 2026-08-08 — the old rev-B list here described the LM2596 board and was a generation stale.
-Most of its items are now DONE and sim-verified on the current design: input fuse F1 + reverse-polarity
-protection (D6 = unidirectional 1.5SMC18A), GPIO14/J2.2 verified 3.3V-logic-safe (D4 gate-side clamp,
-`tb_panel3wire`), D1 coin-line clamp node confirmed (and a backwards install caught + fixed), J4/J5
-22-pin confirmed, LM2596 thermal/cost items obsolete with the MPM3620A. Validation gate:
-`kicad/sim/board/run_all.sh` — polarity + sim-sync checkers, 13 benches, Monte Carlo, all green.
-Detail → `memory/hardware_notes.md`.)*
-
-Still open before/at ordering:
-- **Re-check power-path trace widths + ground stitching vias on the CURRENT layout** (the old finding —
-  all tracks 0.2mm, zero stitching vias — was against the LM2596 board; verify it didn't carry over).
-- **Bring-up checklist for the first assembled board:** re-run the piezo "pitik" spark test (the new
-  opto+TVS front end should stop it cold per `tb_attack_zoom` — if strays still get through, suspect
-  the GPIO0 button path or grounding, not the coin line); scope the coin line through 20 Q1 power
-  cycles to size `COINSLOT_BOOT_SUPPRESS_MILLIS` (see the characterization-endpoint TODO); scope VIN
-  at the MPM3620A pin under load (sim says clean; a scope is the only true proof).
-- **3-wire panel compatibility note:** 3.3V drive on J2.2 only marginally switches panels with ~10k
-  series inputs (sim: transistor active, not saturated) — measure the actual panel's input before
-  relying on it; ~1k inputs are fine.
-- **🔧 rev-B: coin-line reverse clamp for the opto LED.** The as-built opto is the **TLP185 (VR=5V)** —
-  the FOD817/EL357N (6V) were out of stock. In a 12V-short-onto-coin-wire fault the LED sees 5.5V
-  reverse, 0.5V over its 5V rating (fault-only, transient, F1 trips — low risk on this batch, but not
-  ideal over repeated faults). Fix next spin: lower D1's standoff (e.g. a ~5.1V TVS) or add a series
-  diode in the opto LED path so the reverse stays under 5V during a coin-line short. Detail:
-  `kicad/sim/board/README.md` (Final opto section) + `tb_coin_fault.cir` (opto_vrev_pk = 5.5V).
-  Bring-up: do NOT deliberately short 12V onto the coin signal wire.
-
-## 🟢 Docs / tooling
-
-- **README rewrite.** Make it so a stranger/newbie understands what EllaFi is, and can
-  **install, flash, configure, and test** it end-to-end. Currently assumes too much.
-- **Calibrate `mock_omada.py` DELAYS.** Replace estimates with measured p50/p90 from real device
-  serial logs across a full coin auth / extend / pause / resume against the live cloud controller.
-  **Tool ready:** `test/calibrate_delays.py` pairs each op's start/finish log lines and prints the
-  p50/p90 `DELAYS` block. **Remaining (needs to be local + on the live controller):** `pio device monitor
-  | tee live_omada.log` through a coin flow (auth/extend/pause/resume + a couple 60s refreshes), then
-  `python3 test/calibrate_delays.py live_omada.log` → paste into `mock_omada.py`. (login/query can't be
-  pulled remotely — the bench is on the down mock, so it sits idle.)
-
-## Reference docs (kept separate — referenced above)
-
-- `memory/master_election_design.md` — election / failover spec
-- `memory/admin_design.md` — admin page design
-- `memory/hardware_notes.md` — PCB / assembly notes (PCBWay)
-- `memory/test_plan.md` — v1.3.x validation checklist
-- `memory/api_captures/` — Omada API catalog (OpenAPI/Postman + per-endpoint notes)
-
----
-
-## ✅ Done this cycle (so it isn't re-raised)
-
-**SSL `-32512` (OOM) → OUT OF SERVICE — FIXED (f39cfc7).** Root cause: the two client-list
-JsonDocuments + the DRAM `String` from `getString()` sat in internal DRAM across the following TLS
-handshakes (`refreshControllerStatus`/`refreshDeviceStatus`), leaving <40 KB contiguous for mbedTLS.
-Fix (complete, not a mask): `PsramSink` (a `Stream` that `writeToStream`-de-chunks the body **straight
-into PSRAM** — no contiguous DRAM `String` at all) + parse trees on `&psramAlloc` + the docs scoped to
-free before the TLS calls. Net: the big client data never touches internal DRAM, so the handshake
-always has its ~40 KB. Compiles clean; final live re-confirm = the `heap after cache refresh:
-internal=…` log staying healthy across refreshes (and the build-63 healthcheck `largest`-block field
-if fragmentation is ever suspected). ·
-HMAC-authenticated mesh + replay/freshness (audit **S3**, kills the **S2** trigger forgery) ·
-**C2** MAC-keyed session cache (use-after-free + re-IP) · **C4** UDP socket mutex · **S4** masked-
-password brick fix + **C1**/**C3** (v1.3.0) · admin **challenge-response** auth + IP-bound token +
-throttle (**S1** core — cleartext Basic-auth gone) · graceful degradation (web-first boot,
-`isServiceReady`, out-of-service LED/banner, reconnect overlay) · error-log bounding (read last 200 +
-file cap 500) + Clear button · voucher "Used X/Y" column (newest-first) · mock response-code logging ·
-SSID-isolation tripwire (detect) · WS terminal-error socket close · flasher "Read device MAC" button ·
-merge reads live WiFi IP (pause `IP=null` fix) ·
-**node nickname+commission stored on the controller** (each node is a client; `name` = `"nickname|commission"`
-via `setClientName` PATCH on save, read back from the all-clients list — survives a `sellers.json` wipe;
-replaced the abandoned seller self-heal, voucher names being immutable) · test plan finished ·
-**build-47 batch / v1.3.7 release:** 3am reboot → master `localtime` + slaves gated + "Reboot All"
-(`NET_MSG_REBOOT`, HMAC'd), dashboard uptime fix, Device Log Clear-button removal + colored W/I/D filters ·
-**v1.3.8** 3am reboot cascades to slaves · **v1.3.9** on-demand controller re-check (`/admin/recheck` +
-dashboard forces a check on open + banner "Re-check now" link) — *out-of-service banner auto-recover, done* ·
-**v1.3.10** Healthchecks.io master dead-man's-switch ping (60s, `healthchecks_url` config + admin Settings
-field) · *attempted* `/admin/recheck` crash fix by offloading controller TLS off the httpd thread (turned
-out to only narrow the race window — see v1.3.11) · silenced the spurious `sellers.json` VFS `[E]` noise ·
-**v1.3.11** **real** fix for the heap-clean "double owner" mutex crash (`xQueueGenericSend queue.c:832`):
-`setupOmada()` re-created `CREDS_MUTEX` on every 30s controller-down retry → create-once guard. Verified by
-~10h of elimination (ruled out: mbedTLS, BearSSL, error-logging/LittleFS, stack overflow, cross-core PI,
-heap OOB) + `test/crash_hammer.py` against a `TEST_MODE` `/diag/hammer` endpoint ·
-**v1.3.12** the *second* outage crash — vendored+patched `WiFiClientSecure`: `stop_ssl_socket` memset left
-`socket=0`, so a failed-connect double-stop did `close(0)` (= stdin → recycled LittleFS fd 0 → LittleFS
-`lfs_mlist_isopen` assert). Caught by instrumenting `wc.fd()` (read 0, heap CLEAN); verified 6 min clean
-under the hammer, LittleFS moved off fd 0. (BearSSL replacement attempted + rejected — see above.) ·
-**v1.3.13** admin auth as a PsychicHttp **middleware** (`->addMiddleware(adminAuth)` on the 17 protected
-routes; `isAuthorized()` unchanged — policy now visible in the route table, verified 401/200 on hardware) ·
-node-health UI: offline nodes show `(down Xm)` + dashed RSSI, last-known version kept · dropped the unused
-`ESP_SSLClient` dep · boot-order fix (queues created before the web server, closing a NULL-queue crash window) ·
-platform pinned to `espressif32@6.5.0` + documented the vendored `WiFiClientSecure` patch.
-
-## ✗ Cancelled
-
-- **BearSSL migration** (`ESP_SSLClient` + `ArduinoHttpClient`, to drop the vendored `WiFiClientSecure`)
-  — fully built, then **rejected**: it hung hard under concurrent failed connects (the controller-outage
-  case mbedTLS handles fine). Keep the one-line vendored patch + pinned platform. Don't re-attempt without
-  first solving the BearSSL/ArduinoHttpClient socket hang.
-- **Alt UI** (`index_alt3.html`) — dropped.
-- **Seller self-heal** — abandoned (voucher group names are immutable; too problematic). The node
-  nickname/commission storage above is the surviving controller-backed-storage feature.
+32. **Home booster firmware that only forwards packets,** so each phone behind it keeps its own voucher.

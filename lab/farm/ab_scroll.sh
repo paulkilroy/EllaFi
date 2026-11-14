@@ -13,7 +13,7 @@ FREE="8c:86:dd:e3:78:f0 4e:fc:79:4c:c9:74 04:2e:c1:93:5e:03"     # AP, Mac, Paul
 OUT=$(cd "$(dirname "$0")" && pwd)/results/$(date +%Y%m%d-%H%M); mkdir -p $OUT
 FILTER="host 192.168.0.105 or host 192.168.0.106 or host 192.168.0.107"
 omada() { for i in 1 2 3; do $PY "$TL" --set-mahal $1 $2 | grep -q "^SET 0" && return; sleep 20; done; echo "omada set FAILED"; }
-shaper_off() { ssh $SH "sudo systemctl stop shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"; }
+shaper_off() { ssh $SH "sudo systemctl stop ellafi-shaper shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"; }
 shaper_on() { shaper_off; ssh $SH "sudo systemd-run --unit=shaper --collect /usr/bin/python3 /usr/local/bin/shaper.py up --wan eno1 --lan enp4s0 --br br0 --down 2 --up 1 --target-ms 50 --interval-ms 300 --free $FREE >/dev/null"; }
 tcp() { ssh $SRV "awk '/^Tcp:/ {l=\$0} END {split(l, f, \" \"); print f[12], f[13]}' /proc/net/snmp" 2>/dev/null; }
 for m in $MODES; do

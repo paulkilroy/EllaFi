@@ -33,7 +33,7 @@ gw() { [ "$(cat $STATE.gw 2>/dev/null)" = "$1" ] && return 0; $PY $BWC --rule-$1
 fake_lanes() {   # $1 = add|del ; static fake MACs 02:fa:ce:00:XX:YY on the AP-side port
   ssh $SH "for i in \$(seq 1 $FAKE); do sudo bridge fdb $1 02:fa:ce:00:\$(printf %02x \$((i/256))):\$(printf %02x \$((i%256))) dev enp4s0 master static 2>/dev/null; done; true"
 }
-shaper_off() { ssh $SH "sudo systemctl stop shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"; }
+shaper_off() { ssh $SH "sudo systemctl stop ellafi-shaper shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"; }
 shaper_on() {
   shaper_off
   ssh $SH "sudo systemd-run --unit=shaper --collect /usr/bin/python3 /usr/local/bin/shaper.py up --wan eno1 --lan enp4s0 --br br0 --down 2 --up 1 --target-ms $TARGET --interval-ms $INTERVAL --burst-kb $BURST ${TOTAL:+--total-down $TOTAL} --free $FREE >/dev/null"

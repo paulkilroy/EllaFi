@@ -11,7 +11,7 @@ TL=${1:?testlab.py}; DK=${2:?}; UK=${3:?}; MIN=${4:-4}
 PY=~/.platformio/penv/bin/python3; PZ=paulkilroy@192.168.0.105; SH=paulkilroy@192.168.0.109; SRV=paulkilroy@192.168.1.174
 HERE=$(cd "$(dirname "$0")" && pwd); OUT=$HERE/results/counter-$(date +%Y%m%d-%H%M)-$DK; mkdir -p $OUT
 CL=/private/tmp/claude-501/-Users-paulkilroy-dev-EllaFi/3f0cb27a-5c85-4227-80ca-0bf768b2dd08/scratchpad/lab_clients.py
-ssh $SH "sudo systemctl stop shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"
+ssh $SH "sudo systemctl stop ellafi-shaper shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"
 $PY "$TL" --set-mahal $DK $UK | grep -E "^SET|^NOW"
 echo "$(date +%H:%M:%S) limit set; waiting for clients to reassociate and the controller to refresh"
 sleep 200

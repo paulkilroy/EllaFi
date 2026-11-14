@@ -34,7 +34,7 @@ want_omada() {   # $1 = down kbps (0 = off), $2 = up kbps; only touches the cont
   echo "omada $1 $2" > $STATE; log "AP limit set $1/$2; waiting 200 s for it to apply"; sleep 200
 }
 gw() { [ "$(cat $STATE.gw 2>/dev/null)" = "$1" ] && return 0; $PY $BWC --rule-$1 "Lab 2/1" >/dev/null 2>&1; echo $1 > $STATE.gw; log "gateway rule $1"; sleep 20; }
-shaper_off() { ssh $SH "sudo systemctl stop shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"; }
+shaper_off() { ssh $SH "sudo systemctl stop ellafi-shaper shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"; }
 shaper_on() { shaper_off; ssh $SH "sudo systemd-run --unit=shaper --collect /usr/bin/python3 /usr/local/bin/shaper.py up --wan eno1 --lan enp4s0 --br br0 --down 2 --up 1 --target-ms $TARGET --interval-ms $INTERVAL --burst-kb $BURST --free $FREE >/dev/null"; sleep 5; }
 
 # server sending method and delay (restart only when different)

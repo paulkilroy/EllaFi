@@ -6,7 +6,7 @@
 TL=${1:?testlab.py}; MIN=${2:-3}; shift 2; EXTRA="$*"
 PY=~/.platformio/penv/bin/python3; PZ=paulkilroy@192.168.0.105; SH=paulkilroy@192.168.0.109
 OUT=$(cd "$(dirname "$0")" && pwd)/results/calibrate-$(date +%Y%m%d-%H%M%S)$(echo $EXTRA | tr -d " -"); mkdir -p $OUT
-ssh $SH "sudo systemctl stop shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"
+ssh $SH "sudo systemctl stop ellafi-shaper shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"
 # the cloud controller sometimes times out: retry, and refuse to run on the wrong limit
 for i in 1 2 3 4 5; do
   $PY "$TL" --set-mahal 2048 1024 2>/dev/null | grep -q "^NOW.*'downLimit': 2048" && { echo "Omada 2/1 confirmed"; break; }

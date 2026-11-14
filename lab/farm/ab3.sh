@@ -18,7 +18,7 @@ OUT=$(cd "$(dirname "$0")" && pwd)/results/ab3-$(date +%Y%m%d-%H%M); mkdir -p $O
 PHONES="host 192.168.0.105 or host 192.168.0.106 or host 192.168.0.107"
 omada() { for i in 1 2 3 4 5; do $PY $TL --set-mahal $1 $2 2>/dev/null | grep -q "^NOW.*'downLimitEnable': $3" && { echo "  AP limit $1/$2 confirmed"; return 0; }; sleep 30; done; echo "  ABORT: AP limit not confirmed"; exit 1; }
 gateway() { $PY $BWC --rule-$1 "Lab 2/1" 2>/dev/null | grep -E "RULE SET|GLOBAL SET" | tr '\n' ' '; echo; }
-shaper_off() { ssh $SH "sudo systemctl stop shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"; }
+shaper_off() { ssh $SH "sudo systemctl stop ellafi-shaper shaper 2>/dev/null; sleep 1; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1"; }
 shaper_on() { shaper_off; ssh $SH "sudo systemd-run --unit=shaper --collect /usr/bin/python3 /usr/local/bin/shaper.py up --wan eno1 --lan enp4s0 --br br0 --down 2 --up 1 --target-ms 50 --interval-ms 300 --free $FREE >/dev/null"; }
 sent() { ssh $SRV "cat /sys/class/net/eth0/statistics/tx_bytes" 2>/dev/null; }
 $PY $BWC --group-ips 192.168.0.105,192.168.0.106,192.168.0.107,192.168.0.108 2>/dev/null | grep "GROUP SET"

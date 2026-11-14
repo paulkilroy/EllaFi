@@ -1,0 +1,17 @@
+# Starts the shaper at boot with the saved settings in /etc/ellafi/shaper.conf, restarts it if it dies.
+# Stopped or crashed = the bridge passes traffic UNSHAPED (fail-open: phones keep internet, no 2/1 limit).
+# Lab scripts start their own copy (systemd-run --unit=shaper); they stop this one first.
+[Unit]
+Description=EllaFi shaper (per-phone queued lanes on the bridge)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/ellafi/shaper.conf
+ExecStart=/usr/bin/python3 /usr/local/bin/shaper.py up $SHAPER_ARGS
+ExecStopPost=/usr/bin/python3 /usr/local/bin/shaper.py down
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
