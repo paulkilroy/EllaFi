@@ -27,6 +27,7 @@ named. ⛔ = needs Paul's OK.
 20. **WiGLE signal walk + house test** for a real coverage map and wall/roof losses.
 21. **Put the Voucher and PisoWifi SSIDs on their own VLANs, IPv4 only** — needed before the shaper goes in.
 21a. **Network move:** ER706W, CustomerPortal hosted by the controller, DHCP option 114 (memory network_design.md).
+    Move Bakhaw off 192.168.1.x to its own range (e.g. 10.20.x.x) so Tailscale doesn't clash with home networks.
 
 ## E. Firmware
 
