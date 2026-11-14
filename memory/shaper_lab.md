@@ -13,6 +13,12 @@ Goal: replace Omada's per-client 2/1 limit (a policer: drops everything over a 2
   Code: `lab/shaper/shaper.py` (HTB lane per MAC + fq_codel inside; learns MACs every 2 s).
 - TestLab controller = cloud Essentials; scripts use the OLD login from `data/config.json.bak`.
 - **Left at 2026-11-10:** shaper DOWN (bridge passes unshaped), Mahal AP limit OFF, gateway rule "Lab 2/1" off.
+- **VLAN trunk (2026-11-14):** ER605 network "Lab VLAN 98" (192.168.98.1/24, DHCP .100–.199) on all 4 LAN ports +
+  SSID "EllaFi Lab98" (WPA2, VLAN 98, no portal/limit). Paul's phone got 192.168.98.100; every frame crossed the
+  bridge tagged 802.1Q vlan 98 (both ports), Linux bridge passes tags untouched. Mahal stays untagged (VLAN 1).
+  Plan: shaper caps only customer VLANs → Mahal never capped, no MAC list, no controller polling.
+  Adding an SSID restarts the AP radios: pi02w's built-in wlan0 (p1 + the SSH path) did NOT rejoin by itself
+  (needs a power cycle); the USB dongle phones did.
 
 ## Results (all counts measured, with packet headers)
 | run | lost (server sent vs phone got) | notes |
@@ -29,9 +35,10 @@ equally, so the next video's first 2.5 s takes ~6 s instead of 1.25 s. The lane 
 40 s. Not waste — capacity.
 
 ## Parked to-dos (in order)
-1. **Fix the fake-phone hang.** scroll3.py's watch loop and next-video wait have no time limit: a download that
-   never finishes blocks forever (overnight run hung 01:03 → 11:57 on open-watch10, no error output). Make both
-   loops stop at the end time and record `"stuck": true`, then find which download stalled.
+1. ~~**Fix the fake-phone hang.**~~ DONE Nov 13 (commit 8357430): every wait stops at the end time (`"stuck"`,
+   `"stuck_at"`, `"busy_when_stuck"`), a piece with no data for `--stall-s` (20 s) is stopped, logged in
+   `"stall_log"` (video, piece, connection) and refetched. Tested locally only (lab unreachable): copy scroll3.py
+   to pi02w `~/farm/` before the next run, and read `stall_log` after it to see which downloads stall.
 2. **Re-run what the overnight missed** (`lab/farm/overnight3.sh` + gateway/pass 2 of overnight2.sh): weak/bad
    phones (netem), overall ceiling 4 Mbps, 256 lanes (memory/CPU), repeats. Watch-10-s freezes (shaper 33 vs
    Omada 18) — probably the 8 downloads sharing the lane equally; confirm.

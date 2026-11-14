@@ -11,8 +11,12 @@ named. ⛔ = needs Paul's OK.
    First make `iphone_record.sh` find the iPhone by MAC, not 192.168.0.108.
 3. **Overnight reruns** (`overnight3.sh`): weak/bad phones, 4 Mbps ceiling, 256 lanes, repeats. Scripts should
    first check all 3 fake phones are connected.
-4. **Mahal never capped, automatically:** the box asks the controller each minute which devices are on Mahal and
-   gives them no lane. No QoS.
+4. **Shape by VLAN, not by MAC list:** the box caps only traffic tagged with the customer VLANs (Voucher,
+   PisoWifi); Mahal and everything else passes untouched, from the first packet, no controller needed. Lab trunk
+   proven Nov 14 (ER605 network "Lab VLAN 98" + SSID "EllaFi Lab98" → tagged frames through the box); next: the
+   VLAN rule in `shaper.py`, tested with a fake phone on Lab98.
+   **⚠ Install prerequisite:** at Bakhaw each customer SSID must be on its own VLAN and the box's cable must be a
+   trunk (comes with #21) — no VLANs, no shaper install.
 
 ## B. Shaper box — MeLE Quieter DL (arrives Nov 14)
 
