@@ -32,12 +32,7 @@ named. ⛔ = needs Paul's OK.
 
 22. **Find the controller automatically when its IP moves — important, test it.** DHCP option 138 or a subnet
     scan; stopgap is a DHCP reservation.
-23. **Remove the voucher tab from VendoAdmin** — vouchers live in VoucherAdmin now, and the tab froze the page
-    whenever the controller was down.
-24. **Change WiFi in the field** without a cable (`memory/field_reprovisioning_design.md`).
 26. **Read-only file viewer on VendoAdmin** (passwords masked, capped reads).
-27. **Session-cache refactor** — rethink in the new design (↓ #29).
-28. **Coin relay has no single owner** — rethink in the new design (↓ #29).
 29. **Masterless "pick-your-box" vendo design** — concurrent payers, per-box reservation (replaces the
     single `COIN_SESSION_SLOT`), naming-convention discovery (`ellafi1…9.local`), stay on the current
     `extPortal/auth`+`extend` path (no vouchers — By-Usage can't be topped up). Gated by a real-phone
