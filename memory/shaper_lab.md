@@ -32,6 +32,7 @@ Goal: replace Omada's per-client 2/1 limit (a policer: drops everything over a 2
 | Omada AP 2/1, shaper off | ≥59% (189 MB in; 2 Mbps × 5 min = 77 MB max delivered) | ~1 in 7 videos stalled all 5 min, "on the edge"; ping avg 16, worst 447 ms, 6% lost |
 | Shaper 200 ms + 10 MB speed bank | 4.5% (88 MB in, 84 out) | WORSE: first 3 great, then most of minute 1 lagged, 10–15 more after. Bank drains in seconds, never refills while scrolling, sender overshoots → drops. **Bank rejected.** |
 | Shaper 200 ms, no bank | **0.5%** (48 MB in, 47.8 out) | "really good": ~10 videos 1–2 s late in minute 1, then flawless; ping avg 38, worst 329, 0 lost |
+| Shaper 2.5/1, 2 min only | 0.6% (26.1 MB in, 25.9 out) | 4 of the first 8 videos 1–2 s late, then flawless. Paul: better, not worth 25% more data → **stay at 2/1** |
 Raw: `lab/farm/results/` (ab3-*, overnight-20261109-2242, iphone-20261110-*, iphone-20261113-*). Memory: shaper_lab_results.md.
 
 Why the early slow starts: on a cold start the app downloads many videos at once and they share the 2 Mbps lane
