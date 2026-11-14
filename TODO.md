@@ -44,10 +44,6 @@ named. ⛔ = needs Paul's OK.
     reachability POC (client isolation is make-or-break). Full design + POC checklist:
     `memory/distributed_vendo_design.md`.
 
-## F. SiteDashboard / docs
-
-31. **README rewrite** so a newcomer can install, flash, configure and test EllaFi.
-
 ## G. Ideas — not this trip
 
 32. **Home booster firmware that only forwards packets,** so each phone behind it keeps its own voucher.
