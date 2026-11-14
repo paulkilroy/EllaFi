@@ -17,6 +17,10 @@ Goal: replace Omada's per-client 2/1 limit (a policer: drops everything over a 2
   SSID "EllaFi Lab98" (WPA2, VLAN 98, no portal/limit). Paul's phone got 192.168.98.100; every frame crossed the
   bridge tagged 802.1Q vlan 98 (both ports), Linux bridge passes tags untouched. Mahal stays untagged (VLAN 1).
   Plan: shaper caps only customer VLANs → Mahal never capped, no MAC list, no controller polling.
+- **Per-address lanes (2026-11-14):** `--vlans 98 --subnets 192.168.98.0/24` makes all 254 lanes at start (0.1 s);
+  fake phone on Lab98 held 1.98 Mbps from its first packet, Mahal phone uncapped 5.6 Mbps. No learning gap, no
+  reaping. IPv6 isn't matched → customer networks must be IPv4 only. Switching p4's dongle connection between
+  SSIDs sometimes fails ("base network connection was interrupted") — `lab/farm/p4_mahal.sh` puts it back.
   Adding an SSID restarts the AP radios: pi02w's built-in wlan0 (p1 + the SSH path) did NOT rejoin by itself
   (needs a power cycle); the USB dongle phones did.
 

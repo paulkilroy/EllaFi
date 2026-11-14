@@ -25,7 +25,7 @@ named. ⛔ = needs Paul's OK.
 18. **Hardwire the school with cable instead of mesh;** measure runs first (100 m limit).
 19. **Negra 2.4 GHz antennas** are pointed sideways toward the sea — fix.
 20. **WiGLE signal walk + house test** for a real coverage map and wall/roof losses.
-21. **Put the Voucher and PisoWifi SSIDs on their own VLANs** — needed before the shaper goes in.
+21. **Put the Voucher and PisoWifi SSIDs on their own VLANs, IPv4 only** — needed before the shaper goes in.
 21a. **Network move:** ER706W, CustomerPortal hosted by the controller, DHCP option 114 (memory network_design.md).
 
 ## E. Firmware

@@ -71,12 +71,17 @@ def port_tc(dev, rate, total, a):
     sh(leaf(dev, DEFAULT, a))
 
 
-def lane_add(dev, n, rate, a):
+def lane_cmds(dev, n, rate, a):
     burst = f"{int(a.burst_kb)}k"
-    sh(f"tc class replace dev {dev} parent 1:1 classid 1:{n:x} htb rate {mbit(rate)} ceil {mbit(rate)} "
-       f"burst {burst} cburst {burst} prio 2")
-    sh(leaf(dev, n, a))
-    sh(f"tc filter replace dev {dev} parent 1: protocol all prio 1 handle {n} fw classid 1:{n:x}")
+    return [f"tc class replace dev {dev} parent 1:1 classid 1:{n:x} htb rate {mbit(rate)} ceil {mbit(rate)} "
+            f"burst {burst} cburst {burst} prio 2",
+            leaf(dev, n, a),
+            f"tc filter replace dev {dev} parent 1: protocol all prio 1 handle {n} fw classid 1:{n:x}"]
+
+
+def lane_add(dev, n, rate, a):
+    for c in lane_cmds(dev, n, rate, a):
+        sh(c)
 
 
 def lane_del(dev, n):
@@ -91,12 +96,20 @@ def nft_setup(a):
     # up = packets coming in from the phone side (match source MAC). Unknown MAC: no mark -> default class.
     # --vlans: only packets tagged with a customer VLAN are marked, and only their senders are learned (set
     # "cust", refreshed by each packet, forgotten after --idle) — Mahal and anything untagged is never shaped.
+    # --subnets: lanes are keyed by IPv4 address instead (map "ipl", filled once by up()); IPv6 is not matched,
+    # so customer VLANs must run IPv4 only (the ER706W default).
     if a.vlans:
         v = "vlan id { " + ", ".join(map(str, a.vlans)) + " } "
         learn_set = f"set cust {{ type ether_addr; flags timeout; timeout {a.idle}s; }}"
         learn_rule = f'iifname "{a.lan}" {v}update @cust {{ ether saddr }}'
     else:
         v, learn_set, learn_rule = "", "", ""
+    if a.subnets:
+        learn_set, learn_rule = "map ipl { type ipv4_addr : mark; }", ""
+        vt = v + "vlan type ip " if a.vlans else ""
+        down, upr = f"{vt}meta mark set ip daddr map @ipl", f"{vt}meta mark set ip saddr map @ipl"
+    else:
+        down, upr = f"{v}meta mark set ether daddr map @lane", f"{v}meta mark set ether saddr map @lane"
     rules = f"""
 table bridge ellafi {{
   map lane {{ type ether_addr : mark; }}
@@ -104,8 +117,8 @@ table bridge ellafi {{
   chain mark_lanes {{
     type filter hook forward priority 0; policy accept;
     {learn_rule}
-    iifname "{a.wan}" {v}meta mark set ether daddr map @lane
-    iifname "{a.lan}" {v}meta mark set ether saddr map @lane
+    iifname "{a.wan}" {down}
+    iifname "{a.lan}" {upr}
   }}
 }}"""
     p = subprocess.run(["nft", "-f", "-"], input=rules, capture_output=True, text=True)
@@ -129,10 +142,44 @@ def up(a):
     port_tc(a.lan, a.down, a.total_down, a)            # leaving toward the phones = download
     port_tc(a.wan, a.up, a.total_up, a)                # leaving toward the router = upload
     st = {"wan": a.wan, "lan": a.lan, "br": a.br, "lanes": {}, "args": vars(a)}
+    if a.subnets:
+        fixed_lanes(a, st)
+        return
     save(st)
     print(f"shaper up: {a.down}/{a.up} Mbps per phone, overall {a.total_down or '-'}/{a.total_up or '-'}, "
           f"leaf {a.leaf}; learning MACs on {a.lan}", flush=True)
     learn(a, st)
+
+
+def fixed_lanes(a, st):
+    """--subnets: one lane per address in each customer subnet, all made at start (one tc batch, one nft load) —
+    a phone is capped from its first packet, nothing to learn or reap; DHCP reuse just hands the lane on."""
+    import ipaddress
+    hosts = [str(h) for s in a.subnets for h in ipaddress.ip_network(s, strict=False).hosts()]
+    if len(hosts) > LAST - FIRST:
+        sys.exit(f"{len(hosts)} addresses — more than the {LAST - FIRST} lanes available")
+    cmds, elems = [], []
+    for i, ip in enumerate(hosts):
+        n = FIRST + i
+        cmds += lane_cmds(a.lan, n, a.down, a) + lane_cmds(a.wan, n, a.up, a)
+        elems.append(f"{ip} : {n}")
+        st["lanes"][ip] = n
+    t = time.time()
+    batch = "/run/ellafi-shaper.tc"
+    open(batch, "w").write("\n".join(c[3:] for c in cmds) + "\n")     # "tc " prefix off for tc -batch
+    sh(f"tc -batch {batch}")
+    p = subprocess.run(["nft", "-f", "-"], input=f"add element bridge ellafi ipl {{ {', '.join(elems)} }}\n",
+                       capture_output=True, text=True)
+    if p.returncode:
+        raise RuntimeError(p.stderr)
+    save(st)
+    print(f"shaper up: {a.down}/{a.up} Mbps per address, {len(hosts)} lanes for {' '.join(a.subnets)}"
+          f"{' (VLAN ' + ' '.join(map(str, a.vlans)) + ')' if a.vlans else ''}, made in {time.time() - t:.1f} s",
+          flush=True)
+    stop = []
+    signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
+    while not stop:                                       # nothing to do; stay up so systemd keeps the service
+        time.sleep(5)
 
 
 def save(st):
@@ -212,6 +259,8 @@ def stats(a):
         if not dev:
             continue
         for c in json.loads(sh(f"tc -s -j class show dev {dev}", check=False) or "[]"):
+            if c.get("class") != "htb":                   # skip fq_codel's per-connection flow entries
+                continue
             n = int(c["handle"].split(":")[1], 16)
             key = mac_of.get(n, "default" if n == DEFAULT else None)
             if key is None:
@@ -252,6 +301,8 @@ def main():
     p.add_argument("--free", nargs="*", default=[], help="MACs never shaped (router, controller, Mahal devices)")
     p.add_argument("--vlans", nargs="*", type=int, default=[], help="shape only these customer VLANs (e.g. 98 99); "
                    "untagged and other VLANs pass unshaped, no MAC list needed")
+    p.add_argument("--subnets", nargs="*", default=[], help="lanes keyed by IPv4 address, one per address in these "
+                   "subnets, all made at start (e.g. 192.168.98.0/24); IPv6 unshaped, keep it off on these networks")
     a = p.parse_args()
     if a.cmd == "up" and not (a.wan and a.lan):
         p.error("up needs --wan and --lan")
