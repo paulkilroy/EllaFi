@@ -1185,109 +1185,6 @@ esp_err_t handleAdminSellers(PsychicRequest* request, PsychicResponse* response)
   return response->send(200, "application/json", "{\"ok\":true}");
 }
 
-// ── Admin vouchers ────────────────────────────────────────────────────────────
-
-esp_err_t handleAdminVouchers(PsychicRequest* request, PsychicResponse* response) {
-  response->addHeader("Cache-Control", "no-store");
-
-  if (request->method() == HTTP_GET) {
-    String groupId = request->hasParam("id") ? request->getParam("id")->value() : "";
-
-    if (!groupId.isEmpty()) {
-      // Return codes for a specific group page
-      int page = request->hasParam("page") ? request->getParam("page")->value().toInt() : 1;
-      JsonDocument raw = getVoucherCodesJson(groupId, page);
-      if (raw.isNull()) return response->send(502, "text/plain", "Failed to fetch from controller");
-      JsonDocument out;
-      JsonArray codes = out["codes"].to<JsonArray>();
-      for (JsonObject v : raw["result"]["data"].as<JsonArray>()) codes.add(v["code"].as<String>());
-      int totalRows = raw["result"]["totalRows"].as<int>();
-      out["totalPages"] = (totalRows + VOUCHERS_PER_PAGE - 1) / VOUCHERS_PER_PAGE;
-      String json; serializeJson(out, json);
-      return response->send(200, "application/json", json.c_str());
-    }
-
-    // List all voucher groups filtered by AUTOGEN: prefix
-    JsonDocument raw = getVoucherGroupsJson();
-    if (raw.isNull()) return response->send(502, "text/plain", "Failed to fetch from controller");
-    JsonDocument out;
-    JsonArray arr = out.to<JsonArray>();
-    for (JsonObject g : raw["result"]["data"].as<JsonArray>()) {
-      String name = g["name"].as<String>();
-      if (!name.startsWith("AUTOGEN: ")) continue;
-      String rest   = name.substring(9);           // "5P2H KANO"
-      int spaceIdx  = rest.indexOf(' ');
-      String seller = spaceIdx >= 0 ? rest.substring(spaceIdx + 1) : "";
-      int price = 0;
-      {
-        JsonDocument descDoc;
-        if (deserializeJson(descDoc, g["description"].as<String>()) == DeserializationError::Ok)
-          price = descDoc["price"].as<int>();
-      }
-      // totalCount: prefer top-level field, fall back to statisticsCount (structure varies between list and detail endpoints)
-      int totalCount = g["totalCount"].as<int>();
-      if (totalCount == 0) totalCount = g["statisticsCount"]["totalStatisticsCount"].as<int>();
-      JsonObject entry = arr.add<JsonObject>();
-      entry["id"]          = g["id"];
-      entry["name"]        = name;
-      entry["seller"]      = seller;
-      entry["pages"]       = max(1, (totalCount + VOUCHERS_PER_PAGE - 1) / VOUCHERS_PER_PAGE);
-      entry["duration"]    = g["duration"].as<int>();
-      entry["price"]       = price;
-      entry["createdTime"] = g["createdTime"].as<uint64_t>();
-      entry["unusedCount"] = g["unusedCount"].as<int>();
-      entry["usedCount"]   = g["usedCount"].as<int>();
-      entry["totalCount"]  = totalCount;
-    }
-    String json; serializeJson(out, json);
-    return response->send(200, "application/json", json.c_str());
-  }
-
-  // DELETE — remove a voucher group
-  if (request->method() == HTTP_DELETE) {
-    String groupId = request->hasParam("id") ? request->getParam("id")->value() : "";
-    if (groupId.isEmpty()) return response->send(400, "text/plain", "Missing id");
-    String errorDetail;
-    if (!deleteVoucherGroup(groupId, errorDetail))
-      return response->send(502, "text/plain", ("Controller error: " + errorDetail).c_str());
-    return response->send(200, "application/json", "{\"ok\":true}");
-  }
-
-  // POST — create new voucher group
-  JsonDocument req;
-  if (deserializeJson(req, request->body())) return response->send(400, "text/plain", "Bad JSON");
-  int pages       = req["pages"].as<int>();
-  int durationMin = req["duration_min"].as<int>();
-  int price       = req["price"].as<int>();
-  String seller   = req["seller"].as<String>();
-  if (pages < 1 || durationMin < 1 || price < 1 || seller.isEmpty())
-    return response->send(400, "text/plain", "Missing required fields");
-
-  int qty          = pages * VOUCHERS_PER_PAGE;
-  int durationHrs  = durationMin / 60;
-  // Short hex tag (low 24 bits of epoch, ≤6 chars) keeps each batch's name unique so the same
-  // price/duration/seller can be re-stocked — the controller rejects duplicate group names (-42059).
-  // Goes INSIDE the first space-free token; seller is still parsed as everything after the first space.
-  String tag       = String((uint32_t)time(NULL) & 0xFFFFFFUL, HEX);
-  String name      = "AUTOGEN: " + String(price) + "P" + String(durationHrs) + "H-" + tag + " " + seller;
-  String desc      = "{\"price\":" + String(price) + "}";
-
-  String groupId, errorDetail;
-  if (!createVoucherGroup(name, durationMin, qty, desc, groupId, errorDetail))
-    return response->send(502, "text/plain", ("Controller error: " + errorDetail).c_str());
-
-  // Fetch first page of codes immediately so the browser can print without a second round-trip
-  JsonDocument codesDoc = getVoucherCodesJson(groupId, 1);
-  JsonDocument out;
-  out["id"]    = groupId;
-  out["pages"] = pages;
-  JsonArray codes = out["codes"].to<JsonArray>();
-  if (!codesDoc.isNull())
-    for (JsonObject v : codesDoc["result"]["data"].as<JsonArray>()) codes.add(v["code"].as<String>());
-  String json; serializeJson(out, json);
-  return response->send(200, "application/json", json.c_str());
-}
-
 // ── Voucher cache helpers ─────────────────────────────────────────────────────
 
 static JsonArray voucherBuckets(JsonDocument& doc) {
@@ -1983,7 +1880,6 @@ void setupWeb() {
   HTTP_SERVER.on("/admin/statement",   HTTP_GET,  handleAdminStatement)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/leaderboard", HTTP_GET,  handleAdminLeaderboard)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/sellers",     HTTP_ANY,  handleAdminSellers)->addMiddleware(adminAuth);
-  HTTP_SERVER.on("/admin/vouchers",    HTTP_ANY,   handleAdminVouchers)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/config",      HTTP_ANY,  handleAdminConfig)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/reboot",             HTTP_POST, handleAdminReboot)->addMiddleware(adminAuth);
   HTTP_SERVER.on("/admin/reboot-all",         HTTP_POST, handleAdminRebootAll)->addMiddleware(adminAuth);

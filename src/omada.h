@@ -163,17 +163,8 @@ String deviceStatusJson();              // current {mac:status} snapshot for /st
 unsigned long getOmadaSessionAgeMs();   // ms since last Omada login; 0 if never logged in
 unsigned long getLastCacheRefreshMs();  // ms since last refreshHotspotSessionCache(); 0 if never run
 
-// Vouchers per printed A4 sheet (4 x 32 "E3 Hour Stamp" layout, Nov 2026): a batch is pages x this, and codes are
-// fetched from the controller one sheet at a time. Must match CARDS_PER_PAGE in web/admin.html.
-constexpr int VOUCHERS_PER_PAGE = 128;
-
 JsonDocument getVoucherGroupsJson();
 JsonDocument getVoucherHistoryJson(time_t startSec, time_t endSec);
-bool createVoucherGroup(const String& name, int durationMin, int totalCount,
-                        const String& description,
-                        String& groupId, String& errorDetail);
-JsonDocument getVoucherCodesJson(const String& groupId, int page);
-bool deleteVoucherGroup(const String& groupId, String& errorDetail);
 
 bool setupOmada(); // Call from setup() after NTP sync — initialises mutex, loads sites, primes cache
 
