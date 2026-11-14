@@ -9,7 +9,6 @@ named. ⛔ = needs Paul's OK.
    `shaper.conf`); install on the box and do a reboot test.
 3. **Overnight reruns** (`overnight3.sh`): weak/bad phones, 4 Mbps ceiling, 256 lanes, repeats. Scripts should
    first check all 3 fake phones are connected.
-4. **Shaper caps only the customer VLANs** (VLAN rule in `shaper.py`, test with a fake phone on Lab98).
 
 ## B. Shaper box — MeLE Quieter DL (arrives Nov 14)
 
