@@ -11,12 +11,7 @@ named. ⛔ = needs Paul's OK.
    First make `iphone_record.sh` find the iPhone by MAC, not 192.168.0.108.
 3. **Overnight reruns** (`overnight3.sh`): weak/bad phones, 4 Mbps ceiling, 256 lanes, repeats. Scripts should
    first check all 3 fake phones are connected.
-4. **Shape by VLAN, not by MAC list:** the box caps only traffic tagged with the customer VLANs (Voucher,
-   PisoWifi); Mahal and everything else passes untouched, from the first packet, no controller needed. Lab trunk
-   proven Nov 14 (ER605 network "Lab VLAN 98" + SSID "EllaFi Lab98" → tagged frames through the box); next: the
-   VLAN rule in `shaper.py`, tested with a fake phone on Lab98.
-   **⚠ Install prerequisite:** at Bakhaw each customer SSID must be on its own VLAN and the box's cable must be a
-   trunk (comes with #21) — no VLANs, no shaper install.
+4. **Shaper caps only the customer VLANs** (VLAN rule in `shaper.py`, test with a fake phone on Lab98).
 
 ## B. Shaper box — MeLE Quieter DL (arrives Nov 14)
 
@@ -40,8 +35,8 @@ named. ⛔ = needs Paul's OK.
 18. **Hardwire the school with cable instead of mesh;** measure runs first (100 m limit).
 19. **Negra 2.4 GHz antennas** are pointed sideways toward the sea — fix.
 20. **WiGLE signal walk + house test** for a real coverage map and wall/roof losses.
-21. **Network move:** ER706W + VLANs, CustomerPortal hosted by the controller, DHCP option 114
-    (memory network_design.md).
+21. **Put the Voucher and PisoWifi SSIDs on their own VLANs** — needed before the shaper goes in.
+21a. **Network move:** ER706W, CustomerPortal hosted by the controller, DHCP option 114 (memory network_design.md).
 
 ## E. Firmware
 
