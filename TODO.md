@@ -7,8 +7,6 @@ named. ⛔ = needs Paul's OK.
 
 1. **Shaper starts at boot.** Service + saved settings are written (`lab/shaper/ellafi-shaper.service`,
    `shaper.conf`); install on the box and do a reboot test.
-2. **iPhone runs with Paul:** Omada 2/1 (fair "before"), shaper + 10 MB speed bank, shaper without the bank.
-   First make `iphone_record.sh` find the iPhone by MAC, not 192.168.0.108.
 3. **Overnight reruns** (`overnight3.sh`): weak/bad phones, 4 Mbps ceiling, 256 lanes, repeats. Scripts should
    first check all 3 fake phones are connected.
 4. **Shaper caps only the customer VLANs** (VLAN rule in `shaper.py`, test with a fake phone on Lab98).

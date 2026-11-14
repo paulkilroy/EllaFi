@@ -4,7 +4,11 @@
 # Clock-timed so Paul and the recording line up: SECS of scrolling from START with a ping every second, then a
 # 60 s idle ping baseline (phone awake on the home screen, Facebook closed).
 # Usage: iphone_record.sh <label> <start HH:MM:SS> [seconds]
-SH=paulkilroy@192.168.0.109; IPHONE=04:2e:c1:93:5e:03; IP=192.168.0.108
+SH=paulkilroy@192.168.0.109; IPHONE=04:2e:c1:93:5e:03
+# the iPhone's address by its MAC (it moves: a fake phone took .108 on Nov 13)
+CL=/private/tmp/claude-501/-Users-paulkilroy-dev-EllaFi/3f0cb27a-5c85-4227-80ca-0bf768b2dd08/scratchpad/lab_clients.py
+IP=$(~/.platformio/penv/bin/python3 $CL 2>/dev/null | awk -v m=$(echo $IPHONE | tr a-f: A-F-) '$2==m && / ssid Mahal / {print $1; exit}')
+[ -n "$IP" ] || { echo "iPhone $IPHONE not on Mahal (controller client list) — join Mahal and retry"; exit 1; }
 LABEL=$1; START=$(date -j -f %H:%M:%S "$2" +%s); SECS=${3:-300}
 OUT=/Users/paulkilroy/dev/EllaFi/lab/farm/results/iphone-$(date +%Y%m%d-%H%M)-$LABEL; mkdir -p $OUT
 ssh $SH "tc -s qdisc show dev enp4s0" > $OUT/qdisc_before.txt
