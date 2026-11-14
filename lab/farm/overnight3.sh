@@ -27,4 +27,7 @@ for pass in 1 2; do
   /Users/paulkilroy/.platformio/penv/bin/python3 $HERE/overnight_summary.py $OUTD > $OUTD/summary.txt 2>&1
 done
 bash $HERE/run2.sh $OUTD restore-check shaper 1 >/dev/null 2>&1          # leaves: shaper 50 ms on, AP 4/2, good phones
+# then the lab's normal state: Mahal AP limit off, the boot-service shaper (saved settings) on
+/Users/paulkilroy/.platformio/penv/bin/python3 /private/tmp/claude-501/-Users-paulkilroy-dev-EllaFi/3f0cb27a-5c85-4227-80ca-0bf768b2dd08/scratchpad/testlab_run.py --set-mahal 0 0 >/dev/null 2>&1
+ssh paulkilroy@192.168.0.109 "sudo systemctl stop shaper 2>/dev/null; sudo python3 /usr/local/bin/shaper.py down >/dev/null 2>&1; sudo systemctl start ellafi-shaper"
 echo "$(date +%H:%M:%S) ALL DONE -> $OUTD" | tee -a $OUTD/log.txt

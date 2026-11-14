@@ -20,6 +20,8 @@ FREE="8c:86:dd:e3:78:f0 4e:fc:79:4c:c9:74 04:2e:c1:93:5e:03"
 STATE=$OUTD/.lab_state; mkdir -p $OUTD; touch $STATE
 D=$OUTD/$LABEL; mkdir -p $D
 log() { echo "$(date +%H:%M:%S) [$LABEL] $*" | tee -a $OUTD/log.txt; }
+# every fake phone must be on the network before a run (the USB dongle dropped silently Nov 10-13)
+ssh $PZ "for p in p3 p4; do sudo ip vrf exec \$p ping -c 1 -W 3 192.168.0.1 >/dev/null 2>&1 || sudo bash farm/phones_up.sh \$p >/dev/null 2>&1; done; ping -c 1 -W 3 192.168.0.1 >/dev/null && for p in p3 p4; do sudo ip vrf exec \$p ping -c 1 -W 3 192.168.0.1 >/dev/null || exit 1; done" || { log "ABORT: a fake phone is not on the network"; exit 1; }
 want_omada() {
   [ "$(cat $STATE)" = "omada $1 $2" ] && return 0
   for i in 1 2 3 4 5; do
