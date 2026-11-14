@@ -33,6 +33,13 @@ Goal: replace Omada's per-client 2/1 limit (a policer: drops everything over a 2
 | Shaper 200 ms + 10 MB speed bank | 4.5% (88 MB in, 84 out) | WORSE: first 3 great, then most of minute 1 lagged, 10–15 more after. Bank drains in seconds, never refills while scrolling, sender overshoots → drops. **Bank rejected.** |
 | Shaper 200 ms, no bank | **0.5%** (48 MB in, 47.8 out) | "really good": ~10 videos 1–2 s late in minute 1, then flawless; ping avg 38, worst 329, 0 lost |
 | Shaper 2.5/1, 2 min only | 0.6% (26.1 MB in, 25.9 out) | 4 of the first 8 videos 1–2 s late, then flawless. Paul: better, not worth 25% more data → **stay at 2/1** |
+| **Overnight Nov 13 (3 Pi phones, 4 min each, 2 passes, `results/overnight3-20261113-2145/summary.txt`):** | | |
+| Omada 2/1, weak / bad phones | 24% / 22% | 8–8.5 freezes, worst wait 8–10 s |
+| Shaper 200 ms, weak / bad | **1.6% / 4.5%** | 0.5 / 2.5 freezes, worst wait 2.8 / 5.0 s |
+| Shaper 100 ms, weak / bad | 6.4% / 10.5% | |
+| Shaper 50 ms, weak / bad | 11.3% / 14% | → longer wait = less loss on poor phones; 200 ms stays |
+| 4 Mbps overall ceiling, good / bad | 2.8% / 10.4% | 0 / 3.5 freezes |
+| 256 lanes (253 fake) | 2.6% | 0 freezes — the old Realtek box kept up |
 Raw: `lab/farm/results/` (ab3-*, overnight-20261109-2242, iphone-20261110-*, iphone-20261113-*). Memory: shaper_lab_results.md.
 
 Why the early slow starts: on a cold start the app downloads many videos at once and they share the 2 Mbps lane

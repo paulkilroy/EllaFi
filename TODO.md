@@ -3,11 +3,6 @@
 Everything still open, numbered (rewritten 2026-11-14). Finished items are deleted; detail lives in the files
 named. ⛔ = needs Paul's OK.
 
-## A. Shaper — lab, while Paul is home (`memory/shaper_lab.md`)
-
-3. **Overnight reruns** (`overnight3.sh`): weak/bad phones, 4 Mbps ceiling, 256 lanes, repeats. Scripts should
-   first check all 3 fake phones are connected.
-
 ## B. Shaper box — MeLE Quieter DL (arrives Nov 14)
 
 5. **Set it up:** Ubuntu, bridge, shaper + boot service, power-on after power loss, temperature readings.
