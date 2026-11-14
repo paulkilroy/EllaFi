@@ -20,6 +20,9 @@ How each phone gets a lane:
     own small line, and a line that starts building delay is trimmed early).
   - a MAC that leaves the bridge table (5 min idle) loses its lane; it gets a new one when it comes back.
   - anything unmarked (the router, Omada gear, MACs listed with --free) goes to an unshaped default class.
+  - --vlans 98 99 (the install setting): only packets tagged with a customer VLAN are marked, and the learner
+    takes its MACs from those packets instead of the bridge table — Mahal (untagged) is never shaped, with no
+    MAC list and no controller. Needs each customer SSID on its own VLAN and a trunk cable through the box.
   - optional --total-down/--total-up: an overall ceiling above all lanes, set just under what the
     uplink really delivers so the queue lives here (fair) and not in Starlink's own buffer (unfair, laggy).
 
@@ -86,13 +89,23 @@ def nft_setup(a):
     sh("nft delete table bridge ellafi", check=False)
     # down = packets coming in from the router side, to a phone (match destination MAC);
     # up = packets coming in from the phone side (match source MAC). Unknown MAC: no mark -> default class.
+    # --vlans: only packets tagged with a customer VLAN are marked, and only their senders are learned (set
+    # "cust", refreshed by each packet, forgotten after --idle) — Mahal and anything untagged is never shaped.
+    if a.vlans:
+        v = "vlan id { " + ", ".join(map(str, a.vlans)) + " } "
+        learn_set = f"set cust {{ type ether_addr; flags timeout; timeout {a.idle}s; }}"
+        learn_rule = f'iifname "{a.lan}" {v}update @cust {{ ether saddr }}'
+    else:
+        v, learn_set, learn_rule = "", "", ""
     rules = f"""
 table bridge ellafi {{
   map lane {{ type ether_addr : mark; }}
+  {learn_set}
   chain mark_lanes {{
     type filter hook forward priority 0; policy accept;
-    iifname "{a.wan}" meta mark set ether daddr map @lane
-    iifname "{a.lan}" meta mark set ether saddr map @lane
+    {learn_rule}
+    iifname "{a.wan}" {v}meta mark set ether daddr map @lane
+    iifname "{a.lan}" {v}meta mark set ether saddr map @lane
   }}
 }}"""
     p = subprocess.run(["nft", "-f", "-"], input=rules, capture_output=True, text=True)
@@ -127,19 +140,39 @@ def save(st):
     json.dump(st, open(tmp, "w")); os.replace(tmp, STATE)
 
 
+def bridge_macs(a):
+    """Every MAC the bridge has seen on the AP-side port (no --vlans: all of them get lanes)."""
+    try:
+        fdb = json.loads(sh(f"bridge -j fdb show br {a.br}") or "[]")
+    except (RuntimeError, ValueError):
+        return set()
+    return {e["mac"].lower() for e in fdb
+            if e.get("ifname") == a.lan and "permanent" not in (e.get("state") or "")
+            and not (int(e["mac"][:2], 16) & 1)}          # skip group addresses
+
+
+def customers(a):
+    """MACs that sent customer-VLAN traffic within --idle (the nft set "cust")."""
+    try:
+        out = json.loads(sh("nft -j list set bridge ellafi cust") or "{}")
+    except (RuntimeError, ValueError):
+        return set()
+    macs = set()
+    for item in out.get("nftables", []):
+        for e in (item.get("set") or {}).get("elem", []):
+            m = e["elem"]["val"] if isinstance(e, dict) else e
+            if not (int(m[:2], 16) & 1):
+                macs.add(m.lower())
+    return macs
+
+
 def learn(a, st):
     free = {m.lower() for m in a.free}
     stop = []
     signal.signal(signal.SIGTERM, lambda *_: stop.append(1))
     lanes = st["lanes"]                                 # mac -> lane number
     while not stop:
-        try:
-            fdb = json.loads(sh(f"bridge -j fdb show br {a.br}") or "[]")
-        except (RuntimeError, ValueError):
-            fdb = []
-        here = {e["mac"].lower() for e in fdb
-                if e.get("ifname") == a.lan and "permanent" not in (e.get("state") or "")
-                and not (int(e["mac"][:2], 16) & 1)}      # skip group addresses
+        here = customers(a) if a.vlans else bridge_macs(a)
         here -= free
         for mac in sorted(here - set(lanes)):
             used = set(lanes.values())
@@ -217,6 +250,8 @@ def main():
     p.add_argument("--interval-ms", type=int, default=100, help="fq_codel: how long the delay must persist first")
     p.add_argument("--idle", type=int, default=300, help="seconds before an idle MAC loses its lane")
     p.add_argument("--free", nargs="*", default=[], help="MACs never shaped (router, controller, Mahal devices)")
+    p.add_argument("--vlans", nargs="*", type=int, default=[], help="shape only these customer VLANs (e.g. 98 99); "
+                   "untagged and other VLANs pass unshaped, no MAC list needed")
     a = p.parse_args()
     if a.cmd == "up" and not (a.wan and a.lan):
         p.error("up needs --wan and --lan")
