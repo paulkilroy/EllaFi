@@ -46,8 +46,6 @@ named. ⛔ = needs Paul's OK.
 
 ## F. SiteDashboard / docs
 
-30. **Caching redesign:** store each section's data after the 15-min run, build the page on every visit, so
-    deploys show at once and "rebuild" goes away.
 31. **README rewrite** so a newcomer can install, flash, configure and test EllaFi.
 
 ## G. Ideas — not this trip

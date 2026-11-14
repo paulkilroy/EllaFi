@@ -128,10 +128,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("input", help="My Maps URL/mid or .kml file")
     ap.add_argument("--out", help="output svg path (default maps/<site>.svg)")
+    ap.add_argument("--only", help="comma-separated placemark names to draw (the map pins also carry switches, "
+                                   "bridges and teacher-switched APs that customers shouldn't see)")
     a = ap.parse_args()
 
     name_hint, kml = load_kml(a.input)
     site, aps = parse_placemarks(kml)
+    if a.only:
+        keep = {n.strip() for n in a.only.split(",")}
+        aps = [x for x in aps if x["name"] in keep]
     site = site or name_hint or "site"
     if not aps:
         sys.exit("no APs with a MAC in their description were found")
