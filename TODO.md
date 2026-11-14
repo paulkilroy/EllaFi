@@ -5,8 +5,6 @@ named. ⛔ = needs Paul's OK.
 
 ## A. Shaper — lab, while Paul is home (`memory/shaper_lab.md`)
 
-1. **Shaper starts at boot.** Service + saved settings are written (`lab/shaper/ellafi-shaper.service`,
-   `shaper.conf`); install on the box and do a reboot test.
 3. **Overnight reruns** (`overnight3.sh`): weak/bad phones, 4 Mbps ceiling, 256 lanes, repeats. Scripts should
    first check all 3 fake phones are connected.
 
