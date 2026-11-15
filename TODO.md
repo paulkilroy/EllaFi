@@ -8,9 +8,10 @@ named. ⛔ = needs Paul's OK.
 1. **Install the two new switches** (Grandma's in the house first, already grounded); confirm the Starlink link
    holds 1000 with no lost pings, school APs on their own channels.
 2. **Shaper "before" at Bakhaw:** iPhone Reels runs on Omada 2/1, rush hour and morning — before the shaper goes in.
-3. **ER706W router + network move:** own address range (so Tailscale doesn't clash with home networks); Voucher
-   and PisoWifi SSIDs on their own VLANs, IPv4 only; router runs DHCP; Starlink #1 in bypass. Check nothing uses
-   the Starlink router's own Wi-Fi first; DHCP reservation for the ESP's controller address.
+3. **ER706W router + network move:** VLAN 1 equipment 10.1.0.0/24, VLAN 98 Voucher 10.98.0.0/22, VLAN 99
+   PisoWifi 10.99.0.0/24 (each can grow inside its own 10.x block; no clash with home networks on Tailscale);
+   2-hour DHCP leases; IPv4 only; Starlink #1 in bypass. Check nothing uses the Starlink router's own Wi-Fi
+   first; DHCP reservation for the ESP's controller address.
 4. **Second Starlink** on the ER706W's second internet port, bypass mode, 100% of traffic from Nov 28 (both dishes
    stay under 5 TB before Dec 10).
 5. **Install the OC300 last** (30,000 vouchers vs 10,000) — controller backup and restore on its own day.
