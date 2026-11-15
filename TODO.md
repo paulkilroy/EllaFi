@@ -16,7 +16,10 @@ named. ⛔ = needs Paul's OK.
 4. **Install the OC300 last** (30,000 vouchers vs 10,000) — controller backup and restore on its own day.
 5. **DHCP option 114:** the router hands each phone the https address of the sign-in page, so the phone shows
    "Sign in to network" straight away instead of guessing. Needs a valid https certificate or phones ignore it.
-6. **Put the MeLE shaper in at Bakhaw** between the router and the switch (needs the VLANs from #2).
+6. **Put the MeLE shaper in at Bakhaw** between the router and the switch (needs the VLANs from #2). Trunk the whole
+   path: the ER706W LAN port carries Voucher_VLAN + PisoWifi_VLAN tagged (Default untagged), the House Swich port to
+   the MeLE on the "All" profile, and check the PtP bridges pass the tags to Grandma's and Negra's. Shaper config
+   `--vlans 98 99 --subnets 10.98.0.0/22 10.99.0.0/24`.
 
 Any time on the trip:
 
