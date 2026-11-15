@@ -16,27 +16,27 @@ named. ⛔ = needs Paul's OK.
 4. **Install the OC300 last** (30,000 vouchers vs 10,000) — controller backup and restore on its own day.
 5. **DHCP option 114:** the router hands each phone the https address of the sign-in page, so the phone shows
    "Sign in to network" straight away instead of guessing. Needs a valid https certificate or phones ignore it.
+6. **Put the MeLE shaper in at Bakhaw** between the router and the switch (needs the VLANs from #2).
 
 Any time on the trip:
 
-6. **Maridel AP:** new cable / cable end.
-7. **Hardwire the school with cable instead of mesh;** measure runs first (100 m limit).
-8. **Negra 2.4 GHz antennas** are pointed sideways toward the sea — fix.
-9. **WiGLE signal walk + house test** for a real coverage map and wall/roof losses.
+7. **Maridel AP:** new cable / cable end.
+8. **Hardwire the school with cable instead of mesh;** measure runs first (100 m limit).
+9. **Negra 2.4 GHz antennas** are pointed sideways toward the sea — fix.
+10. **WiGLE signal walk + house test** for a real coverage map and wall/roof losses.
 
 Later:
 
-10. **Replace all outdoor Ethernet cables with shielded ones** (shielded plugs, shield grounded at the switch).
+11. **Replace all outdoor Ethernet cables with shielded ones** (shielded plugs, shield grounded at the switch).
 
 ## B. PisoWifi shaper — MeLE Quieter DL (arrives Mon Nov 16)
 
-11. **Set it up:** Ubuntu, bridge, shaper + boot service, power-on after power loss, temperature readings.
-12. **Admin gateway:** Tailscale subnet router (`lab/shaper/tailscale_setup.sh`, Bakhaw's range) so Paul reaches
+12. **Set it up:** Ubuntu, bridge, shaper + boot service, power-on after power loss, temperature readings.
+13. **Admin gateway:** Tailscale subnet router (`lab/shaper/tailscale_setup.sh`, Bakhaw's range) so Paul reaches
     the whole Bakhaw network (controller, APs, VendoAdmin, dish) from anywhere.
-13. **Load test:** 100–300 Mbps through ~250 lanes overnight, watch CPU and temperature.
-14. **Monitoring + Reliability timeline:** the box collects Starlink dish history, pings and per-phone bytes;
+14. **Load test:** 100–300 Mbps through ~250 lanes overnight, watch CPU and temperature.
+15. **Monitoring + Reliability timeline:** the box collects Starlink dish history, pings and per-phone bytes;
     SiteDashboard's Network tab shows it like the Aug "EllaFi Reliability" page (`tools/uptime_report.html`).
-15. **Put the MeLE shaper in at Bakhaw** between the router and the switch (needs the VLANs from #2).
 
 ## C. Firmware
 
