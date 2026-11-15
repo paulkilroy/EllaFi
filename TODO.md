@@ -15,33 +15,33 @@ named. ⛔ = needs Paul's OK.
 4. **Second Starlink** on the ER706W's second internet port, bypass mode, 100% of traffic from Nov 28 (both dishes
    stay under 5 TB before Dec 10).
 5. **Install the OC300 last** (30,000 vouchers vs 10,000) — controller backup and restore on its own day.
-6. **Release the firmware:** E3 voucher sheet + coin sales to SiteDashboard; then watch `vendo_sale` fill.
-7. **DHCP option 114:** the router hands each phone the https address of the sign-in page, so the phone shows
+6. **DHCP option 114:** the router hands each phone the https address of the sign-in page, so the phone shows
    "Sign in to network" straight away instead of guessing. Needs a valid https certificate or phones ignore it.
 
 Any time on the trip:
 
-8. **Maridel AP:** new cable / cable end.
-9. **Hardwire the school with cable instead of mesh;** measure runs first (100 m limit).
-10. **Negra 2.4 GHz antennas** are pointed sideways toward the sea — fix.
-11. **WiGLE signal walk + house test** for a real coverage map and wall/roof losses.
+7. **Maridel AP:** new cable / cable end.
+8. **Hardwire the school with cable instead of mesh;** measure runs first (100 m limit).
+9. **Negra 2.4 GHz antennas** are pointed sideways toward the sea — fix.
+10. **WiGLE signal walk + house test** for a real coverage map and wall/roof losses.
 
 Later:
 
-12. **Replace all outdoor Ethernet cables with shielded ones** (shielded plugs, shield grounded at the switch).
+11. **Replace all outdoor Ethernet cables with shielded ones** (shielded plugs, shield grounded at the switch).
 
 ## B. PisoWifi shaper — MeLE Quieter DL (arrives Mon Nov 16)
 
-13. **Set it up:** Ubuntu, bridge, shaper + boot service, power-on after power loss, temperature readings.
-14. **Admin gateway:** Tailscale subnet router (`lab/shaper/tailscale_setup.sh`, Bakhaw's range) so Paul reaches
+12. **Set it up:** Ubuntu, bridge, shaper + boot service, power-on after power loss, temperature readings.
+13. **Admin gateway:** Tailscale subnet router (`lab/shaper/tailscale_setup.sh`, Bakhaw's range) so Paul reaches
     the whole Bakhaw network (controller, APs, VendoAdmin, dish) from anywhere.
-15. **Load test:** 100–300 Mbps through ~250 lanes overnight, watch CPU and temperature.
-16. **Monitoring + Reliability timeline:** the box collects Starlink dish history, pings and per-phone bytes;
+14. **Load test:** 100–300 Mbps through ~250 lanes overnight, watch CPU and temperature.
+15. **Monitoring + Reliability timeline:** the box collects Starlink dish history, pings and per-phone bytes;
     SiteDashboard's Network tab shows it like the Aug "EllaFi Reliability" page (`tools/uptime_report.html`).
-17. **Put the MeLE shaper in at Bakhaw** between the router and the switch (needs the VLANs from #3).
+16. **Put the MeLE shaper in at Bakhaw** between the router and the switch (needs the VLANs from #3).
 
 ## C. Firmware
 
+17. **Release the firmware (on the trip):** E3 voucher sheet + coin sales to SiteDashboard; then watch `vendo_sale` fill.
 18. **Find the controller automatically when its IP moves — important, test it.** DHCP option 138 is how the
     router tells Omada devices the controller's address; the ESP can read the same option (or scan the subnet).
     Stopgap is a DHCP reservation.
