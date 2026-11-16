@@ -57,4 +57,4 @@ Later:
 
 ## D. Ideas — not this trip
 
-20. **Home booster firmware that only forwards packets,** so each phone behind it keeps its own voucher.
+20. **Home Booster:** custom firmware for an OpenWrt router that forwards packets for our WiFi, so each phone behind it keeps its own voucher.
