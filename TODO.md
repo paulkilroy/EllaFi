@@ -70,4 +70,3 @@ Later:
     every 15 min; grid-in off = a power-cut signal next to BES/BNHS. When each is connected.
 24. **BrownoutBA reply** (emailed Nov 16): the nightly check turns green when their SAMELCO II feed works; then
     check the planned-cut push on the first real SAMELCO card.
-25. **Maridel AP read (Claude):** did roams through the gap drop after Maridel went in (Oct 24)?
