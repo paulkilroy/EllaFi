@@ -1,7 +1,8 @@
 # EllaFi — TODO
 
 Everything still open, numbered (renumbered 2026-11-14). Finished items are deleted; detail lives in the files
-named. ⛔ = needs Paul's OK.
+named. ⛔ = needs Paul's OK. This file is the master list; SiteDashboard's To-dos tab
+(`ellafi-usage-tracker/api/_changes.py` PLANNED) mirrors it, same numbers — change both.
 
 ## A. Nov trip — in install order
 
@@ -58,3 +59,10 @@ Later:
 ## D. Ideas — not this trip
 
 20. **Home Booster:** custom firmware for an OpenWrt router that forwards packets for our WiFi, so each phone behind it keeps its own voucher.
+
+## E. SiteDashboard — power
+
+21. **EcoFlow (Grandma's) + Deye inverter (new house) panels on the Power grid tab:** grid in, battery %, load,
+    every 15 min; grid-in off = a power-cut signal next to BES/BNHS. When each is connected.
+22. **BrownoutBA reply** (emailed Nov 16): the nightly check turns green when their SAMELCO II feed works; then
+    check the planned-cut push on the first real SAMELCO card.
