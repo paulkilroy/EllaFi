@@ -24,32 +24,36 @@ named. ⛔ = needs Paul's OK. This file is the master list; SiteDashboard's To-d
 
 Any time on the trip:
 
-7. **Maridel AP:** new cable / cable end.
-8. **Hardwire the school with cable instead of mesh;** measure runs first (100 m limit).
-9. **Negra 2.4 GHz antennas** are pointed sideways toward the sea — fix.
-10. **WiGLE signal walk + house test** for a real coverage map and wall/roof losses.
+7. **Rewire Negra and turn off the beeping:** Negra AP's injector into a spare port on the Negra bridge, BES into
+   its other spare port, the bridge's injector onto a UPS battery outlet; mute the UPS alarm.
+8. **Maridel AP:** new cable / cable end.
+9. **Hardwire the school with cable instead of mesh;** measure runs first (100 m limit).
+10. **Negra 2.4 GHz antennas** are pointed sideways toward the sea — fix.
+11. **WiGLE signal walk + house test** for a real coverage map and wall/roof losses; drone grid flight.
+12. **Competitor voucher tests:** buy one from each big seller, run `test/wifi_compare.py` (EllaFi first),
+    evening rush and morning.
 
 Later:
 
-11. **Replace all outdoor Ethernet cables with shielded ones** (shielded plugs, shield grounded at the switch).
+13. **Replace all outdoor Ethernet cables with shielded ones** (shielded plugs, shield grounded at the switch).
 
 ## B. PisoWifi shaper — MeLE Quieter DL (arrives Mon Nov 16)
 
-12. **Set it up:** Ubuntu, bridge, shaper + boot service, power-on after power loss, temperature readings.
-13. **Admin gateway:** Tailscale subnet router (`lab/shaper/tailscale_setup.sh`, Bakhaw's range) so Paul reaches
+14. **Set it up:** Ubuntu, bridge, shaper + boot service, power-on after power loss, temperature readings.
+15. **Admin gateway:** Tailscale subnet router (`lab/shaper/tailscale_setup.sh`, Bakhaw's range) so Paul reaches
     the whole Bakhaw network (controller, APs, VendoAdmin, dish) from anywhere.
-14. **Load test:** 100–300 Mbps through ~250 lanes overnight, watch CPU and temperature.
-15. **Monitoring + Reliability timeline:** the box collects Starlink dish history, pings and per-phone bytes;
+16. **Load test:** 100–300 Mbps through ~250 lanes overnight, watch CPU and temperature.
+17. **Monitoring + Reliability timeline:** the box collects Starlink dish history, pings and per-phone bytes;
     SiteDashboard's Network tab shows it like the Aug "EllaFi Reliability" page (`tools/uptime_report.html`).
 
 ## C. Firmware
 
-16. **Release the firmware (on the trip):** E3 voucher sheet + coin sales to SiteDashboard; then watch `vendo_sale` fill.
-17. **Find the controller automatically when its IP moves — important, test it.** DHCP option 138 is how the
+18. **Release the firmware (on the trip):** E3 voucher sheet + coin sales to SiteDashboard; then watch `vendo_sale` fill.
+19. **Find the controller automatically when its IP moves — important, test it.** DHCP option 138 is how the
     router tells Omada devices the controller's address; the ESP can read the same option (or scan the subnet).
     Stopgap is a DHCP reservation.
-18. **Read-only file viewer on VendoAdmin** (passwords masked, capped reads).
-19. **Masterless "pick-your-box" vendo design** — concurrent payers, per-box reservation (replaces the
+20. **Read-only file viewer on VendoAdmin** (passwords masked, capped reads).
+21. **Masterless "pick-your-box" vendo design** — concurrent payers, per-box reservation (replaces the
     single `COIN_SESSION_SLOT`), naming-convention discovery (`ellafi1…9.local`), stay on the current
     `extPortal/auth`+`extend` path (no vouchers — By-Usage can't be topped up). Gated by a real-phone
     reachability POC (client isolation is make-or-break). Includes moving the CustomerPortal page onto the
@@ -58,11 +62,12 @@ Later:
 
 ## D. Ideas — not this trip
 
-20. **Home Booster:** custom firmware for an OpenWrt router that forwards packets for our WiFi, so each phone behind it keeps its own voucher.
+22. **Home Booster:** custom firmware for an OpenWrt router that forwards packets for our WiFi, so each phone behind it keeps its own voucher.
 
 ## E. SiteDashboard — power
 
-21. **EcoFlow (Grandma's) + Deye inverter (new house) panels on the Power grid tab:** grid in, battery %, load,
+23. **EcoFlow (Grandma's) + Deye inverter (new house) panels on the Power grid tab:** grid in, battery %, load,
     every 15 min; grid-in off = a power-cut signal next to BES/BNHS. When each is connected.
-22. **BrownoutBA reply** (emailed Nov 16): the nightly check turns green when their SAMELCO II feed works; then
+24. **BrownoutBA reply** (emailed Nov 16): the nightly check turns green when their SAMELCO II feed works; then
     check the planned-cut push on the first real SAMELCO card.
+25. **Maridel AP read (Claude):** did roams through the gap drop after Maridel went in (Oct 24)?
